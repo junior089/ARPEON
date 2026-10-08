@@ -1,0 +1,80 @@
+<section class="transport" aria-label="Transporte">
+  @if (session.transport(); as state) {
+  <div class="playback-buttons">
+    <button
+      (click)="session.action('play')"
+      [disabled]="session.busy() || state.status === 'PLAYING'"
+      aria-label="Reproduzir"
+    >
+      ▶
+    </button>
+    <button
+      (click)="session.action('pause')"
+      [disabled]="session.busy() || state.status !== 'PLAYING'"
+      aria-label="Pausar"
+    >
+      Ⅱ
+    </button>
+    <button
+      (click)="session.action('stop')"
+      [disabled]="session.busy() || state.status === 'STOPPED'"
+      aria-label="Parar"
+    >
+      ■
+    </button>
+  </div>
+  <label class="seek">
+    <span>Compasso {{ state.measureNumber }} / {{ session.score()?.measures?.length }}</span>
+    <input
+      type="range"
+      min="0"
+      [max]="state.totalTicks"
+      [value]="seeking() ? pendingTick() : state.tick"
+      (input)="setSeek($event)"
+      (change)="commitSeek($event)"
+      [disabled]="session.busy()"
+      [attr.aria-valuetext]="'Compasso ' + state.measureNumber"
+    />
+  </label>
+  <div class="bpm">
+    <label for="starting-bpm">BPM inicial</label>
+    <input
+      id="starting-bpm"
+      type="number"
+      min="30"
+      max="300"
+      step="1"
+      [value]="draftBpm() ?? state.startingBpm"
+      (input)="setDraftBpm($event)"
+      [disabled]="session.busy()"
+    />
+    <button (click)="applyBpm()" [disabled]="session.busy() || !canApplyBpm()">Aplicar</button>
+  </div>
+  <button
+    class="toggle"
+    [attr.aria-pressed]="state.metronome"
+    (click)="session.action('metronome', {enabled: !state.metronome})"
+    [disabled]="session.busy()"
+  >
+    Metrônomo
+  </button>
+  <button
+    class="toggle"
+    [attr.aria-pressed]="state.countIn"
+    (click)="session.action('count-in', {enabled: !state.countIn})"
+    [disabled]="session.busy()"
+  >
+    Contagem
+  </button>
+  <span class="transport-state" role="status">
+    @if (state.countInBeatsLeft > 0) { Contagem: {{ state.countInBeatsLeft }} } @else if
+    (state.status === 'PLAYING') { Reproduzindo } @else if (state.status === 'PAUSED') { Pausado }
+    @else { Parado }
+  </span>
+  } @else {
+  <span class="transport-empty"
+    >{{ session.score() ? 'Transporte indisponível. Reinicie o ARPEON.' : 'Reprodução disponível ao
+    abrir um MusicXML.' }}</span
+  >
+  }
+</section>

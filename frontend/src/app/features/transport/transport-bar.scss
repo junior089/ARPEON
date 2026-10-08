@@ -1,0 +1,74 @@
+:host {
+  display: block;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.transport {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+.playback-buttons {
+  display: flex;
+  gap: 0.25rem;
+}
+.playback-buttons button,
+.toggle {
+  min-height: 36px;
+  border: 1px solid var(--border);
+  background: var(--raised);
+  color: var(--primary);
+  padding: 0 0.7rem;
+}
+.playback-buttons button {
+  min-width: 36px;
+}
+.playback-buttons button:hover:not(:disabled),
+.toggle:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+.toggle[aria-pressed='true'] {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.seek {
+  display: flex;
+  flex-direction: column;
+  min-width: 120px;
+  flex: 1 1 170px;
+  gap: 0.15rem;
+  white-space: nowrap;
+}
+.seek input {
+  width: 100%;
+  accent-color: var(--accent);
+}
+.bpm {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  white-space: nowrap;
+}
+.bpm input {
+  width: 60px;
+  min-height: 35px;
+  padding: 0.25rem;
+  border: 1px solid var(--border);
+  background: var(--background);
+  color: var(--primary);
+  font: 0.75rem var(--mono);
+}
+.bpm button {
+  min-height: 35px;
+  border: 1px solid var(--border);
+  background: var(--raised);
+  color: var(--primary);
+  font-size: 0.65rem;
+  padding: 0 0.5rem;
+}
+.transport-state,
+.transport-empty {
+  color: var(--secondary);
+  white-space: nowrap;
+}

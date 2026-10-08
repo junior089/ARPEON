@@ -1,0 +1,39 @@
+{
+  "$schema": "./node_modules/@angular/cli/lib/config/schema.json",
+  "version": 1,
+  "cli": { "analytics": false },
+  "projects": {
+    "arpeon": {
+      "projectType": "application",
+      "root": "",
+      "sourceRoot": "src",
+      "architect": {
+        "build": {
+          "builder": "@angular/build:application",
+          "configurations": { "development": { "optimization": false, "sourceMap": true } },
+          "options": {
+            "browser": "src/main.ts",
+            "index": "src/index.html",
+            "tsConfig": "tsconfig.app.json",
+            "inlineStyleLanguage": "scss",
+            "styles": ["src/styles/styles.scss"],
+            "assets": [{ "glob": "**/*", "input": "public", "output": "/" }],
+            "outputPath": "dist/arpeon",
+            "outputHashing": "all",
+            "allowedCommonJsDependencies": ["opensheetmusicdisplay"],
+            "optimization": {
+              "scripts": true,
+              "styles": { "minify": true, "inlineCritical": false },
+              "fonts": false
+            },
+            "budgets": [{ "type": "initial", "maximumWarning": "500kB", "maximumError": "750kB" }]
+          }
+        },
+        "test": {
+          "builder": "@angular/build:unit-test",
+          "options": { "tsConfig": "tsconfig.spec.json", "runnerConfig": "vitest.config.ts" }
+        }
+      }
+    }
+  }
+}

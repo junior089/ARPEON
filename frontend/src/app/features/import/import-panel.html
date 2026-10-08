@@ -1,0 +1,111 @@
+<section class="import-panel" aria-labelledby="import-heading">
+  <p class="eyebrow">IMPORTAÇÃO LOCAL · MILESTONE 4</p>
+  <h1 id="import-heading">Transformar uma melodia em rascunho</h1>
+  <p>
+    Analise uma sequência de notas, MIDI monofônico ou WAV curto. Confira a prévia antes de criar
+    uma partitura; nenhuma fonte é enviada pela internet.
+  </p>
+
+  <div class="import-sources">
+    <div class="source-card">
+      <h2>Colar notas</h2>
+      <label
+        >Notação
+        <select
+          [value]="notation"
+          (change)="notation = $any(textValue($event))"
+          [disabled]="busy()"
+        >
+          <option value="CIFRA_MELODICA">Cifra melódica (DO RE MI)</option>
+          <option value="SOLFEGE">Solfège (DO RE MI)</option>
+          <option value="NOTES">Notas (C D E)</option>
+        </select>
+      </label>
+      <label
+        >Uma sequência de notas, separadas por espaço, vírgula, ponto e vírgula ou hífen isolado
+        <textarea
+          [value]="pasted"
+          (input)="pasted = textValue($event)"
+          rows="5"
+          maxlength="65536"
+          placeholder="DO4 RE4 MI4 FA#4 ou DO RE MI"
+        ></textarea>
+      </label>
+      <small
+        >Oitavas opcionais. Maiúsculas não definem oitava; espaços e hífens não definem ritmo.
+        Letras, acordes e repetições ambíguas são recusados.</small
+      >
+      <button type="button" (click)="analyzePaste()" [disabled]="busy()">Analisar texto</button>
+    </div>
+    <div class="source-card">
+      <h2>Abrir arquivo</h2>
+      <label
+        >Arquivo MIDI ou WAV
+        <input
+          type="file"
+          accept=".mid,.midi,.wav"
+          (change)="analyzeFile($event)"
+          [disabled]="busy()"
+        />
+      </label>
+      <small
+        >MIDI: até 1 MiB, uma voz em PPQ. Áudio: WAV mono PCM 16 bits, 16 ou 48 kHz, até 5 s e 512
+        KiB. Arquivos MusicXML abrem em Partitura.</small
+      >
+    </div>
+  </div>
+
+  @if (error()) {
+  <p class="import-error" role="alert">{{ error() }}</p>
+  } @if (pending(); as preview) {
+  <div class="import-preview" role="region" aria-label="Prévia da importação">
+    <p class="eyebrow">PRÉVIA · {{ preview.draft.kind }}</p>
+    <h2>{{ preview.draft.filename }}</h2>
+    <p>
+      {{ preview.draft.notes.length }} notas · Ritmo: {{ preview.draft.rhythm === 'EXACT_TICKS' ?
+      'eventos MIDI' : preview.draft.rhythm === 'ESTIMATED' ? 'estimado' : 'ausente' }}
+    </p>
+    <ul class="notes">
+      @for (note of preview.draft.notes; track $index) {
+      <li [title]="'Confiança: ' + (note.confidence * 100).toFixed(0) + '%'">
+        {{ noteLabel(note) }}
+      </li>
+      }
+    </ul>
+    <ul class="warnings">
+      @for (warning of preview.draft.warnings; track warning) {
+      <li>{{ warning }}</li>
+      }
+    </ul>
+    <p class="provenance">SHA-256 da fonte: {{ preview.draft.sha256 }}</p>
+    <div class="review-options">
+      <label
+        >Oitava para notas sem número
+        <select [value]="fallbackOctave" (change)="fallbackOctave = +textValue($event)">
+          @for (octave of [0,1,2,3,4,5,6,7,8]; track octave) {
+          <option [value]="octave">{{ octave }}</option>
+          }
+        </select>
+      </label>
+      @if (preview.draft.rhythm !== 'EXACT_TICKS') {
+      <label
+        >Duração igual escolhida para cada nota
+        <select [value]="equalNoteTicks" (change)="equalNoteTicks = +textValue($event)">
+          <option value="240">Colcheia</option>
+          <option value="480">Semínima</option>
+          <option value="960">Mínima</option>
+        </select>
+      </label>
+      }
+    </div>
+    <label class="acknowledge"
+      ><input type="checkbox" [checked]="acknowledged" (change)="acknowledged = checked($event)" />
+      Revisei as notas e aceito criar um rascunho em 4/4 com as escolhas acima. @if
+      (preview.draft.rhythm !== 'EXACT_TICKS') { A duração escolhida é uma hipótese minha. }</label
+    >
+    <button type="button" (click)="accept()" [disabled]="!acknowledged || busy() || session.busy()">
+      Criar rascunho na Partitura
+    </button>
+  </div>
+  }
+</section>

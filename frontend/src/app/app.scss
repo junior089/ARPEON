@@ -1,0 +1,134 @@
+.app-header {
+  height: 72px;
+  display: flex;
+  align-items: center;
+  padding: 0 2rem;
+  border-bottom: 1px solid var(--border);
+  gap: 2rem;
+}
+.wordmark {
+  color: var(--primary);
+  text-decoration: none;
+  letter-spacing: 0.2em;
+  font-weight: 600;
+  font-size: 1.05rem;
+}
+.app-description {
+  font-size: 0.6rem;
+  letter-spacing: 0.16em;
+  color: var(--secondary);
+}
+.local-label {
+  margin-left: auto;
+  color: var(--secondary);
+  font-size: 0.7rem;
+}
+.workspace-shell {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  min-height: calc(100dvh - 132px);
+}
+nav {
+  position: relative;
+  padding: 2rem 1rem 5rem;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+}
+nav .eyebrow {
+  padding: 0 0.75rem;
+  margin-bottom: 1.5rem;
+  font-size: 0.57rem;
+}
+nav button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  text-align: left;
+  padding: 0.8rem 0.75rem;
+  margin-bottom: 0.5rem;
+  background: none;
+  color: var(--secondary);
+  border: 1px solid transparent;
+  border-radius: 2px;
+}
+nav button span {
+  width: 18px;
+  font-size: 1.2rem;
+  text-align: center;
+}
+nav button[aria-current] {
+  color: var(--primary);
+  background: var(--raised);
+  border-color: var(--border);
+  box-shadow: inset 2px 0 var(--accent);
+}
+.edition {
+  position: absolute;
+  bottom: 2rem;
+  left: 1.75rem;
+  font: 0.7rem var(--mono);
+  color: var(--secondary);
+}
+.edition span {
+  display: block;
+  margin-top: 0.4rem;
+  font: 0.65rem var(--ui);
+}
+main {
+  padding: 2.5rem clamp(1.5rem, 3vw, 4rem);
+  max-width: 1500px;
+  width: 100%;
+  margin-inline: auto;
+}
+footer {
+  min-height: 60px;
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 1rem 2rem;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 0.65rem;
+  color: var(--secondary);
+}
+footer a {
+  color: var(--secondary);
+  text-underline-offset: 3px;
+}
+@media (max-width: 760px) {
+  .app-header {
+    padding-inline: 1rem;
+  }
+  .app-description {
+    display: none;
+  }
+  .workspace-shell {
+    display: block;
+  }
+  nav {
+    display: flex;
+    gap: 0.5rem;
+    padding: 0.6rem 1rem;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  nav .eyebrow,
+  .edition {
+    display: none;
+  }
+  nav button {
+    width: auto;
+    margin: 0;
+  }
+  main {
+    padding: 1.5rem;
+  }
+  footer {
+    flex-wrap: wrap;
+    padding-inline: 1rem;
+  }
+  .transport {
+    width: 100%;
+  }
+}

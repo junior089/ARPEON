@@ -1,0 +1,37 @@
+<a class="skip-link" href="#workspace">Ir para o conteúdo</a>
+<header class="app-header">
+  <a class="wordmark" href="#workspace" aria-label="ARPEON">ARPEON</a>
+  <span class="app-description">PRÁTICA MUSICAL</span>
+  <span class="local-label">Local · Sem conta</span>
+</header>
+<div class="workspace-shell">
+  <nav aria-label="Área de trabalho">
+    <p class="eyebrow">ÁREA DE TRABALHO</p>
+    <button [attr.aria-current]="view() === 'score' ? 'page' : null" (click)="view.set('score')">
+      <span aria-hidden="true">≡</span> Partitura
+    </button>
+    <button [attr.aria-current]="view() === 'tuner' ? 'page' : null" (click)="view.set('tuner')">
+      <span aria-hidden="true">♮</span> Afinador
+    </button>
+    <button [attr.aria-current]="view() === 'import' ? 'page' : null" (click)="view.set('import')">
+      <span aria-hidden="true">↧</span> Importar
+    </button>
+    <button
+      [attr.aria-current]="view() === 'practice' ? 'page' : null"
+      (click)="view.set('practice')"
+    >
+      <span aria-hidden="true">♫</span> Prática
+    </button>
+    <div class="edition">Milestone 4<span>Importação local</span></div>
+  </nav>
+  <main id="workspace" tabindex="-1">
+    @if (view() === 'tuner') { <app-tuner-panel /> } @else if (view() === 'practice') {
+    <app-practice-panel /> } @else if (view() === 'import') {
+    <app-import-panel (imported)="view.set('score')" /> } @else { <app-score-workspace /> }
+  </main>
+</div>
+<footer>
+  <app-transport-bar />
+  <a href="/source.zip" download>Código-fonte</a><a href="/license.txt">AGPL-3.0-or-later</a
+  ><a href="/notices.txt">Licenças de terceiros</a>
+</footer>

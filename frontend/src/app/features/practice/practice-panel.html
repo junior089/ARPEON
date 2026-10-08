@@ -1,0 +1,257 @@
+<section class="practice" aria-labelledby="practice-title">
+  <header class="practice-heading">
+    <p class="eyebrow">PRÁTICA GUIADA · FLAUTA TRANSVERSAL</p>
+    <h1 id="practice-title">Construa uma rotina, nota por nota</h1>
+    <p>Escolha um exercício. A pauta, a referência MIDI e a escuta usam a mesma altura escrita.</p>
+  </header>
+
+  <div class="practice-grid">
+    <section class="practice-card" aria-labelledby="setup-title">
+      <h2 id="setup-title">1 · Preparar</h2>
+      <div class="practice-fields">
+        <label
+          >Exercício
+          <select [value]="kind" (change)="kind = text($event)">
+            <option value="NOTE">Reconhecer nota</option>
+            <option value="LONG_TONE">Nota longa</option>
+            <option value="SCALE">Escala</option>
+            <option value="ARPEGGIO">Arpejo</option>
+            <option value="RHYTHM">Ritmo básico</option>
+          </select>
+        </label>
+        <label
+          >Tom
+          <select [value]="keyId" (change)="setKey($event)">
+            <option value="C_MAJOR">Dó maior</option>
+            <option value="G_MAJOR">Sol maior</option>
+            <option value="F_MAJOR">Fá maior</option>
+            <option value="D_MAJOR">Ré maior</option>
+            <option value="A_MINOR">Lá menor</option>
+            <option value="E_MINOR">Mi menor</option>
+            <option value="D_MINOR">Ré menor</option>
+          </select>
+        </label>
+        @if (kind === 'SCALE') {
+        <label
+          >Tipo de escala
+          <select [value]="scaleType" (change)="scaleType = text($event)">
+            @if (!keyId.endsWith('_MINOR')) {
+            <option value="MAJOR">Maior</option>
+            } @else {
+            <option value="NATURAL_MINOR">Menor natural</option>
+            <option value="HARMONIC_MINOR">Menor harmônica</option>
+            <option value="MELODIC_MINOR">Menor melódica</option>
+            }
+            <option value="CHROMATIC">Cromática</option>
+          </select>
+        </label>
+        }
+        <label
+          >Oitava inicial
+          <select [value]="octave" (change)="octave = number($event)">
+            <option value="4">4</option>
+            <option value="5">5</option>
+          </select>
+        </label>
+        <label
+          >Andamento · BPM
+          <input type="number" min="40" max="180" [value]="bpm" (input)="bpm = number($event)" />
+        </label>
+        <label class="check"
+          ><input type="checkbox" [checked]="loop" (change)="loop = !loop" /> Repetir
+          playback</label
+        >
+        <label
+          >+ BPM por repetição
+          <input
+            type="number"
+            min="0"
+            max="20"
+            [value]="progressiveStep"
+            (input)="progressiveStep = number($event)"
+          />
+        </label>
+      </div>
+      <button
+        type="button"
+        (click)="generate()"
+        [disabled]="session.busy() || session.view()?.attemptOpen"
+      >
+        Gerar exercício
+      </button>
+      <p class="aside-note">
+        O aumento gradual atua na referência reproduzida; a avaliação usa o andamento escolhido ao
+        iniciar a tentativa.
+      </p>
+    </section>
+
+    <section class="practice-card" aria-labelledby="listen-title">
+      <h2 id="listen-title">2 · Ouvir e tocar</h2>
+      @if (session.view(); as exercise) {
+      <p class="target">
+        {{ exercise.targets[exercise.targetIndex]?.pitch ?? 'Sequência concluída' }}
+      </p>
+      @if (exercise.kind === 'LONG_TONE') {
+      <p class="aside-note">Meta de sustentação: {{ exercise.longToneTargetMs }} ms.</p>
+      }
+      <p class="aside-note">
+        {{ exercise.targetIndex }} de {{ exercise.targets.length }} notas · repetição {{
+        exercise.iteration }} · {{ exercise.bpm }} BPM
+      </p>
+      <div class="practice-actions">
+        <button type="button" (click)="session.playback('play')" [disabled]="session.busy()">
+          Ouvir referência
+        </button>
+        <button type="button" (click)="session.playback('pause')" [disabled]="session.busy()">
+          Pausar
+        </button>
+        <button type="button" (click)="session.playback('stop')" [disabled]="session.busy()">
+          Parar áudio
+        </button>
+      </div>
+      <label
+        >Entrada do microfone
+        <select
+          #device
+          [value]="microphone.selectedDevice()"
+          (change)="microphone.selectedDevice.set(device.value)"
+          [disabled]="microphone.active()"
+        >
+          @for (input of microphone.devices(); track input.id) {
+          <option [value]="input.id">{{ input.name }}</option>
+          }
+        </select>
+      </label>
+      <div class="practice-actions">
+        <button
+          type="button"
+          (click)="microphone.refreshDevices()"
+          [disabled]="microphone.active()"
+        >
+          Atualizar entradas
+        </button>
+        <button
+          type="button"
+          (click)="microphone.start()"
+          [disabled]="!microphone.ready() || microphone.active()"
+        >
+          Ligar microfone
+        </button>
+        <button type="button" (click)="microphone.stop()" [disabled]="!microphone.active()">
+          Desligar microfone
+        </button>
+      </div>
+      <p class="aside-note">
+        A gravação não é armazenada. Inicie a tentativa depois de ligar o microfone; para ritmo,
+        toque no botão de pulso.
+      </p>
+      <div class="practice-actions">
+        <button
+          type="button"
+          (click)="session.start()"
+          [disabled]="session.busy() || exercise.attemptOpen || (exercise.kind !== 'RHYTHM' && !microphone.active())"
+        >
+          Iniciar tentativa
+        </button>
+        @if (exercise.kind === 'RHYTHM') {
+        <button type="button" (click)="session.tap()" [disabled]="!exercise.active">
+          Marcar pulso
+        </button>
+        }
+        <button
+          type="button"
+          (click)="finish()"
+          [disabled]="session.busy() || !exercise.attemptOpen"
+        >
+          Encerrar e salvar
+        </button>
+      </div>
+      <div class="feedback" role="status" aria-live="polite">
+        <strong>{{ feedbackLabel(exercise.feedback.state) }}</strong>
+        <span>Esperada: {{ exercise.feedback.target }}</span>
+        @if (exercise.feedback.detected) {
+        <span>Detectada: {{ exercise.feedback.detected }}</span> } @if (exercise.feedback.cents !==
+        null) { <span>Desvio: {{ exercise.feedback.cents | number:'1.1-1' }} cents</span> } @if
+        (exercise.feedback.responseMs !== null) {
+        <span>Resposta: {{ exercise.feedback.responseMs }} ms</span> } @if (exercise.feedback.heldMs
+        !== null) {
+        <span>Sustentação válida: {{ exercise.feedback.heldMs | number:'1.0-0' }} ms</span> } @if
+        (exercise.feedback.stabilityCents !== null) {
+        <span>Estabilidade RMS: {{ exercise.feedback.stabilityCents | number:'1.1-1' }} cents</span>
+        } @if (exercise.feedback.timingErrorMs !== null) {
+        <span>Adiantamento/atraso: {{ exercise.feedback.timingErrorMs }} ms</span> }
+        <span
+          >Interrupções: {{ exercise.feedback.interruptions }} · confiança: {{
+          exercise.feedback.confidence | number:'1.2-2' }}</span
+        >
+      </div>
+      } @else {
+      <p>Gere um exercício para ver a nota alvo e ouvir a referência.</p>
+      }
+    </section>
+  </div>
+
+  @if (session.error() || microphone.error()) {
+  <p class="practice-error" role="alert">{{ session.error() || microphone.error() }}</p>
+  }
+  <div #sheet class="practice-sheet" aria-label="Pauta do exercício"></div>
+  @if (session.view(); as exercise) {
+  <ol class="note-sequence" aria-label="Sequência de notas">
+    @for (target of exercise.targets; track $index) {
+    <li [class.current]="$index === exercise.targetIndex">{{ target.pitch }}</li>
+    }
+  </ol>
+  }
+
+  <div class="practice-grid secondary">
+    <section class="practice-card" aria-labelledby="finger-title">
+      <h2 id="finger-title">Referência de digitação · flauta</h2>
+      <p>
+        Consulte a nota escrita na pauta e sua posição na carta. Alternativas não estão catalogadas
+        nesta versão.
+      </p>
+      @if (session.view()?.fingeringDatasetId === 'flute-cc0-chart-v1') {
+      <a
+        href="/flute-fingering-cc0.jpg"
+        target="_blank"
+        rel="noopener"
+        aria-label="Ampliar carta de digitação da flauta"
+      >
+        <img
+          src="/flute-fingering-cc0.jpg"
+          alt="Carta de posições da flauta transversal, com notas na pauta e teclas indicadas"
+          loading="lazy"
+        />
+      </a>
+      } @else {
+      <p>Gere um exercício de flauta para abrir a carta licenciada.</p>
+      }
+      <p class="aside-note">
+        Carta CC0 no Wikimedia Commons; confira também o guia da Yamaha. A fonte e o checksum estão
+        nos avisos de terceiros.
+      </p>
+    </section>
+    <section class="practice-card" aria-labelledby="history-title">
+      <h2 id="history-title">Histórico local</h2>
+      <p class="aside-note">
+        Resumos de até 50 tentativas, salvos neste computador. Nenhuma amostra de microfone é
+        guardada.
+      </p>
+      @if (!session.history().length) {
+      <p>Nenhuma tentativa salva.</p>
+      }
+      <ul class="history-list">
+        @for (item of session.history(); track item.id) {
+        <li>
+          <strong>{{ item.kind }} · {{ item.keyId }}</strong>
+          <span>{{ item.endedAt }} · {{ item.completed ? 'Concluído' : 'Interrompido' }}</span>
+          <span
+            >{{ item.reached }}/{{ item.targets }} notas · {{ item.heldMs | number:'1.0-0' }} ms
+            sustentados · {{ item.interruptions }} interrupções</span
+          >
+        </li>
+        }
+      </ul>
+    </section>
+  </div>
+</section>

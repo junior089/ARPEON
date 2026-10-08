@@ -1,0 +1,17 @@
+.tools/
+.gradle/
+**/build/
+frontend/node_modules/
+frontend/dist/
+frontend/.angular/
+frontend/coverage/
+*.log
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+.idea/
+.vscode/
+Thumbs.db
+.DS_Store

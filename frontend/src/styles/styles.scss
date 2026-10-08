@@ -1,0 +1,83 @@
+@use '@fontsource-variable/inter';
+@use '@fontsource-variable/jetbrains-mono';
+
+:root {
+  color-scheme: dark;
+  --background: #0b0c0e;
+  --surface: #111318;
+  --raised: #181b21;
+  --border: #282c33;
+  --primary: #f1f1ed;
+  --secondary: #9b9da3;
+  --disabled: #62656c;
+  --accent: #e59a3a;
+  --danger: #d85353;
+  --success: #62a875;
+  --warning: #d4a94c;
+  --ui: 'Inter Variable', sans-serif;
+  --mono: 'JetBrains Mono Variable', monospace;
+  font-family: var(--ui);
+  background: var(--background);
+  color: var(--primary);
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+button,
+input,
+select {
+  font: inherit;
+}
+button {
+  cursor: pointer;
+  min-height: 40px;
+}
+button:disabled,
+input:disabled,
+select:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+button:hover:not(:disabled) {
+  filter: brightness(1.15);
+}
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
+.eyebrow {
+  color: var(--secondary);
+  letter-spacing: 0.15em;
+  font-size: 0.65rem;
+}
+.primary {
+  background: var(--accent);
+  color: #171009;
+  border: 1px solid var(--accent);
+  border-radius: 2px;
+  padding: 0.8rem 1.25rem;
+  font-weight: 600;
+  font-size: 0.8rem;
+}
+.error {
+  color: #ffaaa5;
+  border-left: 2px solid var(--danger);
+  padding-left: 0.75rem;
+  font-size: 0.8rem;
+  line-height: 1.6;
+}
+.skip-link {
+  position: absolute;
+  top: -100px;
+  left: 1rem;
+  z-index: 10;
+  padding: 1rem;
+  background: var(--raised);
+  color: var(--primary);
+}
+.skip-link:focus {
+  top: 0.5rem;
+}

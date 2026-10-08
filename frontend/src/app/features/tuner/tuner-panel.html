@@ -1,0 +1,156 @@
+<section class="tuner" aria-labelledby="tuner-title">
+  <header class="panel-heading">
+    <div>
+      <p class="eyebrow">ESCUTA LOCAL</p>
+      <h1 id="tuner-title">Afinador cromático</h1>
+    </div>
+    <span class="capture-state" [class.listening]="session.active()"
+      >{{ session.active() ? 'Microfone ligado' : 'Microfone desligado' }}</span
+    >
+  </header>
+
+  <div class="tuner-body">
+    <div class="instrument-display">
+      <p class="state-label" role="status" aria-live="polite">{{ status() }}</p>
+      <div class="pitch" aria-label="Nota detectada">
+        {{ session.observation()?.nearestPitch ?? '—' }}
+      </div>
+      <div class="frequency">
+        @if (session.observation()?.frequencyHz; as hz) { {{ hz | number:'1.1-1' }}
+        <span>Hz</span> } @else { <span>Nenhuma nota estável</span> }
+      </div>
+      <div
+        class="tuning-scale"
+        role="img"
+        [attr.aria-label]="intonation() || 'Escala de afinação de menos 50 a mais 50 cents'"
+      >
+        <div class="scale-track">
+          <span class="in-tune"></span><span class="center-line"></span> @if
+          (session.observation()?.state === 'TRACKING') {
+          <span class="needle" [style.left.%]="marker()"></span> }
+        </div>
+        <div class="scale-labels">
+          <span>−50</span><span>−25</span><span>0</span><span>+25</span><span>+50</span>
+        </div>
+      </div>
+      <p class="intonation">{{ intonation() || 'Toque uma nota por vez e mantenha o som.' }}</p>
+      <div class="measurement-line">
+        <span
+          >Desvio
+          <strong
+            >{{ (session.observation()?.centsDeviation | number:'1.1-1') ?? '—' }}
+            <small>cents</small></strong
+          ></span
+        >
+        <span
+          >Confiança
+          <strong
+            >{{ session.observation()?.capturedAt ? ((session.observation()?.confidence ?? 0) * 100
+            | number:'1.0-0') + '%' : '—' }}</strong
+          ></span
+        >
+      </div>
+    </div>
+
+    <aside class="input-panel" aria-label="Configuração da entrada">
+      <h2>Entrada de áudio</h2>
+      <label for="audio-input">Microfone</label>
+      <select
+        id="audio-input"
+        #device
+        [value]="session.selectedDevice()"
+        (change)="session.selectedDevice.set(device.value)"
+        [disabled]="session.active() || session.busy()"
+      >
+        @if (!session.devices().length) {
+        <option value="">Nenhuma entrada disponível</option>
+        } @for (input of session.devices(); track input.id) {
+        <option [value]="input.id">{{ input.name }}</option>
+        }
+      </select>
+      <button
+        class="text-button"
+        (click)="session.refreshDevices()"
+        [disabled]="session.active() || session.busy()"
+      >
+        Atualizar entradas
+      </button>
+      <label for="reference">Referência · Lá 4</label>
+      <div class="reference-field">
+        <input
+          id="reference"
+          #reference
+          type="number"
+          min="400"
+          max="480"
+          step="0.1"
+          [value]="session.referenceHz()"
+          (input)="session.referenceHz.set(reference.valueAsNumber)"
+          [disabled]="session.active() || session.busy()"
+        /><span>Hz</span>
+      </div>
+      <p class="field-hint">Entre 400 e 480 Hz. Padrão: 440 Hz.</p>
+      @if (session.active()) {
+      <button class="primary" (click)="session.stop()" [disabled]="session.busy()">
+        Desligar microfone
+      </button>
+      } @else {
+      <button class="primary" (click)="session.start()" [disabled]="!session.ready()">
+        {{ session.busy() ? 'Conectando…' : 'Ligar microfone' }}
+      </button>
+      }
+      <p class="privacy-note">
+        Ao ligar, você permite a escuta nesta sessão. O áudio é processado neste computador, sem
+        gravação ou envio.
+      </p>
+      @if (session.error()) {
+      <p class="error" role="alert">{{ session.error() }}</p>
+      }
+      <div class="capture-details">
+        <h3>Captura</h3>
+        <dl>
+          <div>
+            <dt>Amostragem</dt>
+            <dd>
+              {{ session.observation()?.sampleRateHz ? ((session.observation()?.sampleRateHz ?? 0) /
+              1000 | number:'1.1-1') + ' kHz' : '—' }}
+            </dd>
+          </div>
+          <div>
+            <dt>Janela de áudio</dt>
+            <dd>
+              {{ session.observation()?.capturedAt ? (session.observation()?.bufferLatencyMs |
+              number:'1.1-1') + ' ms' : '—' }}
+            </dd>
+          </div>
+          <div>
+            <dt>Processamento</dt>
+            <dd>
+              {{ session.observation()?.capturedAt ? (session.observation()?.processingLatencyMs |
+              number:'1.1-1') + ' ms' : '—' }}
+            </dd>
+          </div>
+          <div>
+            <dt>Idade estimada da análise</dt>
+            <dd>
+              {{ session.observation()?.capturedAt ? (session.observation()?.analysisAgeMs |
+              number:'1.0-0') + ' ms' : '—' }}
+            </dd>
+          </div>
+          <div>
+            <dt>Quadros descartados</dt>
+            <dd>{{ session.observation()?.droppedFrames ?? '—' }}</dd>
+          </div>
+          <div>
+            <dt>Buffer próximo do limite</dt>
+            <dd>{{ session.observation()?.inputOverruns ?? '—' }}</dd>
+          </div>
+        </dl>
+        <p>
+          A latência do dispositivo não foi calibrada. A estimativa não inclui a atualização da
+          tela.
+        </p>
+      </div>
+    </aside>
+  </div>
+</section>
