@@ -1,6 +1,7 @@
 # 0002 — Browser shell and authenticated loopback bridge
 
-Status: accepted for Milestone 0; native packaging remains an explicit future decision.
+Status: accepted for Milestone 0; session-token lifetime superseded in part by
+[ADR 0006](0006-refreshable-local-session.md). Native packaging remains an explicit future decision.
 
 A Java launcher serves the built Angular UI through the JDK HTTP server and opens the
 system browser. This delivers the tuner vertical slice without coupling audio to Angular

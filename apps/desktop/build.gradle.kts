@@ -5,10 +5,15 @@ dependencies {
     implementation(project(":modules:arpeon-musicxml"))
     implementation(project(":modules:arpeon-playback"))
     implementation(project(":modules:arpeon-import"))
+    implementation(project(":modules:arpeon-omr"))
+    implementation(project(":modules:arpeon-analysis"))
     implementation("com.google.code.gson:gson:2.14.0")
 }
 
-application { mainClass.set("org.arpeon.desktop.DesktopApplication") }
+application {
+    mainClass.set("org.arpeon.desktop.DesktopApplication")
+    applicationDefaultJvmArgs = listOf("-Xmx2g")
+}
 tasks.test { systemProperty("arpeon.fixtures", rootProject.file("fixtures/musicxml").absolutePath) }
 
 val frontendOutput = rootProject.layout.projectDirectory.dir("frontend/dist/arpeon/browser")

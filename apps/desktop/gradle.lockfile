@@ -5,6 +5,10 @@
 com.google.code.gson:gson:2.14.0=compileClasspath,runtimeClasspath,testCompileClasspath,testRuntimeClasspath
 com.google.errorprone:error_prone_annotations:2.48.0=compileClasspath,runtimeClasspath,testCompileClasspath,testRuntimeClasspath
 com.google.googlejavaformat:google-java-format:1.37.0=javaFormatter
+commons-logging:commons-logging:1.4.0=runtimeClasspath,testRuntimeClasspath
+org.apache.pdfbox:fontbox:3.0.8=runtimeClasspath,testRuntimeClasspath
+org.apache.pdfbox:pdfbox-io:3.0.8=runtimeClasspath,testRuntimeClasspath
+org.apache.pdfbox:pdfbox:3.0.8=runtimeClasspath,testRuntimeClasspath
 org.apiguardian:apiguardian-api:1.1.2=testCompileClasspath
 org.junit.jupiter:junit-jupiter-api:5.14.1=testCompileClasspath,testRuntimeClasspath
 org.junit.jupiter:junit-jupiter-engine:5.14.1=testRuntimeClasspath

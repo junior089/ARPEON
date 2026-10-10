@@ -14,3 +14,8 @@ The source lists the author as unknown and the SHA-1 as
 `07f5b244b4f6148aaad5b05501761005cf5d6a5f`; see [third-party notices](../../THIRD_PARTY_NOTICES.md).
 It is a visual reference, not a machine-readable alternate-fingering dataset. The exercise
 generator contains original mathematical pitch patterns and no copied melodies or audio.
+
+Milestone 9 evaluates a small in-memory transition model using only original, seeded synthetic
+score-position traces. Training seeds and held-out seeds are disjoint. No model is accepted for
+product use and no external or user-provided dataset is bundled. See the
+[evaluation record](../analysis/ml-evaluation.md).

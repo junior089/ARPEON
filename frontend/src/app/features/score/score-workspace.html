@@ -1,37 +1,57 @@
 <section class="score-workspace" aria-labelledby="score-heading">
   <div class="score-heading">
     <div>
-      <p class="eyebrow">PARTITURA · MUSICXML</p>
       <h1 id="score-heading">{{ session.score()?.title || 'Abra uma partitura' }}</h1>
       @if (session.score(); as score) {
       <p class="source">{{ score.filename }} · {{ score.measures.length }} compassos</p>
       @if (score.sourceKind !== 'MUSICXML') {
-      <p class="source">Rascunho de {{ score.sourceKind }} · SHA-256: {{ score.sha256 }}</p>
+      <p class="source">Rascunho de {{ score.sourceKind }}</p>
+      } @if (score.source; as origin) {
+      <p class="source">
+        Fonte:
+        <a [href]="origin.pageUrl" target="_blank" rel="noopener noreferrer"
+          >{{ origin.providerId }}</a
+        >
+        · {{ origin.fetchedAt }} · {{ origin.licenseShortName }}
+      </p>
       } } @else {
       <p class="source">Arquivo local, sem envio pela internet.</p>
       }
     </div>
-    <label class="file-control">
-      <span>{{ session.score() ? 'Trocar arquivo' : 'Abrir MusicXML' }}</span>
-      <input
-        type="file"
-        accept=".musicxml,.xml,application/xml"
-        (change)="open($event)"
-        [disabled]="session.busy()"
-      />
-    </label>
+    <div class="workspace-actions">
+      <button
+        type="button"
+        (click)="layout.toggle('explorer')"
+        [attr.aria-pressed]="layout.explorer()"
+        title="Mostrar / ocultar explorador"
+      >
+        Projetos e partes
+      </button>
+      <button
+        type="button"
+        (click)="layout.toggle('inspector')"
+        [attr.aria-pressed]="layout.inspector()"
+        title="Mostrar / ocultar inspetor"
+      >
+        Inspetor
+      </button>
+      @if (session.opening()) {
+      <button type="button" (click)="session.cancelOpen()">Cancelar importação</button>
+      } @else {
+      <label class="file-control">
+        <span>{{ session.score() ? 'Trocar arquivo' : 'Abrir partitura' }}</span>
+        <input
+          type="file"
+          accept=".musicxml,.xml,.mxl,.mscz,application/xml,application/vnd.recordare.musicxml"
+          (change)="open($event)"
+          [disabled]="session.busy()"
+        />
+      </label>
+      }
+    </div>
   </div>
 
-  @if (session.score(); as score) { @if (score.importWarnings.length) {
-  <div class="range-warnings" role="status">
-    <h2>Decisões e limites desta importação</h2>
-    <ul>
-      @for (warning of score.importWarnings; track warning) {
-      <li>{{ warning }}</li>
-      }
-    </ul>
-  </div>
-  }
+  @if (session.score(); as score) {
   <div class="document-actions" aria-label="Revisões da partitura">
     <span>Revisão {{ score.revision }} · original preservado</span>
     <button type="button" (click)="edit('undo')" [disabled]="session.busy() || !score.canUndo">
@@ -45,321 +65,617 @@
     </button>
   </div>
   } @if (session.error()) {
-  <p class="error" role="alert">{{ session.error() }}</p>
-  } @if (!session.score()) {
-  <div class="empty-state">
-    <span class="empty-symbol" aria-hidden="true">𝄞</span>
-    <p>Selecione um arquivo .musicxml ou .xml não comprimido de até 1 MiB.</p>
-    <small
-      >Esta versão aceita uma pauta monofônica por parte e avisa quando encontra elementos ainda não
-      suportados.</small
-    >
-  </div>
+  <p class="error workspace-error" role="alert">{{ session.error() }}</p>
+  } @if (session.busy()) {
+  <div class="workspace-progress" role="status">Processando operação local…</div>
   }
-  <div class="score-content" [hidden]="!session.score()">
-    <aside class="parts" aria-label="Partes da partitura">
-      <p class="eyebrow">PARTES</p>
-      @for (part of session.transport()?.parts ?? []; track part.id) {
-      <div class="part" [class.active]="session.transport()?.activePartId === part.id">
+  <div
+    class="score-layout"
+    [class.explorer-closed]="!layout.explorer()"
+    [class.inspector-closed]="!layout.inspector() || !session.score()"
+    [style.--inspector-width.px]="layout.inspectorWidth()"
+  >
+    <aside class="explorer" [hidden]="!layout.explorer()" aria-label="Explorador de projetos">
+      <div class="panel-title">
+        <span>Explorador</span
+        ><button type="button" aria-label="Recolher explorador" (click)="layout.toggle('explorer')">
+          ×
+        </button>
+      </div>
+      <h2 class="section-label">Projetos locais</h2>
+      @if (session.score(); as document) {
+      <details class="document-provenance">
+        <summary>Informações da fonte</summary>
+        <p>{{ document.filename }}</p>
+        <p>SHA-256: {{ document.sha256 }}</p>
+      </details>
+      }
+      <div class="project-controls" aria-label="Projetos locais">
         <button
-          class="part-name"
-          [attr.aria-current]="session.transport()?.activePartId === part.id ? 'true' : null"
-          (click)="selectPart(part.id)"
+          type="button"
+          (click)="saveCurrentProject()"
+          [disabled]="session.busy() || !session.score()"
+        >
+          {{ session.projectId() ? 'Salvar alterações' : 'Salvar projeto' }}
+        </button>
+        <label for="saved-project">Projetos salvos</label>
+        <select
+          id="saved-project"
+          [value]="selectedProjectId()"
+          (change)="selectedProjectId.set(textValue($event))"
+          [disabled]="session.busy() || session.projects().length === 0"
+        >
+          <option value="">Escolha um projeto</option>
+          @for (project of session.projects(); track project.id) {
+          <option [value]="project.id" [selected]="selectedProjectId() === project.id">
+            {{ project.title || project.filename }}
+          </option>
+          }
+        </select>
+        <button
+          type="button"
+          (click)="openSavedProject()"
+          [disabled]="session.busy() || !selectedProjectId()"
+        >
+          Abrir projeto
+        </button>
+        <button
+          type="button"
+          class="destructive"
+          (click)="deleteSavedProject()"
+          [disabled]="session.busy() || !selectedProjectId()"
+        >
+          Excluir projeto salvo
+        </button>
+        @if (session.score()) {
+        <span role="status">
+          {{ session.savingProject() ? 'Salvando neste computador…' : session.projectDirty() ?
+          'Alterações ainda não salvas' : 'Projeto salvo neste computador' }}
+        </span>
+        }
+      </div>
+
+      @if (!session.projects().length) {
+      <p class="panel-hint">
+        Nenhum projeto salvo. Abra uma partitura e salve o projeto para continuar depois.
+      </p>
+      }
+      <aside [hidden]="!session.score()" class="parts" aria-label="Partes da partitura">
+        <h2 class="section-label">Partes</h2>
+        @for (part of session.transport()?.parts ?? []; track part.id) {
+        <div class="part" [class.active]="session.transport()?.activePartId === part.id">
+          <button
+            class="part-name"
+            [attr.aria-current]="session.transport()?.activePartId === part.id ? 'true' : null"
+            (click)="selectPart(part.id)"
+            [disabled]="session.busy()"
+          >
+            {{ part.name }}
+          </button>
+          <div class="part-controls">
+            <button
+              [attr.aria-pressed]="part.mute"
+              (click)="session.action('mute', {id: part.id, enabled: !part.mute})"
+              [disabled]="session.busy()"
+              [attr.aria-label]="'Silenciar ' + part.name"
+            >
+              M
+            </button>
+            <button
+              [attr.aria-pressed]="part.solo"
+              (click)="session.action('solo', {id: part.id, enabled: !part.solo})"
+              [disabled]="session.busy()"
+              [attr.aria-label]="'Solo ' + part.name"
+            >
+              S
+            </button>
+          </div>
+        </div>
+        }
+        <p class="part-note">Áudio MIDI local. M silencia; S isola a parte.</p>
+        @if (activePart()) {
+        <label class="editor-label" for="instrument-profile">Timbre da parte ativa</label>
+        <select
+          id="instrument-profile"
+          [value]="activeInstrumentId()"
+          (change)="setInstrument($event)"
           [disabled]="session.busy()"
         >
-          {{ part.name }}
-        </button>
-        <div class="part-controls">
-          <button
-            [attr.aria-pressed]="part.mute"
-            (click)="session.action('mute', {id: part.id, enabled: !part.mute})"
-            [disabled]="session.busy()"
-            [attr.aria-label]="'Silenciar ' + part.name"
-          >
-            M
+          @for (instrument of session.score()?.instruments ?? []; track instrument.id) {
+          <option [value]="instrument.id" [selected]="activeInstrumentId() === instrument.id">
+            {{ instrument.name }}
+          </option>
+          }
+        </select>
+        <p class="part-note">
+          Flauta: C4–C7; zona inicial confortável C4–C6. O timbre depende do sintetizador MIDI do
+          sistema. Para mudar a transposição escrita, use a prévia instrumental no inspetor.
+        </p>
+        }
+      </aside>
+    </aside>
+    <div class="document-region">
+      @if (!session.score()) {
+      <div class="empty-state">
+        <div class="empty-intro">
+          <h2>Nenhuma partitura aberta</h2>
+          <p>Abra uma partitura local para ler, editar e reproduzir.</p>
+        </div>
+        <div class="start-options">
+          <label class="start-option start-primary">
+            <strong>Abrir partitura</strong>
+            <span>Partitura local · MusicXML (.musicxml, .xml, .mxl) ou MuseScore (.mscz)</span>
+            <input
+              type="file"
+              accept=".musicxml,.xml,.mxl,.mscz,application/xml,application/vnd.recordare.musicxml"
+              (change)="open($event)"
+              [disabled]="session.busy()"
+            />
+          </label>
+          <button class="start-option" type="button" (click)="requestedView.emit('import')">
+            <strong>Importar e reconhecer</strong>
+            <span>Cole notas ou importe MIDI, WAV e partitura em imagem.</span>
           </button>
-          <button
-            [attr.aria-pressed]="part.solo"
-            (click)="session.action('solo', {id: part.id, enabled: !part.solo})"
-            [disabled]="session.busy()"
-            [attr.aria-label]="'Solo ' + part.name"
-          >
-            S
+          <button class="start-option" type="button" (click)="requestedView.emit('practice')">
+            <strong>Criar exercício de flauta</strong>
+            <span>Gere um exercício guiado para flauta transversal.</span>
           </button>
         </div>
-      </div>
-      }
-      <p class="part-note">Áudio MIDI local. M silencia; S isola a parte.</p>
-      @if (activePart()) {
-      <label class="editor-label" for="instrument-profile">Timbre da parte ativa</label>
-      <select
-        id="instrument-profile"
-        [value]="activeInstrumentId()"
-        (change)="setInstrument($event)"
-        [disabled]="session.busy()"
-      >
-        @for (instrument of session.score()?.instruments ?? []; track instrument.id) {
-        <option [value]="instrument.id">{{ instrument.name }}</option>
-        }
-      </select>
-      <p class="part-note">
-        Flauta: C4–C7; zona inicial confortável C4–C6. O timbre depende do sintetizador MIDI do
-        sistema. Para mudar a transposição escrita, use a prévia instrumental abaixo.
-      </p>
-      }
-    </aside>
-    <div class="page">
-      <div class="page-caption">
-        <span
-          >COMPASSO {{ session.transport()?.measureNumber }} / {{ session.score()?.measures?.length
-          }}</span
+        <small
+          >MusicXML/MXL local até 128 MiB; MSCZ de uma pauta. Limites: 16 partes, 2048 compassos por
+          parte e 16384 eventos.</small
         >
-        <span>{{ session.transport()?.bpm }} BPM</span>
       </div>
+      }
+      <div class="document-canvas" [hidden]="!session.score()">
+        <div class="page" [class.dark-paper]="darkScore()">
+          <div class="page-caption">
+            <span
+              >Compasso {{ session.transport()?.measureNumber }} / {{
+              session.score()?.measures?.length }}</span
+            >
+            <span>{{ session.transport()?.bpm }} BPM</span>
+            <label class="zoom-control"
+              >Zoom
+              <select [value]="layout.zoom()" (change)="setZoom(numberValue($event))">
+                @for (zoom of [50,75,100,125,150,175,200]; track zoom) {
+                <option [value]="zoom" [selected]="layout.zoom() === zoom">{{ zoom }}%</option>
+                }
+              </select></label
+            >
+            <button type="button" class="score-theme-toggle" (click)="toggleScoreTheme()">
+              {{ darkScore() ? 'Partitura clara' : 'Partitura escura' }}
+            </button>
+          </div>
+          <div
+            #sheet
+            class="notation"
+            role="group"
+            tabindex="0"
+            [attr.aria-label]="'Notação de ' + (session.score()?.title ?? 'partitura') + '. Clique em uma nota ou pressione Enter para explorar as notas com o teclado.'"
+            (click)="selectRenderedNote($event)"
+            (keydown.enter)="focusStudyNotes()"
+          ></div>
+        </div>
+      </div>
+      @if (session.score(); as score) { @if (score.importWarnings.length) {
+      <details class="import-diagnostics">
+        <summary>Importação · {{ score.importWarnings.length }} avisos para revisar</summary>
+        <div class="range-warnings" role="status">
+          <h2>Decisões e limites desta importação</h2>
+          <ul>
+            @for (warning of score.importWarnings; track warning) {
+            <li>{{ warning }}</li>
+            }
+          </ul>
+        </div>
+      </details>
+      }
+      <details #studyPanel class="study-panel">
+        <summary>
+          Notas e digitação
+          <span
+            >Compasso {{ currentMeasure()?.number ?? '—' }} · {{ selectedEvent()?.pitch ??
+            'Selecione uma nota' }}</span
+          >
+        </summary>
+        <section #study class="study" aria-labelledby="study-heading">
+          <div class="study-heading">
+            <div>
+              <h2 id="study-heading">Notas e digitação</h2>
+              <p>
+                Clique na nota da pauta ou escolha uma nota abaixo. A posição é uma referência para
+                flauta transversal.
+              </p>
+            </div>
+            @if (activePart(); as part) {
+            <div class="study-measure">
+              <button
+                type="button"
+                aria-label="Compasso anterior"
+                (click)="selectMeasure(measureIndex() - 1)"
+                [disabled]="measureIndex() === 0"
+              >
+                ←
+              </button>
+              <label for="study-measure-select"
+                >Compasso
+                <select
+                  id="study-measure-select"
+                  [value]="measureIndex()"
+                  (change)="selectMeasure(numberValue($event))"
+                >
+                  @for (measure of part.measures; track measure.index) {
+                  <option [value]="measure.index" [selected]="measureIndex() === measure.index">
+                    {{ measure.number }}
+                  </option>
+                  }
+                </select>
+              </label>
+              <button
+                type="button"
+                aria-label="Próximo compasso"
+                (click)="selectMeasure(measureIndex() + 1)"
+                [disabled]="measureIndex() >= part.measures.length - 1"
+              >
+                →
+              </button>
+            </div>
+            }
+          </div>
+          @if (currentMeasure(); as measure) {
+          <div
+            #studyNotes
+            class="study-notes"
+            role="group"
+            [attr.aria-label]="'Notas do compasso ' + measure.number"
+          >
+            @for (event of visibleStudyEvents(); track event.index) {
+            <button
+              type="button"
+              [class.selected]="eventIndex() === event.index"
+              [attr.aria-pressed]="eventIndex() === event.index"
+              (click)="selectEvent(event.index)"
+            >
+              <span class="note-order">{{ event.index + 1 }}</span>
+              <strong
+                >{{ event.kind === 'CHORD' ? 'Acorde ' + event.pitch : event.kind === 'NOTE' ?
+                event.pitch : 'Pausa' }}</strong
+              >
+              <small
+                >Voz {{ event.voiceId ?? '1' }} · posição {{ event.onsetNumerator ?? 0 }}/{{
+                event.onsetDenominator ?? 1 }}</small
+              >
+              <small>{{ event.numerator }}/{{ event.denominator }}</small>
+              @if (event.tieStart || event.tieStop) {
+              <small>Ligada</small>
+              }
+            </button>
+            }
+          </div>
+          @if (studyPageCount() > 1) {
+          <nav class="study-pagination" aria-label="Paginação das notas do compasso">
+            <button type="button" (click)="previousStudyPage()" [disabled]="studyPage() === 0">
+              Anterior
+            </button>
+            <span>
+              Página {{ studyPage() + 1 }} de {{ studyPageCount() }} · eventos {{ studyPageStart()
+              }}–{{ studyPageEnd() }} de {{ measure.events.length }}
+            </span>
+            <button
+              type="button"
+              (click)="nextStudyPage()"
+              [disabled]="studyPage() >= studyPageCount() - 1"
+            >
+              Próxima
+            </button>
+          </nav>
+          } @if (selectedEvent(); as selected) { @if (selected.kind === 'NOTE') {
+          <app-flute-fingering [pitch]="selected.pitch" />
+          } @else if (selected.kind === 'CHORD') {
+          <div class="study-rest">
+            Acorde com {{ selected.heads?.length ?? 0 }} notas: {{ selected.pitch }}. A análise de
+            execução continua exigindo uma nota por vez.
+          </div>
+          @if (selected.heads; as heads) {
+          <div class="chord-heads" role="group" aria-label="Notas individuais do acorde">
+            @for (head of heads; track head.index) {
+            <button
+              type="button"
+              [class.selected]="selectedHeadIndex() === head.index"
+              [attr.aria-pressed]="selectedHeadIndex() === head.index"
+              (click)="selectHead(head.index)"
+            >
+              {{ head.pitch }} @if (head.tieStart || head.tieStop) { · ligada }
+            </button>
+            }
+          </div>
+          } } @else {
+          <div class="study-rest">
+            Esta é uma pausa. Escolha uma nota para ver a digitação ou use o editor para preencher a
+            pausa.
+          </div>
+          } } }
+          <button class="practice-next" type="button" (click)="requestedView.emit('practice')">
+            Criar um exercício de flauta <span aria-hidden="true">→</span>
+          </button>
+        </section>
+      </details>
+      }
+    </div>
+    @if (session.score(); as score) {
+    <aside class="inspector" [hidden]="!layout.inspector()" aria-label="Inspetor da partitura">
       <div
-        #sheet
-        class="notation"
-        role="img"
-        [attr.aria-label]="'Notação de ' + (session.score()?.title ?? 'partitura')"
+        class="resize-handle"
+        role="separator"
+        tabindex="0"
+        aria-label="Largura do inspetor"
+        aria-orientation="vertical"
+        aria-valuemin="280"
+        aria-valuemax="460"
+        [attr.aria-valuenow]="layout.inspectorWidth()"
+        (pointerdown)="startResize($event)"
+        (pointermove)="resize($event)"
+        (pointerup)="endResize($event)"
+        (pointercancel)="endResize($event)"
+        (keydown)="resizeKey($event)"
       ></div>
-    </div>
-  </div>
-  @if (session.score(); as score) {
-  <section class="editor" aria-labelledby="editor-heading">
-    <div class="editor-heading">
-      <div>
-        <p class="eyebrow">MILESTONE 2 · EDIÇÃO</p>
-        <h2 id="editor-heading">Editar a parte ativa</h2>
+      <div class="panel-title">
+        <span>Inspetor</span
+        ><button type="button" aria-label="Recolher inspetor" (click)="layout.toggle('inspector')">
+          ×
+        </button>
       </div>
-      <p>
-        Selecione um evento abaixo. Inserções ocupam uma pausa; remoções viram pausa para preservar
-        o compasso.
-      </p>
-    </div>
-    @if (activePart(); as part) {
-    <div class="measure-picker">
-      <label for="edit-measure">Compasso</label>
-      <select
-        id="edit-measure"
-        [value]="measureIndex()"
-        (change)="selectMeasure(numberValue($event))"
-      >
-        @for (measure of part.measures; track measure.index) {
-        <option [value]="measure.index">{{ measure.number }}</option>
+      <div class="selection-summary">
+        <span>{{ selectedEvent()?.kind === 'REST' ? 'Pausa' : 'Nota / acorde' }}</span
+        ><strong>{{ selectedEvent()?.pitch ?? '—' }}</strong
+        ><small
+          >Compasso {{ currentMeasure()?.number ?? '—' }} · evento {{ eventIndex() + 1 }}</small
+        >
+      </div>
+      <details class="editor" open>
+        <summary class="editor-toggle">Propriedades da seleção</summary>
+        <div class="editor-heading">
+          <div>
+            <h2 id="editor-heading">{{ activePart()?.name }}</h2>
+          </div>
+          <p>
+            Selecione uma nota na pauta ou no painel Notas e digitação. Inserções ocupam uma pausa;
+            remoções viram pausa para preservar o compasso. A duração de um acorde altera todas as
+            suas notas juntas.
+          </p>
+        </div>
+        @if (selectedEvent(); as selected) { @if (selected.kind === 'NOTE' && (selected.tieStart ||
+        selected.tieStop)) {
+        <p class="part-note" role="status">
+          Nota ligada: a reprodução sustenta o som através dos segmentos e a alteração de altura se
+          aplica a toda a cadeia. Use “Desfazer ligadura” antes de mudar durações ou excluir um
+          segmento.
+        </p>
+        } @else if (selected.kind === 'CHORD' && (selectedHead()?.tieStart ||
+        selectedHead()?.tieStop)) {
+        <p class="part-note" role="status">
+          Esta cabeça ligada é alterada junto com toda a sua cadeia para preservar a continuidade.
+        </p>
         }
-      </select>
-    </div>
-    @if (currentMeasure(); as measure) {
-    <div
-      class="event-list"
-      role="group"
-      [attr.aria-label]="'Eventos do compasso ' + measure.number"
-    >
-      @for (event of measure.events; track event.index) {
-      <button
-        type="button"
-        [class.selected]="eventIndex() === event.index"
-        [attr.aria-pressed]="eventIndex() === event.index"
-        (click)="selectEvent(event.index)"
-      >
-        <strong>{{ event.index + 1 }}</strong>
-        {{ event.kind === 'NOTE' ? event.pitch : 'Pausa' }}
-        <small>{{ event.numerator }}/{{ event.denominator }}</small>
-      </button>
-      }
-    </div>
-    } @if (selectedEvent(); as selected) {
-    <div class="edit-fields">
-      <label
-        >Nota
-        <select [value]="step" (change)="step = textValue($event)">
-          @for (name of ['C','D','E','F','G','A','B']; track name) {
-          <option [value]="name">{{ name }}</option>
+        <div class="edit-fields">
+          <label
+            >Nota
+            <select [value]="step" (change)="step = textValue($event)">
+              @for (name of ['C','D','E','F','G','A','B']; track name) {
+              <option [value]="name" [selected]="step === name">{{ name }}</option>
+              }
+            </select>
+          </label>
+          <label
+            >Alteração
+            <select [value]="alter" (change)="alter = numberValue($event)">
+              <option value="-2">♭♭</option>
+              <option value="-1">♭</option>
+              <option value="0">♮</option>
+              <option value="1">♯</option>
+              <option value="2">♯♯</option>
+            </select>
+          </label>
+          <label
+            >Oitava
+            <input
+              type="number"
+              min="-1"
+              max="9"
+              [value]="octave"
+              (input)="octave = numberValue($event)"
+            />
+          </label>
+          <label
+            >Duração — numerador
+            <input
+              type="number"
+              min="1"
+              max="1920"
+              [value]="numerator"
+              (input)="numerator = numberValue($event)"
+            />
+          </label>
+          <label
+            >Denominador
+            <select [value]="denominator" (change)="denominator = numberValue($event)">
+              @for (value of [1,2,4,8,16,32,64,128]; track value) {
+              <option [value]="value" [selected]="denominator === value">{{ value }}</option>
+              }
+            </select>
+          </label>
+        </div>
+        <div class="edit-buttons">
+          <button
+            type="button"
+            (click)="editSelected('set-pitch')"
+            [disabled]="session.busy() || !selectedHead()"
+          >
+            Alterar nota
+          </button>
+          <button
+            type="button"
+            (click)="editSelected('set-duration')"
+            [disabled]="session.busy() || selected.tieStart || selected.tieStop"
+          >
+            Alterar duração
+          </button>
+          <button
+            type="button"
+            (click)="editSelected('insert-note')"
+            [disabled]="session.busy() || selected.kind !== 'REST'"
+          >
+            Inserir nota na pausa
+          </button>
+          <button
+            type="button"
+            (click)="editSelected('insert-rest')"
+            [disabled]="session.busy() || selected.kind !== 'REST'"
+          >
+            Dividir pausa
+          </button>
+          <button
+            type="button"
+            class="destructive"
+            (click)="editSelected('delete')"
+            [disabled]="session.busy() || (selected.kind !== 'NOTE' && selected.kind !== 'CHORD') || !selectedHead() || selectedHead()?.tieStart || selectedHead()?.tieStop"
+          >
+            {{ selected.kind === 'CHORD' ? 'Remover nota do acorde' : 'Remover nota' }}
+          </button>
+          @if (selectedHead()?.tieStart || selectedHead()?.tieStop) {
+          <button type="button" (click)="editSelected('remove-tie')" [disabled]="session.busy()">
+            Desfazer ligadura
+          </button>
           }
-        </select>
-      </label>
-      <label
-        >Alteração
-        <select [value]="alter" (change)="alter = numberValue($event)">
-          <option value="-2">♭♭</option>
-          <option value="-1">♭</option>
-          <option value="0">♮</option>
-          <option value="1">♯</option>
-          <option value="2">♯♯</option>
-        </select>
-      </label>
-      <label
-        >Oitava
-        <input
-          type="number"
-          min="-1"
-          max="9"
-          [value]="octave"
-          (input)="octave = numberValue($event)"
-        />
-      </label>
-      <label
-        >Duração — numerador
-        <input
-          type="number"
-          min="1"
-          max="1920"
-          [value]="numerator"
-          (input)="numerator = numberValue($event)"
-        />
-      </label>
-      <label
-        >Denominador
-        <select [value]="denominator" (change)="denominator = numberValue($event)">
-          @for (value of [1,2,4,8,16,32,64,128]; track value) {
-          <option [value]="value">{{ value }}</option>
-          }
-        </select>
-      </label>
-    </div>
-    <div class="edit-buttons">
-      <button
-        type="button"
-        (click)="editSelected('set-pitch')"
-        [disabled]="session.busy() || selected.kind !== 'NOTE'"
-      >
-        Alterar nota
-      </button>
-      <button type="button" (click)="editSelected('set-duration')" [disabled]="session.busy()">
-        Alterar duração
-      </button>
-      <button
-        type="button"
-        (click)="editSelected('insert-note')"
-        [disabled]="session.busy() || selected.kind !== 'REST'"
-      >
-        Inserir nota na pausa
-      </button>
-      <button
-        type="button"
-        (click)="editSelected('insert-rest')"
-        [disabled]="session.busy() || selected.kind !== 'REST'"
-      >
-        Dividir pausa
-      </button>
-      <button
-        type="button"
-        (click)="editSelected('delete')"
-        [disabled]="session.busy() || selected.kind !== 'NOTE'"
-      >
-        Remover nota
-      </button>
-    </div>
-    } }
-    <div class="transform-controls">
-      <h3>Transpor e adaptar</h3>
-      <div class="edit-fields">
-        <label
-          >Semitons
-          <input
-            type="number"
-            min="-48"
-            max="48"
-            [value]="semitones"
-            (input)="semitones = numberValue($event)"
-          />
-        </label>
-        <button type="button" (click)="previewTransform('interval')" [disabled]="session.busy()">
-          Prévia de intervalo
-        </button>
-        <button
-          type="button"
-          (click)="semitones = -12; previewTransform('octave')"
-          [disabled]="session.busy()"
-        >
-          Oitava abaixo
-        </button>
-        <button
-          type="button"
-          (click)="semitones = 12; previewTransform('octave')"
-          [disabled]="session.busy()"
-        >
-          Oitava acima
-        </button>
-      </div>
-      <div class="edit-fields">
-        <label
-          >Tom de origem (escolha explícita)
-          <select [value]="sourceKey" (change)="sourceKey = textValue($event)">
-            <option value="" disabled>Escolha o tom de origem</option>
-            @for (key of score.keys; track key.id) {
-            <option [value]="key.id">{{ key.label }}</option>
-            }
-          </select>
-        </label>
-        <label
-          >Tom de destino
-          <select [value]="targetKey" (change)="targetKey = textValue($event)">
-            <option value="" disabled>Escolha o tom de destino</option>
-            @for (key of score.keys; track key.id) {
-            <option [value]="key.id">{{ key.label }}</option>
-            }
-          </select>
-        </label>
-        <button
-          type="button"
-          (click)="previewTransform('key')"
-          [disabled]="session.busy() || !sourceKey || !targetKey"
-        >
-          Prévia para tom (partitura toda)
-        </button>
-      </div>
-      <div class="edit-fields">
-        <label
-          >Instrumento de destino
-          <select [value]="targetInstrument" (change)="targetInstrument = textValue($event)">
-            @for (instrument of score.instruments; track instrument.id) {
-            <option [value]="instrument.id">{{ instrument.name }}</option>
-            }
-          </select>
-        </label>
-        <button type="button" (click)="previewTransform('instrument')" [disabled]="session.busy()">
-          Prévia da transposição instrumental
-        </button>
-        <button type="button" (click)="previewTransform('sounding')" [disabled]="session.busy()">
-          Converter para som real
-        </button>
-      </div>
-    </div>
-    @if (session.preview(); as preview) {
-    <div class="preview" role="status">
-      <h3>Prévia: {{ preview.description }}</h3>
-      <p>
-        {{ preview.changedNotes }} notas alteradas · {{ preview.warningsAfter.length }} avisos de
-        extensão após a mudança
-      </p>
-      <ul>
-        @for (change of preview.changes; track change.partId + '-' + change.measureIndex + '-' +
-        change.eventIndex) {
-        <li>
-          Compasso {{ change.measureIndex + 1 }}, evento {{ change.eventIndex + 1 }}: {{ change.from
-          }} → {{ change.to }}
-        </li>
+        </div>
         }
-      </ul>
-      <button type="button" (click)="applyPreview()" [disabled]="session.busy()">
-        Aplicar mudança
-      </button>
-    </div>
-    } @if (score.rangeWarnings.length) {
-    <div class="range-warnings" role="status">
-      <h3>Avisos de extensão</h3>
-      <ul>
-        @for (warning of score.rangeWarnings; track warning.partId + '-' + warning.measureIndex +
-        '-' + warning.eventIndex) {
-        <li>
-          {{ warning.pitch }} · compasso {{ warning.measureIndex + 1 }} · {{ warning.kind ===
-          'OUTSIDE_RANGE' ? 'fora da extensão' : 'acima da zona confortável' }}
-        </li>
+        <div class="transform-controls">
+          <h3>Transpor e adaptar</h3>
+          <div class="edit-fields">
+            <label
+              >Semitons
+              <input
+                type="number"
+                min="-48"
+                max="48"
+                [value]="semitones"
+                (input)="semitones = numberValue($event)"
+              />
+            </label>
+            <button
+              type="button"
+              (click)="previewTransform('interval')"
+              [disabled]="session.busy()"
+            >
+              Prévia de intervalo
+            </button>
+            <button
+              type="button"
+              (click)="semitones = -12; previewTransform('octave')"
+              [disabled]="session.busy()"
+            >
+              Oitava abaixo
+            </button>
+            <button
+              type="button"
+              (click)="semitones = 12; previewTransform('octave')"
+              [disabled]="session.busy()"
+            >
+              Oitava acima
+            </button>
+          </div>
+          <div class="edit-fields">
+            <label
+              >Tom de origem (escolha explícita)
+              <select [value]="sourceKey" (change)="sourceKey = textValue($event)">
+                <option value="" disabled>Escolha o tom de origem</option>
+                @for (key of score.keys; track key.id) {
+                <option [value]="key.id" [selected]="sourceKey === key.id">{{ key.label }}</option>
+                }
+              </select>
+            </label>
+            <label
+              >Tom de destino
+              <select [value]="targetKey" (change)="targetKey = textValue($event)">
+                <option value="" disabled>Escolha o tom de destino</option>
+                @for (key of score.keys; track key.id) {
+                <option [value]="key.id" [selected]="targetKey === key.id">{{ key.label }}</option>
+                }
+              </select>
+            </label>
+            <button
+              type="button"
+              (click)="previewTransform('key')"
+              [disabled]="session.busy() || !sourceKey || !targetKey"
+            >
+              Prévia para tom (partitura toda)
+            </button>
+          </div>
+          <div class="edit-fields">
+            <label
+              >Instrumento de destino
+              <select [value]="targetInstrument" (change)="targetInstrument = textValue($event)">
+                @for (instrument of score.instruments; track instrument.id) {
+                <option [value]="instrument.id" [selected]="targetInstrument === instrument.id">
+                  {{ instrument.name }}
+                </option>
+                }
+              </select>
+            </label>
+            <button
+              type="button"
+              (click)="previewTransform('instrument')"
+              [disabled]="session.busy()"
+            >
+              Prévia da transposição instrumental
+            </button>
+            <button
+              type="button"
+              (click)="previewTransform('sounding')"
+              [disabled]="session.busy()"
+            >
+              Converter para som real
+            </button>
+          </div>
+        </div>
+        @if (session.preview(); as preview) {
+        <div class="preview" role="status">
+          <h3>Prévia: {{ preview.description }}</h3>
+          <p>
+            {{ preview.changedNotes }} notas alteradas · {{ preview.warningsAfter.length }} avisos
+            de extensão após a mudança
+          </p>
+          <ul>
+            @for (change of preview.changes; track change.partId + '-' + change.measureIndex + '-' +
+            change.voiceId + '-' + change.eventIndex) {
+            <li>
+              Compasso {{ change.measureIndex + 1 }}, voz {{ change.voiceId ?? '1' }}, evento {{
+              change.eventIndex + 1 }}: {{ change.from }} → {{ change.to }}
+            </li>
+            }
+          </ul>
+          <button type="button" (click)="applyPreview()" [disabled]="session.busy()">
+            Aplicar mudança
+          </button>
+        </div>
+        } @if (score.rangeWarnings.length) {
+        <div class="range-warnings" role="status">
+          <h3>Avisos de extensão</h3>
+          <ul>
+            @for (warning of score.rangeWarnings; track warning.partId + '-' + warning.measureIndex
+            + '-' + warning.voiceId + '-' + warning.eventIndex) {
+            <li>
+              {{ warning.pitch }} · compasso {{ warning.measureIndex + 1 }} · voz {{ warning.voiceId
+              ?? '1' }} · {{ warning.kind === 'OUTSIDE_RANGE' ? 'fora da extensão' : 'acima da zona
+              confortável' }}
+            </li>
+            }
+          </ul>
+        </div>
         }
-      </ul>
-    </div>
+      </details>
+    </aside>
     }
-  </section>
-  }
+  </div>
 </section>

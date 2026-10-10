@@ -75,8 +75,12 @@ public final class MidiScorePlayer implements AutoCloseable {
   }
 
   public synchronized void pause() {
-    updatePosition();
-    if (sequencer != null) sequencer.stop();
+    if (sequencer != null) {
+      sequencer.stop();
+      position = Math.max(0, Math.min(timeline.totalTicks(), sequencer.getTickPosition() - offset));
+      if (synthesizer != null)
+        for (var channel : synthesizer.getChannels()) if (channel != null) channel.allNotesOff();
+    }
     if ("PLAYING".equals(status)) status = "PAUSED";
   }
 

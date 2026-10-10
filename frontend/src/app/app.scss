@@ -1,134 +1,253 @@
+:host {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  min-height: 420px;
+  overflow: hidden;
+}
 .app-header {
-  height: 72px;
+  min-height: 40px;
   display: flex;
   align-items: center;
-  padding: 0 2rem;
+  padding: 0 var(--space-3);
   border-bottom: 1px solid var(--border);
-  gap: 2rem;
+  gap: var(--space-5);
+  background: var(--surface);
+  z-index: var(--layer-menu);
 }
 .wordmark {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   color: var(--primary);
   text-decoration: none;
-  letter-spacing: 0.2em;
+  letter-spacing: 0.1em;
   font-weight: 600;
-  font-size: 1.05rem;
+  font-size: 11px;
 }
-.app-description {
-  font-size: 0.6rem;
-  letter-spacing: 0.16em;
+.brand-mark {
+  color: var(--accent);
+  border: 1px solid var(--color-border-default);
+  padding: 0 4px;
+  font-size: 14px;
+  line-height: 20px;
+  letter-spacing: 0;
+}
+.menubar {
+  display: flex;
+  gap: 2px;
+}
+.menu {
+  position: relative;
+}
+.menu summary {
+  font-size: var(--text-control);
+  cursor: pointer;
+  list-style: none;
+  padding: 5px 8px;
+  border-radius: var(--radius);
   color: var(--secondary);
+}
+.menu summary::-webkit-details-marker {
+  display: none;
+}
+.menu[open] summary,
+.menu summary:hover {
+  background: var(--hover);
+  color: var(--primary);
+}
+.menu-popup {
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 0;
+  min-width: 245px;
+  padding: 4px;
+  background: var(--raised);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-overlay);
+}
+.menu-popup button {
+  font-size: var(--text-control);
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  background: transparent;
+  border-color: transparent;
+  text-align: left;
+  white-space: nowrap;
+}
+.menu-popup button[aria-pressed='true'] {
+  background: var(--selection);
+  color: var(--accent);
 }
 .local-label {
   margin-left: auto;
+  white-space: nowrap;
   color: var(--secondary);
-  font-size: 0.7rem;
+  font-size: var(--text-small);
 }
 .workspace-shell {
-  display: grid;
-  grid-template-columns: 200px minmax(0, 1fr);
-  min-height: calc(100dvh - 132px);
-}
-nav {
-  position: relative;
-  padding: 2rem 1rem 5rem;
-  background: var(--surface);
-  border-right: 1px solid var(--border);
-}
-nav .eyebrow {
-  padding: 0 0.75rem;
-  margin-bottom: 1.5rem;
-  font-size: 0.57rem;
-}
-nav button {
-  width: 100%;
   display: flex;
+  flex: 1;
+  min-height: 0;
+}
+.activity-bar {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 68px;
+  border-right: 1px solid var(--border);
+  background: var(--sidebar);
+  padding-top: var(--space-2);
+}
+.activity-bar button {
+  display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 0.85rem;
-  text-align: left;
-  padding: 0.8rem 0.75rem;
-  margin-bottom: 0.5rem;
-  background: none;
+  justify-content: center;
+  gap: 8px;
+  min-height: 64px;
+  width: 100%;
+  border: 0;
+  border-left: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
   color: var(--secondary);
-  border: 1px solid transparent;
-  border-radius: 2px;
+  font-size: 11px;
 }
-nav button span {
-  width: 18px;
-  font-size: 1.2rem;
-  text-align: center;
-}
-nav button[aria-current] {
-  color: var(--primary);
+.activity-bar button[aria-current] {
+  color: var(--accent);
   background: var(--raised);
-  border-color: var(--border);
-  box-shadow: inset 2px 0 var(--accent);
+  border-left-color: var(--accent-fill);
 }
-.edition {
-  position: absolute;
-  bottom: 2rem;
-  left: 1.75rem;
-  font: 0.7rem var(--mono);
-  color: var(--secondary);
-}
-.edition span {
-  display: block;
-  margin-top: 0.4rem;
-  font: 0.65rem var(--ui);
+.activity-bar .help-button {
+  margin-top: auto;
 }
 main {
-  padding: 2.5rem clamp(1.5rem, 3vw, 4rem);
-  max-width: 1500px;
-  width: 100%;
-  margin-inline: auto;
+  overscroll-behavior: contain;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  padding: var(--space-5);
 }
-footer {
-  min-height: 60px;
-  display: flex;
-  align-items: center;
-  gap: 1.5rem;
-  padding: 1rem 2rem;
+main.score-view {
+  padding: 0;
+  overflow: hidden;
+}
+.audio-dock {
   border-top: 1px solid var(--border);
   background: var(--surface);
-  font-size: 0.65rem;
+  padding: var(--space-2) var(--space-4);
+}
+.statusbar {
+  min-height: 26px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: 3px var(--space-3);
+  background: var(--raised);
+  border-top: 1px solid var(--border);
+  color: var(--secondary);
+  font-size: 11px;
+}
+.statusbar a {
+  color: var(--secondary);
+  text-decoration: none;
+}
+.local-state span {
+  color: var(--success);
+  font-size: 8px;
+}
+.status-spacer {
+  flex: 1;
+}
+.shutdown-notice {
+  margin: 0;
+  padding: 8px 16px;
+  background: var(--raised);
+}
+.help-dialog {
+  color: var(--primary);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-dialog);
+  padding: var(--space-5);
+  width: min(580px, calc(100% - 32px));
+  max-height: 85dvh;
+}
+.help-dialog::backdrop {
+  background: var(--overlay);
+}
+.dialog-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.help-dialog p {
   color: var(--secondary);
 }
-footer a {
-  color: var(--secondary);
-  text-underline-offset: 3px;
+.help-dialog dl div {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
 }
-@media (max-width: 760px) {
+.help-dialog dd {
+  font: 11px var(--mono);
+  margin: 0;
+}
+.help-dialog form {
+  text-align: right;
+}
+@media (max-width: 1000px) {
+  .local-label {
+    display: none;
+  }
   .app-header {
-    padding-inline: 1rem;
+    gap: 12px;
   }
-  .app-description {
-    display: none;
+}
+@media (max-width: 700px) {
+  .app-header {
+    flex-wrap: wrap;
+    padding-block: 6px;
+    gap: 6px;
   }
-  .workspace-shell {
-    display: block;
+  .menubar {
+    width: 100%;
+    flex-wrap: wrap;
   }
-  nav {
-    display: flex;
-    gap: 0.5rem;
-    padding: 0.6rem 1rem;
-    border-right: 0;
-    border-bottom: 1px solid var(--border);
+  .menu-popup {
+    position: fixed;
+    left: 12px !important;
+    right: 12px !important;
+    top: 96px;
+    min-width: 0;
   }
-  nav .eyebrow,
-  .edition {
-    display: none;
+  .menu summary {
+    padding: 4px 6px;
+    font-size: 11px;
   }
-  nav button {
-    width: auto;
-    margin: 0;
+  .menu:nth-child(n + 4) .menu-popup {
+    left: auto;
+    right: 0;
+  }
+  .activity-bar {
+    flex-basis: 64px;
+  }
+  .activity-bar button {
+    font-size: 11px;
   }
   main {
-    padding: 1.5rem;
+    padding: 12px;
   }
-  footer {
+  .document-status {
+    display: none;
+  }
+  .statusbar {
+    gap: 8px;
     flex-wrap: wrap;
-    padding-inline: 1rem;
-  }
-  .transport {
-    width: 100%;
   }
 }

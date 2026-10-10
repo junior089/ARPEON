@@ -1,13 +1,28 @@
 <section class="import-panel" aria-labelledby="import-heading">
-  <p class="eyebrow">IMPORTAÇÃO LOCAL · MILESTONE 4</p>
-  <h1 id="import-heading">Transformar uma melodia em rascunho</h1>
+  <h1 id="import-heading">Importar e reconhecer</h1>
   <p>
-    Analise uma sequência de notas, MIDI monofônico ou WAV curto. Confira a prévia antes de criar
-    uma partitura; nenhuma fonte é enviada pela internet.
+    Escolha a origem e revise o reconhecimento antes de abrir a partitura no editor. Arquivos locais
+    são processados neste computador.
   </p>
 
+  <nav class="source-tabs" aria-label="Origem da importação">
+    @for (tab of sourceTabs; track tab.id) {
+    <button
+      type="button"
+      [attr.aria-pressed]="sourceTab() === tab.id"
+      (click)="sourceTab.set(tab.id)"
+    >
+      {{ tab.label }}
+    </button>
+    }
+  </nav>
+  <div class="import-flow" aria-label="Etapas da importação">
+    <span [class.current]="!pending() && !omrPending()">1 · Selecionar origem</span
+    ><span [class.current]="pending() || omrPending()">2 · Revisar reconhecimento</span
+    ><span>3 · Abrir no editor</span>
+  </div>
   <div class="import-sources">
-    <div class="source-card">
+    <div class="source-card" [hidden]="sourceTab() !=='paste'">
       <h2>Colar notas</h2>
       <label
         >Notação
@@ -17,7 +32,7 @@
           [disabled]="busy()"
         >
           <option value="CIFRA_MELODICA">Cifra melódica (DO RE MI)</option>
-          <option value="SOLFEGE">Solfège (DO RE MI)</option>
+          <option value="SOLFEGE">Solfejo (DO RE MI)</option>
           <option value="NOTES">Notas (C D E)</option>
         </select>
       </label>
@@ -27,7 +42,7 @@
           [value]="pasted"
           (input)="pasted = textValue($event)"
           rows="5"
-          maxlength="65536"
+          maxlength="2097152"
           placeholder="DO4 RE4 MI4 FA#4 ou DO RE MI"
         ></textarea>
       </label>
@@ -35,9 +50,11 @@
         >Oitavas opcionais. Maiúsculas não definem oitava; espaços e hífens não definem ritmo.
         Letras, acordes e repetições ambíguas são recusados.</small
       >
-      <button type="button" (click)="analyzePaste()" [disabled]="busy()">Analisar texto</button>
+      <button type="button" class="primary" (click)="analyzePaste()" [disabled]="busy()">
+        Analisar texto
+      </button>
     </div>
-    <div class="source-card">
+    <div class="source-card" [hidden]="sourceTab() !=='file'">
       <h2>Abrir arquivo</h2>
       <label
         >Arquivo MIDI ou WAV
@@ -49,24 +66,228 @@
         />
       </label>
       <small
-        >MIDI: até 1 MiB, uma voz em PPQ. Áudio: WAV mono PCM 16 bits, 16 ou 48 kHz, até 5 s e 512
-        KiB. Arquivos MusicXML abrem em Partitura.</small
+        >Arquivos locais: MIDI até 32 MiB, uma voz em PPQ; WAV até 32 MiB, mono PCM 16 bits, 16 ou
+        48 kHz, até 120 s. MusicXML abre em Partitura.</small
       >
     </div>
+    <div class="source-card" [hidden]="sourceTab() !=='url'">
+      <h2>Wikimedia Commons</h2>
+      <label
+        >URL da página File: de um MIDI
+        <input
+          type="url"
+          [value]="sourceUrl"
+          (input)="sourceUrl = textValue($event)"
+          placeholder="https://commons.wikimedia.org/wiki/File:MIDI_sample_2018-03-21.mid"
+          maxlength="512"
+          [disabled]="busy()"
+        />
+      </label>
+      <label
+        >Contato para identificação na API (email ou página HTTPS)
+        <input
+          type="text"
+          [value]="contact"
+          (input)="contact = textValue($event)"
+          placeholder="voce@exemplo.org"
+          maxlength="120"
+          [disabled]="busy()"
+        />
+      </label>
+      <small
+        >O contato é enviado à Wikimedia no User-Agent, conforme a política da API; não é salvo pelo
+        ARPEON. Apenas a página indicada é consultada. Limite de uma tentativa a cada 2 s; nenhum
+        rastreamento de site.</small
+      >
+      <button
+        type="button"
+        class="primary"
+        (click)="analyzeUrl()"
+        [disabled]="busy() || !sourceUrl || !contact"
+      >
+        Analisar URL
+      </button>
+    </div>
+    <div class="source-card" [hidden]="sourceTab() !=='omr'">
+      <h2>Partitura em PDF ou imagem</h2>
+      <label
+        >Arquivo para reconhecimento óptico
+        <input
+          type="file"
+          accept=".pdf,.png,.jpg,.jpeg"
+          (change)="analyzeOmr($event)"
+          [disabled]="busy()"
+        />
+      </label>
+      <small>
+        PDF: até 32 páginas e 64 MiB; PNG/JPEG: até 32 MiB. O reconhecimento pode levar até 10
+        minutos e precisa de revisão visual com o original. Confiança por nota indisponível.
+      </small>
+      @if (omrStatus(); as status) { @if (status.installing) {
+      <div class="omr-setup-progress" role="status" aria-live="polite">
+        <p>{{ omrSetupLabel(status) }}</p>
+        @if (status.phase === 'downloading') { @if (status.totalBytes) {
+        <progress
+          [value]="status.downloadedBytes ?? 0"
+          [max]="status.totalBytes"
+          [attr.aria-label]="'Download do Audiveris: ' + omrDownloadPercent(status) + '%'"
+        ></progress>
+        <small>{{ omrDownloadSize(status) }} · {{ omrDownloadPercent(status) }}%</small>
+        } @else {
+        <progress aria-label="Baixando o Audiveris"></progress>
+        <small>{{ omrDownloadSize(status) }}</small>
+        } } @else {
+        <small>Esta etapa pode levar alguns minutos. Mantenha o ARPEON aberto.</small>
+        }
+      </div>
+      } @else if (status.available) {
+      <p class="omr-setup-state is-ready" role="status">
+        Audiveris pronto para reconhecer partituras.
+      </p>
+      } @else if (status.installable) {
+      <p class="omr-setup-state" role="status">
+        Audiveris ainda não está configurado. O ARPEON pode baixar e preparar a versão oficial para
+        este usuário.
+      </p>
+      <button type="button" (click)="installOmr()" [disabled]="busy()">
+        {{ busy() ? 'Baixando e configurando…' : 'Configurar Audiveris automaticamente' }}
+      </button>
+      <small>
+        Download de aproximadamente 81 MiB do GitHub oficial. O pacote é conferido por SHA-256 e
+        extraído na pasta local do ARPEON; não altera a instalação do Windows. É necessária conexão
+        com a internet na primeira configuração.
+      </small>
+      } @else {
+      <p class="omr-setup-state" role="status">
+        Instale o Audiveris para seu sistema ou configure ARPEON_AUDIVERIS_EXECUTABLE antes de
+        iniciar o ARPEON.
+      </p>
+      } } @else {
+      <p class="omr-setup-state" role="status">Verificando o reconhecimento óptico…</p>
+      }
+    </div>
   </div>
+  <p class="provider-note">
+    MuseScore: use uma exportação obtida legitimamente e importe o arquivo local. Cifra Melódica:
+    cole as notas obtidas legitimamente. Outros sites ainda não têm política de acesso aprovada.
+  </p>
 
   @if (error()) {
   <p class="import-error" role="alert">{{ error() }}</p>
+  } @if (omrPending(); as omr) {
+  <div class="import-preview" role="region" aria-label="Prévia do reconhecimento óptico">
+    <h2>{{ omr.title || omr.filename }}</h2>
+    <p>{{ omr.parts }} parte(s) · {{ omr.measures }} compasso(s) · {{ omr.pages }} página(s)</p>
+    @if (omrOriginalUrl()) {
+    <p>
+      <a [href]="omrOriginalUrl()" target="_blank" rel="noopener noreferrer"
+        >Abrir arquivo original para comparar</a
+      >
+    </p>
+    @if (!omrOriginalIsPdf()) {
+    <img class="omr-original" [src]="omrOriginalUrl()" alt="Partitura original selecionada" />
+    } }
+    <p>
+      Páginas a revisar: {{ omr.pagesRequiringReview.join(', ') }}. Compare todas as notas com o
+      original.
+    </p>
+    <p>{{ omr.measuresRequiringReview.length }} compassos a revisar.</p>
+    <div class="preview-pager">
+      <button type="button" [disabled]="omrPage() === 0" (click)="omrPage.set(omrPage() - 1)">
+        Anterior
+      </button>
+      <span
+        >Compassos {{ omrPage() * 25 + 1 }}–{{ pageEnd(omrPage(), 25, omr.recognizedMeasures.length)
+        }} de {{ omr.recognizedMeasures.length }}</span
+      >
+      <button
+        type="button"
+        [disabled]="(omrPage() + 1) * 25 >= omr.recognizedMeasures.length"
+        (click)="omrPage.set(omrPage() + 1)"
+      >
+        Próximos
+      </button>
+    </div>
+    <div class="omr-measures">
+      @for (measure of visibleOmrMeasures(); track $index) {
+      <p>
+        <strong>{{ measure.part }} · compasso {{ measure.number }}</strong><br />{{
+        measure.events.join(' · ') }}
+      </p>
+      }
+    </div>
+    <ul class="warnings">
+      @for (warning of omr.warnings; track warning) {
+      <li>{{ warning }}</li>
+      }
+    </ul>
+    @if (omr.unsupportedSymbols.length) {
+    <p>Símbolos não preservados: {{ omr.unsupportedSymbols.join(', ') }}</p>
+    }
+    <p class="provenance">Original: {{ omr.filename }} · SHA-256: {{ omr.sha256 }}</p>
+    <label class="acknowledge"
+      ><input
+        type="checkbox"
+        [checked]="omrAcknowledged"
+        (change)="omrAcknowledged = checked($event)"
+      />
+      Comparei o reconhecimento com a imagem original e aceito abrir a partitura para
+      revisão.</label
+    >
+    <button
+      type="button"
+      (click)="acceptOmr()"
+      [disabled]="!omrAcknowledged || busy() || session.busy()"
+    >
+      Abrir OMR na Partitura
+    </button>
+  </div>
   } @if (pending(); as preview) {
   <div class="import-preview" role="region" aria-label="Prévia da importação">
-    <p class="eyebrow">PRÉVIA · {{ preview.draft.kind }}</p>
     <h2>{{ preview.draft.filename }}</h2>
+    @if (preview.source; as source) {
+    <p>
+      Fonte:
+      <a [href]="source.pageUrl" target="_blank" rel="noopener noreferrer"
+        >{{ source.providerId }}</a
+      >
+      · consultada em {{ source.fetchedAt }}
+    </p>
+    <p>
+      Licença declarada: {{ source.licenseShortName }} · {{ source.licenseStatus === 'UNKNOWN' ?
+      'direitos desconhecidos' : 'confira atribuição e termos na página original' }}
+    </p>
+    @if (source.licenseUrl) {
+    <p><a [href]="source.licenseUrl" target="_blank" rel="noopener noreferrer">Ver licença</a></p>
+    }
+    <ul class="warnings">
+      @for (step of source.notes; track step) {
+      <li>{{ step }}</li>
+      }
+    </ul>
+    }
     <p>
       {{ preview.draft.notes.length }} notas · Ritmo: {{ preview.draft.rhythm === 'EXACT_TICKS' ?
       'eventos MIDI' : preview.draft.rhythm === 'ESTIMATED' ? 'estimado' : 'ausente' }}
     </p>
+    <div class="preview-pager">
+      <button type="button" [disabled]="draftPage() === 0" (click)="draftPage.set(draftPage() - 1)">
+        Anterior
+      </button>
+      <span
+        >Notas {{ draftPage() * 100 + 1 }}–{{ pageEnd(draftPage(), 100, preview.draft.notes.length)
+        }} de {{ preview.draft.notes.length }}</span
+      >
+      <button
+        type="button"
+        [disabled]="(draftPage() + 1) * 100 >= preview.draft.notes.length"
+        (click)="draftPage.set(draftPage() + 1)"
+      >
+        Próximas
+      </button>
+    </div>
     <ul class="notes">
-      @for (note of preview.draft.notes; track $index) {
+      @for (note of visibleDraftNotes(); track $index) {
       <li [title]="'Confiança: ' + (note.confidence * 100).toFixed(0) + '%'">
         {{ noteLabel(note) }}
       </li>
@@ -83,7 +304,7 @@
         >Oitava para notas sem número
         <select [value]="fallbackOctave" (change)="fallbackOctave = +textValue($event)">
           @for (octave of [0,1,2,3,4,5,6,7,8]; track octave) {
-          <option [value]="octave">{{ octave }}</option>
+          <option [value]="octave" [selected]="fallbackOctave === octave">{{ octave }}</option>
           }
         </select>
       </label>

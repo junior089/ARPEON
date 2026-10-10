@@ -10,7 +10,7 @@ import javax.sound.midi.Track;
 import org.arpeon.domain.instrument.InstrumentProfile;
 import org.arpeon.transport.ScoreTimeline;
 
-/** A local synthesized performance of the supported monophonic MusicXML subset. */
+/** A local synthesized performance of the supported single-voice MusicXML subset. */
 public final class MidiScoreSequence {
   private MidiScoreSequence() {}
 

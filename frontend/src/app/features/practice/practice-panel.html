@@ -1,13 +1,12 @@
 <section class="practice" aria-labelledby="practice-title">
   <header class="practice-heading">
-    <p class="eyebrow">PRÁTICA GUIADA · FLAUTA TRANSVERSAL</p>
-    <h1 id="practice-title">Construa uma rotina, nota por nota</h1>
+    <h1 id="practice-title">Prática de flauta</h1>
     <p>Escolha um exercício. A pauta, a referência MIDI e a escuta usam a mesma altura escrita.</p>
   </header>
 
   <div class="practice-grid">
     <section class="practice-card" aria-labelledby="setup-title">
-      <h2 id="setup-title">1 · Preparar</h2>
+      <h2 id="setup-title">Preparar exercício</h2>
       <div class="practice-fields">
         <label
           >Exercício
@@ -59,7 +58,7 @@
         </label>
         <label class="check"
           ><input type="checkbox" [checked]="loop" (change)="loop = !loop" /> Repetir
-          playback</label
+          reprodução</label
         >
         <label
           >+ BPM por repetição
@@ -74,6 +73,7 @@
       </div>
       <button
         type="button"
+        class="primary"
         (click)="generate()"
         [disabled]="session.busy() || session.view()?.attemptOpen"
       >
@@ -86,8 +86,28 @@
     </section>
 
     <section class="practice-card" aria-labelledby="listen-title">
-      <h2 id="listen-title">2 · Ouvir e tocar</h2>
+      <h2 id="listen-title">Execução e escuta</h2>
+      <div #sheet class="practice-sheet" aria-label="Pauta do exercício"></div>
       @if (session.view(); as exercise) {
+      <p class="sequence-intro">
+        Sequência do exercício · toque em uma nota para consultar a digitação
+      </p>
+      <ol class="note-sequence" aria-label="Sequência de notas">
+        @for (target of exercise.targets; track $index) {
+        <li [class.current]="$index === exercise.targetIndex">
+          <button
+            type="button"
+            [class.inspected]="guidePitch() === target.pitch"
+            [attr.aria-pressed]="guidePitch() === target.pitch"
+            (click)="inspectedPitch.set(target.pitch)"
+          >
+            {{ target.pitch }}
+          </button>
+        </li>
+        }
+      </ol>
+      <app-flute-fingering [pitch]="guidePitch()" />
+      } @if (session.view(); as exercise) {
       <p class="target">
         {{ exercise.targets[exercise.targetIndex]?.pitch ?? 'Sequência concluída' }}
       </p>
@@ -194,21 +214,12 @@
   @if (session.error() || microphone.error()) {
   <p class="practice-error" role="alert">{{ session.error() || microphone.error() }}</p>
   }
-  <div #sheet class="practice-sheet" aria-label="Pauta do exercício"></div>
-  @if (session.view(); as exercise) {
-  <ol class="note-sequence" aria-label="Sequência de notas">
-    @for (target of exercise.targets; track $index) {
-    <li [class.current]="$index === exercise.targetIndex">{{ target.pitch }}</li>
-    }
-  </ol>
-  }
-
   <div class="practice-grid secondary">
     <section class="practice-card" aria-labelledby="finger-title">
-      <h2 id="finger-title">Referência de digitação · flauta</h2>
+      <h2 id="finger-title">Referência de digitação · carta completa</h2>
       <p>
-        Consulte a nota escrita na pauta e sua posição na carta. Alternativas não estão catalogadas
-        nesta versão.
+        A orientação acima destaca uma nota por vez. Abra a carta completa para comparar as
+        posições. Alternativas não estão catalogadas nesta versão.
       </p>
       @if (session.view()?.fingeringDatasetId === 'flute-cc0-chart-v1') {
       <a

@@ -24,7 +24,8 @@ final class SourceRegistry {
               "OFFICIAL_API",
               false,
               true,
-              "One user-selected file; at most one import attempt per 2 seconds per app instance; provider throttling respected",
+              "One user-selected file; at most one import attempt per 2 seconds per app instance;"
+                  + " provider throttling respected",
               "Per-file rights vary; show license metadata and require review of the file page",
               "2026-10-08",
               "MIDI_FILE_PAGE"),
@@ -56,10 +57,15 @@ final class SourceRegistry {
   }
 
   static Provider eligible(URI uri) {
-    if (uri == null || !"https".equalsIgnoreCase(uri.getScheme()) || uri.getHost() == null
-        || uri.getUserInfo() != null || uri.getPort() != -1 || uri.getRawQuery() != null
+    if (uri == null
+        || !"https".equalsIgnoreCase(uri.getScheme())
+        || uri.getHost() == null
+        || uri.getUserInfo() != null
+        || uri.getPort() != -1
+        || uri.getRawQuery() != null
         || uri.getRawFragment() != null)
-      throw new IllegalArgumentException("Use a plain HTTPS file-page URL without query or fragment");
+      throw new IllegalArgumentException(
+          "Use a plain HTTPS file-page URL without query or fragment");
     for (var provider : PROVIDERS)
       if (provider.host().equalsIgnoreCase(uri.getHost())) {
         if (!provider.automationAllowed())

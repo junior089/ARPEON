@@ -32,9 +32,11 @@ import org.arpeon.dsp.pitch.YinPitchDetector;
 
 /** Bounded, local parsers. They never infer complete notation from incomplete sources. */
 public final class LocalImporters {
-  public static final int MAX_TEXT_BYTES = 65_536;
-  public static final int MAX_MIDI_BYTES = 1_048_576;
-  public static final int MAX_WAV_BYTES = 524_288;
+  public static final int MAX_TEXT_BYTES = 2 * 1_048_576;
+  public static final int MAX_MIDI_BYTES = 32 * 1_048_576;
+  public static final int MAX_WAV_BYTES = 32 * 1_048_576;
+  public static final int MAX_DRAFT_NOTES = 8192;
+  public static final int MAX_WAV_SECONDS = 120;
   private static final Pattern ENGLISH = Pattern.compile("(?i)([A-G])(bb|##|b|#)?(-1|[0-9])?");
   private static final Pattern SOLFEGE =
       Pattern.compile("(?i)(DO|RE|MI|FA|SOL|LA|SI)(bb|##|b|#)?(-1|[0-9])?");
@@ -73,7 +75,8 @@ public final class LocalImporters {
       Integer octave = match.group(3) == null ? null : Integer.valueOf(match.group(3));
       if (octave != null) new Pitch(step, accidental, octave);
       notes.add(new ImportDraft.DraftNote(step, accidental, octave, null, null, 1));
-      if (notes.size() > 512) throw new IllegalArgumentException("Too many notes (maximum 512)");
+      if (notes.size() > MAX_DRAFT_NOTES)
+        throw new IllegalArgumentException("Too many notes (maximum " + MAX_DRAFT_NOTES + ")");
     }
     if (notes.isEmpty()) throw new IllegalArgumentException("No notes found");
     var warnings = new ArrayList<String>();
@@ -96,13 +99,14 @@ public final class LocalImporters {
     }
     if (sequence.getDivisionType() != Sequence.PPQ || sequence.getResolution() < 1)
       throw new IllegalArgumentException("Only PPQ MIDI timing is supported");
-    if (sequence.getTracks().length > 32)
+    if (sequence.getTracks().length > 128)
       throw new IllegalArgumentException("Too many MIDI tracks");
     record Timed(long tick, int channel, int pitch, boolean on) {}
     var messages = new ArrayList<Timed>();
     int usedChannel = -1;
     for (var track : sequence.getTracks()) {
-      if (track.size() > 8192) throw new IllegalArgumentException("MIDI track exceeds event limit");
+      if (track.size() > 131_072)
+        throw new IllegalArgumentException("MIDI track exceeds event limit");
       for (int i = 0; i < track.size(); i++) {
         MidiEvent event = track.get(i);
         if (!(event.getMessage() instanceof ShortMessage shortMessage)) continue;
@@ -123,7 +127,7 @@ public final class LocalImporters {
       }
     }
     messages.sort(Comparator.comparingLong(Timed::tick).thenComparing(Timed::on));
-    if (messages.size() > 2048) throw new IllegalArgumentException("Too many MIDI note events");
+    if (messages.size() > 32_768) throw new IllegalArgumentException("Too many MIDI note events");
     var open = new TreeMap<Integer, Long>();
     var notes = new ArrayList<ImportDraft.DraftNote>();
     for (var message : messages) {
@@ -141,7 +145,8 @@ public final class LocalImporters {
         notes.add(
             new ImportDraft.DraftNote(
                 pitch.pitchClass(), pitch.accidental(), pitch.octave(), onset, end - onset, 1));
-        if (notes.size() > 512) throw new IllegalArgumentException("Too many notes (maximum 512)");
+        if (notes.size() > MAX_DRAFT_NOTES)
+          throw new IllegalArgumentException("Too many notes (maximum " + MAX_DRAFT_NOTES + ")");
       }
     }
     if (!open.isEmpty()) throw new IllegalArgumentException("Unclosed MIDI note");
@@ -168,7 +173,7 @@ public final class LocalImporters {
   }
 
   private static long scaleTick(long tick, int resolution) {
-    if (tick < 0 || tick > 2_000_000 || tick * 480 % resolution != 0)
+    if (tick < 0 || tick > 50_000_000 || tick * 480 % resolution != 0)
       throw new IllegalArgumentException("MIDI ticks cannot be represented exactly at 480 PPQ");
     return tick * 480 / resolution;
   }
@@ -186,11 +191,11 @@ public final class LocalImporters {
           || format.isBigEndian()
           || (rate != 16000 && rate != 48000)
           || stream.getFrameLength() < 1
-          || stream.getFrameLength() > rate * 5L)
+          || stream.getFrameLength() > rate * (long) MAX_WAV_SECONDS)
         throw new IllegalArgumentException(
-            "Prototype accepts mono 16-bit PCM WAV at 16 or 48 kHz, up to 5 seconds");
-      byte[] pcm = stream.readNBytes(rate * 10 + 1);
-      if (pcm.length > rate * 10 || pcm.length % 2 != 0)
+            "Prototype accepts mono 16-bit PCM WAV at 16 or 48 kHz, up to 120 seconds");
+      byte[] pcm = stream.readNBytes(rate * MAX_WAV_SECONDS * 2 + 1);
+      if (pcm.length > rate * MAX_WAV_SECONDS * 2 || pcm.length % 2 != 0)
         throw new IllegalArgumentException("WAV PCM length exceeds limit");
       int stride = rate / 16000;
       var sample = ByteBuffer.wrap(pcm).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer();
@@ -214,6 +219,8 @@ public final class LocalImporters {
         if (current != previous) {
           if (previous >= 0 && count >= 2)
             notes.add(audioNote(previous, start, offset, confidence / count));
+          if (notes.size() > MAX_DRAFT_NOTES)
+            throw new IllegalArgumentException("Too many detected notes");
           previous = current;
           start = offset;
           confidence = 0;
@@ -226,6 +233,8 @@ public final class LocalImporters {
       }
       if (previous >= 0 && count >= 2)
         notes.add(audioNote(previous, start, mono.length, confidence / count));
+      if (notes.size() > MAX_DRAFT_NOTES)
+        throw new IllegalArgumentException("Too many detected notes");
       if (notes.isEmpty())
         throw new IllegalArgumentException("No stable monophonic pitch detected");
       return new ImportDraft(

@@ -4,12 +4,14 @@ import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import org.arpeon.domain.instrument.InstrumentProfile;
+import org.arpeon.domain.score.Chord;
 import org.arpeon.domain.score.MusicalKey;
 import org.arpeon.domain.score.Note;
 import org.arpeon.domain.score.Score;
 import org.arpeon.domain.time.Duration;
+import org.arpeon.domain.time.ScoreOffset;
 
-/** Writes the supported canonical monophonic subset without changing the user's source file. */
+/** Writes the supported canonical MusicXML subset without changing the user's source file. */
 public final class MusicXmlExporter {
   private static final int DIVISIONS = 480;
 
@@ -66,6 +68,7 @@ public final class MusicXmlExporter {
         xml.append("<measure number=\"").append(escape(measure.number())).append('"');
         if (measure.pickup()) xml.append(" implicit=\"yes\"");
         xml.append(">\n");
+        appendBarline(xml, score, index, "left");
         if (index == 0
             || !measure.timeSignature().equals(part.measures().get(index - 1).timeSignature())) {
           xml.append("<attributes><divisions>").append(DIVISIONS).append("</divisions>");
@@ -94,29 +97,44 @@ public final class MusicXmlExporter {
                     xml.append("<sound tempo=\"")
                         .append(tempo.quarterNotesPerMinute())
                         .append("\"/>\n"));
-        for (var event : measure.events()) {
-          xml.append("<note>");
-          if (event instanceof Note note) {
-            var pitch = note.writtenPitch();
-            xml.append("<pitch><step>")
-                .append(pitch.pitchClass())
-                .append("</step><alter>")
-                .append(pitch.accidental().semitones())
-                .append("</alter><octave>")
-                .append(pitch.octave())
-                .append("</octave></pitch>");
-          } else xml.append("<rest/>");
-          xml.append("<duration>").append(ticks(event.duration())).append("</duration>");
-          appendType(xml, event.duration());
-          xml.append("</note>\n");
+        long cursor = 0;
+        boolean firstVoice = true;
+        for (var voice : measure.voices()) {
+          if (!firstVoice && cursor > 0) {
+            xml.append("<backup><duration>").append(cursor).append("</duration></backup>\n");
+            cursor = 0;
+          }
+          firstVoice = false;
+          for (var timed : voice.events()) {
+            long onset = ticks(timed.onset());
+            if (onset < cursor) throw new IllegalArgumentException("Voice events overlap");
+            if (onset > cursor)
+              xml.append("<forward><duration>")
+                  .append(onset - cursor)
+                  .append("</duration></forward>\n");
+            appendEvent(xml, timed.event(), voice.id());
+            cursor = Math.addExact(onset, ticks(timed.event().duration()));
+          }
         }
+        if (measure.voices().size() == 1 && measure.voices().getFirst().explicitlyTimed()) {
+          long measureEnd =
+              ticks(
+                  new ScoreOffset(
+                      measure.timeSignature().measureDuration().numerator(),
+                      measure.timeSignature().measureDuration().denominator()));
+          if (cursor < measureEnd)
+            xml.append("<forward><duration>")
+                .append(measureEnd - cursor)
+                .append("</duration></forward>\n");
+        }
+        appendBarline(xml, score, index, "right");
         xml.append("</measure>\n");
       }
       xml.append("</part>\n");
     }
     xml.append("</score-partwise>\n");
     if (xml.toString().getBytes(StandardCharsets.UTF_8).length > MusicXmlImporter.MAX_BYTES)
-      throw new IllegalArgumentException("Edited MusicXML exceeds the 1 MiB limit");
+      throw new IllegalArgumentException("Edited MusicXML exceeds the 128 MiB limit");
     return xml.toString();
   }
 
@@ -127,6 +145,96 @@ public final class MusicXmlExporter {
     if (result[1].signum() != 0)
       throw new IllegalArgumentException("Duration cannot be exported exactly");
     return result[0].longValueExact();
+  }
+
+  private static void appendBarline(
+      StringBuilder xml, Score score, int measureIndex, String location) {
+    var markers = new StringBuilder();
+    for (var ending : score.endingRegions()) {
+      if (location.equals("left") && ending.startMeasure() == measureIndex)
+        markers
+            .append("<ending number=\"")
+            .append(
+                ending.passes().stream()
+                    .sorted()
+                    .map(String::valueOf)
+                    .collect(java.util.stream.Collectors.joining(",")))
+            .append("\" type=\"start\"/>");
+      if (location.equals("right") && ending.endMeasure() == measureIndex)
+        markers
+            .append("<ending number=\"")
+            .append(
+                ending.passes().stream()
+                    .sorted()
+                    .map(String::valueOf)
+                    .collect(java.util.stream.Collectors.joining(",")))
+            .append("\" type=\"stop\"/>");
+    }
+    for (var repeat : score.repeatRegions()) {
+      if (location.equals("left") && repeat.startMeasure() == measureIndex)
+        markers.append("<repeat direction=\"forward\"/>");
+      if (location.equals("right") && repeat.endMeasure() == measureIndex)
+        markers
+            .append("<repeat direction=\"backward\" times=\"")
+            .append(repeat.passes())
+            .append("\"/>");
+    }
+    if (!markers.isEmpty())
+      xml.append("<barline location=\"")
+          .append(location)
+          .append("\">")
+          .append(markers)
+          .append("</barline>\n");
+  }
+
+  private static long ticks(ScoreOffset offset) {
+    var value = BigInteger.valueOf(offset.numerator()).multiply(BigInteger.valueOf(4L * DIVISIONS));
+    var result = value.divideAndRemainder(BigInteger.valueOf(offset.denominator()));
+    if (result[1].signum() != 0)
+      throw new IllegalArgumentException("Voice onset cannot be exported exactly");
+    return result[0].longValueExact();
+  }
+
+  private static void appendEvent(
+      StringBuilder xml, org.arpeon.domain.score.ScoreEvent event, String voiceId) {
+    if (event instanceof Chord chord) {
+      for (int head = 0; head < chord.notes().size(); head++)
+        appendNote(xml, chord.notes().get(head), head > 0, voiceId);
+    } else if (event instanceof Note note) appendNote(xml, note, false, voiceId);
+    else {
+      xml.append("<note><rest/><duration>")
+          .append(ticks(event.duration()))
+          .append("</duration><voice>")
+          .append(escape(voiceId))
+          .append("</voice>");
+      appendType(xml, event.duration());
+      xml.append("</note>\n");
+    }
+  }
+
+  private static void appendNote(StringBuilder xml, Note note, boolean chordHead, String voiceId) {
+    xml.append("<note>");
+    if (chordHead) xml.append("<chord/>");
+    var pitch = note.writtenPitch();
+    xml.append("<pitch><step>")
+        .append(pitch.pitchClass())
+        .append("</step><alter>")
+        .append(pitch.accidental().semitones())
+        .append("</alter><octave>")
+        .append(pitch.octave())
+        .append("</octave></pitch>");
+    xml.append("<duration>").append(ticks(note.duration())).append("</duration>");
+    if (note.tieStop()) xml.append("<tie type=\"stop\"/>");
+    if (note.tieStart()) xml.append("<tie type=\"start\"/>");
+    xml.append("<voice>").append(escape(voiceId)).append("</voice>");
+    appendType(xml, note.duration());
+    if (note.tieStart() || note.tieStop()) {
+      xml.append("<notations>");
+      if (note.tieStop()) xml.append("<tied type=\"stop\"/>");
+      if (note.tieStart()) xml.append("<tied type=\"start\"/>");
+      xml.append("</notations>");
+    }
+    xml.append("</note>\n");
   }
 
   private static void appendType(StringBuilder xml, Duration duration) {

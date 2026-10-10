@@ -2,10 +2,14 @@ package org.arpeon.transport;
 
 import java.math.BigInteger;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import org.arpeon.domain.pitch.Pitch;
 import org.arpeon.domain.score.Note;
 import org.arpeon.domain.score.Score;
 import org.arpeon.domain.time.Duration;
+import org.arpeon.domain.time.ScoreOffset;
 import org.arpeon.domain.time.TimeSignature;
 
 /** Exact score positions in MIDI quarter-note ticks; elapsed seconds are converted explicitly. */
@@ -31,59 +35,106 @@ public final class ScoreTimeline {
     var positions = new ArrayList<MeasurePosition>();
     var notePositions = new ArrayList<NotePosition>();
     var tempoPositions = new ArrayList<TempoPosition>();
-    long tick = 0;
-    double bpm = 120; // Explicit playback default when the source has no tempo.
-    tempoPositions.add(new TempoPosition(0, bpm));
-    for (int i = 0; i < first.size(); i++) {
-      var reference = first.get(i);
-      long length =
-          durationTicks(
-              reference.events().stream()
-                  .map(e -> e.duration())
-                  .reduce(Duration::plus)
-                  .orElseThrow());
+    var previousTieIndexes = new ArrayList<Map<String, Map<Pitch, Integer>>>();
+    for (int i = 0; i < score.parts().size(); i++) previousTieIndexes.add(Map.of());
+    var writtenTempos = new ArrayList<Double>(first.size());
+    double writtenBpm = 120;
+    for (int measureIndex = 0; measureIndex < first.size(); measureIndex++) {
+      Double declared = null;
       for (var part : score.parts()) {
         if (part.measures().size() != first.size())
           throw new IllegalArgumentException("Parts have different measure counts");
-        var measure = part.measures().get(i);
-        long partLength =
-            durationTicks(
-                measure.events().stream()
-                    .map(e -> e.duration())
-                    .reduce(Duration::plus)
-                    .orElseThrow());
+        var tempo = part.measures().get(measureIndex).tempo();
+        if (tempo.isPresent()) {
+          double current = tempo.orElseThrow().quarterNotesPerMinute();
+          if (declared != null && declared != current)
+            throw new IllegalArgumentException("Conflicting tempos at one measure");
+          declared = current;
+        }
+      }
+      if (declared != null) writtenBpm = declared;
+      writtenTempos.add(writtenBpm);
+    }
+    long tick = 0;
+    double bpm = 120; // Explicit playback default when the source has no tempo.
+    tempoPositions.add(new TempoPosition(0, bpm));
+    List<ExecutionMap.Occurrence> execution = ExecutionMap.expand(score);
+    int previousRepeatStart = -1;
+    int previousPass = -1;
+    for (int i = 0; i < execution.size(); i++) {
+      var occurrence = execution.get(i);
+      int writtenIndex = occurrence.measureIndex();
+      if (occurrence.repeatStartMeasure() != previousRepeatStart
+          || occurrence.pass() != previousPass) {
+        if (occurrence.repeatStartMeasure() >= 0 && occurrence.pass() > 1)
+          for (int partIndex = 0; partIndex < previousTieIndexes.size(); partIndex++)
+            previousTieIndexes.set(partIndex, Map.of());
+        previousRepeatStart = occurrence.repeatStartMeasure();
+        previousPass = occurrence.pass();
+      }
+      var reference = first.get(writtenIndex);
+      long length = measureLength(reference);
+      for (var part : score.parts()) {
+        var measure = part.measures().get(writtenIndex);
+        long partLength = measureLength(measure);
         if (!measure.number().equals(reference.number())
             || !measure.timeSignature().equals(reference.timeSignature())
             || measure.pickup() != reference.pickup()
             || partLength != length)
           throw new IllegalArgumentException("Parts have incompatible measure timelines");
-        if (measure.tempo().isPresent()) {
-          double declared = measure.tempo().orElseThrow().quarterNotesPerMinute();
-          for (var other : score.parts()) {
-            var otherTempo = other.measures().get(i).tempo();
-            if (otherTempo.isPresent()
-                && otherTempo.orElseThrow().quarterNotesPerMinute() != declared)
-              throw new IllegalArgumentException("Conflicting tempos at one measure");
-          }
-          if (declared != bpm) {
-            bpm = declared;
-            if (tick == 0) tempoPositions.set(0, new TempoPosition(0, bpm));
-            else tempoPositions.add(new TempoPosition(tick, bpm));
-          }
-        }
+      }
+      double measureBpm = writtenTempos.get(writtenIndex);
+      if (measureBpm != bpm) {
+        bpm = measureBpm;
+        if (tick == 0) tempoPositions.set(0, new TempoPosition(0, bpm));
+        else tempoPositions.add(new TempoPosition(tick, bpm));
       }
       positions.add(
           new MeasurePosition(i, reference.number(), tick, length, reference.timeSignature()));
       for (int partIndex = 0; partIndex < score.parts().size(); partIndex++) {
-        long eventTick = tick;
-        for (var event : score.parts().get(partIndex).measures().get(i).events()) {
-          long eventLength = durationTicks(event.duration());
-          if (event instanceof Note note)
-            notePositions.add(
-                new NotePosition(
-                    partIndex, eventTick, eventLength, note.writtenPitch().midiNumber()));
-          eventTick = Math.addExact(eventTick, eventLength);
+        var partTies = new LinkedHashMap<String, Map<Pitch, Integer>>();
+        Map<String, Map<Pitch, Integer>> priorPartTies = previousTieIndexes.get(partIndex);
+        for (var voice : score.parts().get(partIndex).measures().get(writtenIndex).voices()) {
+          Map<Pitch, Integer> previousTies = priorPartTies.getOrDefault(voice.id(), Map.of());
+          for (var timed : voice.events()) {
+            var event = timed.event();
+            long eventTick =
+                Math.addExact(
+                    tick, offsetTicks(timed.onset().numerator(), timed.onset().denominator()));
+            long eventLength = durationTicks(event.duration());
+            var heads = new LinkedHashMap<Pitch, Note>();
+            for (Note note : event.noteHeads()) heads.put(note.writtenPitch(), note);
+            for (var previous : previousTies.entrySet()) {
+              Note continuation = heads.get(previous.getKey());
+              if (continuation == null || !continuation.tieStop())
+                throw new IllegalArgumentException("Invalid note tie in score timeline");
+            }
+            var nextTies = new LinkedHashMap<Pitch, Integer>();
+            for (Note note : event.noteHeads()) {
+              int midi = note.writtenPitch().midiNumber();
+              Integer previousIndex = previousTies.get(note.writtenPitch());
+              if (note.tieStop()) {
+                if (previousIndex == null)
+                  throw new IllegalArgumentException("Invalid note tie in score timeline");
+                NotePosition previous = notePositions.get(previousIndex);
+                notePositions.set(
+                    previousIndex,
+                    new NotePosition(
+                        partIndex,
+                        previous.startTick(),
+                        Math.addExact(previous.durationTicks(), eventLength),
+                        midi));
+                if (note.tieStart()) nextTies.put(note.writtenPitch(), previousIndex);
+              } else {
+                notePositions.add(new NotePosition(partIndex, eventTick, eventLength, midi));
+                if (note.tieStart()) nextTies.put(note.writtenPitch(), notePositions.size() - 1);
+              }
+            }
+            previousTies = Map.copyOf(nextTies);
+          }
+          if (!previousTies.isEmpty()) partTies.put(voice.id(), previousTies);
         }
+        previousTieIndexes.set(partIndex, Map.copyOf(partTies));
       }
       tick = Math.addExact(tick, length);
     }
@@ -102,6 +153,24 @@ public final class ScoreTimeline {
     if (result[1].signum() != 0 || result[0].signum() <= 0)
       throw new IllegalArgumentException("Duration cannot be represented at 480 PPQ");
     return result[0].longValueExact();
+  }
+
+  private static long offsetTicks(long numerator, long denominator) {
+    var ticks = BigInteger.valueOf(numerator).multiply(BigInteger.valueOf(4L * TICKS_PER_QUARTER));
+    var result = ticks.divideAndRemainder(BigInteger.valueOf(denominator));
+    if (result[1].signum() != 0)
+      throw new IllegalArgumentException("Voice onset cannot be represented in MIDI ticks");
+    return result[0].longValueExact();
+  }
+
+  private static long measureLength(org.arpeon.domain.score.Measure measure) {
+    if (!measure.pickup()) return durationTicks(measure.timeSignature().measureDuration());
+    var latest =
+        measure.voices().stream()
+            .map(voice -> voice.end())
+            .max(ScoreOffset::compareTo)
+            .orElseThrow();
+    return offsetTicks(latest.numerator(), latest.denominator());
   }
 
   public Score score() {

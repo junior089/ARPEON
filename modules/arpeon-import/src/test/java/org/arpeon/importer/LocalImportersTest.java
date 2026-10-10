@@ -62,6 +62,23 @@ class LocalImportersTest {
   }
 
   @Test
+  void acceptsLocalDraftsBeyondTheFormerPrototypeLimits() throws Exception {
+    String text = "C4 ".repeat(513).trim();
+    assertEquals(
+        513,
+        LocalImporters.text(text.getBytes(StandardCharsets.UTF_8), "long.txt", "NOTES")
+            .notes()
+            .size());
+    Sequence sequence = new Sequence(Sequence.PPQ, 480);
+    var track = sequence.createTrack();
+    for (int i = 0; i < 513; i++) add(track, i * 480L, (i + 1) * 480L, 60 + i % 12);
+    var draft = LocalImporters.midi(midiBytes(sequence), "long.mid");
+    assertEquals(513, draft.notes().size());
+    assertEquals(129, DraftScoreBuilder.build(draft, 4, 480).parts().getFirst().measures().size());
+    assertTrue(LocalImporters.wav(sineWav(48_000, 6), "long.wav").notes().size() > 0);
+  }
+
+  @Test
   void midiRetainsExactGapsAndRejectsPolyphony() throws Exception {
     Sequence sequence = new Sequence(Sequence.PPQ, 480);
     var track = sequence.createTrack();
@@ -115,15 +132,19 @@ class LocalImportersTest {
   }
 
   private static byte[] sineWav() {
-    int samples = 16000;
+    return sineWav(16_000, 1);
+  }
+
+  private static byte[] sineWav(int rate, int seconds) {
+    int samples = rate * seconds;
     var buffer = ByteBuffer.allocate(44 + samples * 2).order(ByteOrder.LITTLE_ENDIAN);
     buffer.put("RIFF".getBytes(StandardCharsets.US_ASCII)).putInt(36 + samples * 2);
     buffer.put("WAVEfmt ".getBytes(StandardCharsets.US_ASCII)).putInt(16);
-    buffer.putShort((short) 1).putShort((short) 1).putInt(16000).putInt(32000);
+    buffer.putShort((short) 1).putShort((short) 1).putInt(rate).putInt(rate * 2);
     buffer.putShort((short) 2).putShort((short) 16);
     buffer.put("data".getBytes(StandardCharsets.US_ASCII)).putInt(samples * 2);
     for (int i = 0; i < samples; i++)
-      buffer.putShort((short) (16000 * Math.sin(2 * Math.PI * 440 * i / 16000)));
+      buffer.putShort((short) (16000 * Math.sin(2 * Math.PI * 440 * i / rate)));
     return buffer.array();
   }
 }

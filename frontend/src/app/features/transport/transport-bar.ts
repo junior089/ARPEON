@@ -1,8 +1,10 @@
 import { Component, computed, inject, signal } from '@angular/core';
+import { Icon } from '../../shared/icon';
 import { ScoreSession } from '../score/score-session';
 
 @Component({
   selector: 'app-transport-bar',
+  imports: [Icon],
   templateUrl: './transport-bar.html',
   styleUrl: './transport-bar.scss',
 })

@@ -1,6 +1,8 @@
 package org.arpeon.tuner;
 
 import java.time.Instant;
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.List;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.TimeUnit;
@@ -10,16 +12,19 @@ import org.arpeon.audio.AudioFrame;
 import org.arpeon.audio.AudioInputDevice;
 import org.arpeon.audio.AudioInputPort;
 import org.arpeon.domain.pitch.Pitch;
+import org.arpeon.dsp.onset.RmsAttackDetector;
 import org.arpeon.dsp.pitch.PitchDetection;
 import org.arpeon.dsp.pitch.PitchDetector;
 
 public final class TunerService implements AutoCloseable {
   private final AudioInputPort input;
   private final PitchDetector detector;
+  private final RmsAttackDetector attackDetector = new RmsAttackDetector();
   private final AtomicReference<TunerObservation> observation =
       new AtomicReference<>(
           TunerObservation.inactive(TunerObservation.State.IDLE, 440, "Microphone is off"));
   private final AtomicLong dropped = new AtomicLong();
+  private final Deque<Long> attackTimestamps = new ArrayDeque<>();
   private volatile boolean running;
   private volatile long lastFrameNanos;
   private Thread analysisThread;
@@ -38,10 +43,25 @@ public final class TunerService implements AutoCloseable {
     return observation.get();
   }
 
+  public synchronized boolean hasAttackBetween(long afterEpochMs, long throughEpochMs) {
+    while (!attackTimestamps.isEmpty() && attackTimestamps.peekFirst() <= afterEpochMs)
+      attackTimestamps.removeFirst();
+    boolean found = false;
+    while (!attackTimestamps.isEmpty() && attackTimestamps.peekFirst() <= throughEpochMs) {
+      attackTimestamps.removeFirst();
+      found = true;
+    }
+    return found;
+  }
+
   public synchronized void start(String deviceId, TuningReference tuningReference) {
     stop();
     reference = tuningReference;
     dropped.set(0);
+    attackDetector.reset();
+    synchronized (this) {
+      attackTimestamps.clear();
+    }
     var queue = new ArrayBlockingQueue<AudioFrame>(2);
     running = true;
     lastFrameNanos = System.nanoTime();
@@ -86,6 +106,8 @@ public final class TunerService implements AutoCloseable {
         if (frame == null) continue;
         long started = System.nanoTime();
         var detection = detector.detect(frame);
+        long capturedAtMs = frame.capturedAt().toEpochMilli();
+        if (attackDetector.accept(capturedAtMs, detection.rms())) recordAttack(capturedAtMs);
         double processingMs = (System.nanoTime() - started) / 1e6;
         TunerObservation.State state;
         Double hz = null, cents = null;
@@ -147,6 +169,11 @@ public final class TunerService implements AutoCloseable {
               tuningReference.a4Hz(),
               "Pitch analysis failed. Stop and restart the tuner."));
     }
+  }
+
+  private synchronized void recordAttack(long timestampMs) {
+    if (attackTimestamps.size() == 64) attackTimestamps.removeFirst();
+    attackTimestamps.addLast(timestampMs);
   }
 
   public static double centsBetween(double frequency, double referenceHz) {

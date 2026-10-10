@@ -1,26 +1,32 @@
 <section class="transport" aria-label="Transporte">
   @if (session.transport(); as state) {
+  <span class="transport-document" [title]="session.score()?.title ?? ''"
+    >Partitura <strong>{{ session.score()?.title }}</strong></span
+  >
   <div class="playback-buttons">
     <button
       (click)="session.action('play')"
       [disabled]="session.busy() || state.status === 'PLAYING'"
       aria-label="Reproduzir"
+      title="Reproduzir · Espaço"
     >
-      ▶
+      <app-icon name="play" />
     </button>
     <button
       (click)="session.action('pause')"
       [disabled]="session.busy() || state.status !== 'PLAYING'"
       aria-label="Pausar"
+      title="Pausar · Espaço"
     >
-      Ⅱ
+      <app-icon name="pause" />
     </button>
     <button
       (click)="session.action('stop')"
       [disabled]="session.busy() || state.status === 'STOPPED'"
       aria-label="Parar"
+      title="Parar · Shift+Espaço"
     >
-      ■
+      <app-icon name="stop" />
     </button>
   </div>
   <label class="seek">
@@ -72,6 +78,11 @@
     @else { Parado }
   </span>
   } @else {
+  <div class="playback-buttons" aria-label="Transporte sem partitura">
+    <button disabled aria-label="Reproduzir"><app-icon name="play" /></button
+    ><button disabled aria-label="Pausar"><app-icon name="pause" /></button
+    ><button disabled aria-label="Parar"><app-icon name="stop" /></button>
+  </div>
   <span class="transport-empty"
     >{{ session.score() ? 'Transporte indisponível. Reinicie o ARPEON.' : 'Reprodução disponível ao
     abrir um MusicXML.' }}</span

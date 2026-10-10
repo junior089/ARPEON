@@ -5,7 +5,9 @@ This addendum makes acceptance criteria explicit where that plan leaves room for
 It does not change milestone order. Milestones 2 and 3 are implemented as described in the
 README and beginner-mode document, with remaining hardware verification. Milestone 4 now
 implements the bounded local import subset in [import capabilities](import-capabilities.md);
-Milestones 5–9 remain planned.
+Milestone 5 has one approved, bounded Commons MIDI adapter and a policy registry. Milestones
+6–8 have local OMR, post-run analysis and live score following. Milestone 9 evaluates an
+experimental model against the deterministic follower without enabling it in the app.
 
 ## Milestone 2 — Editing and Transposition
 
@@ -69,4 +71,15 @@ only for sources that permit automation; it is not an unrestricted site scraper.
   access. Provide those manual flows through the supported import formats. Apply the same
   per-provider review to any additional site before adding its adapter.
 
-Milestones 6–9 retain the order and scope in the attached specification.
+Milestone 6 now has a bounded Audiveris CLI adapter and explicit PDF/image review path.
+The executable is installed separately; the narrow MusicXML subset rejects unsupported
+musical structures. Milestones 7–9 retain the order and scope in the attached specification.
+
+Milestone 7 adds fixed-tempo, end-of-attempt monophonic comparison for a selected score part.
+It segments timestamped stable pitch windows, aligns expected and observed events, and reports
+separate pitch, timing, rhythm, intonation, missed/extra and confidence measures. Formulas,
+thresholds and missing-data behavior are in [scoring](../analysis/scoring.md). Score following
+and recovery enter Milestone 8 as the bounded note-sequence follower described in
+[following](../analysis/following.md). Milestone 9 evaluates one synthetic transition model
+against that deterministic baseline; the [benchmark](../analysis/ml-evaluation.md) rejects
+product integration because false jumps increase and real-performance validation is absent.

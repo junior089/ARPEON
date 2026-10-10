@@ -23,7 +23,7 @@ describe('ARPEON shell', () => {
     await fixture.whenStable();
     const element: HTMLElement = fixture.nativeElement as HTMLElement;
     expect(element.textContent).toContain('Abra uma partitura');
-    expect(element.textContent).toContain('Abrir MusicXML');
+    expect(element.textContent).toContain('Abrir partitura');
     expect(element.textContent).toContain('Reprodução disponível ao abrir');
     const tuner = Array.from(element.querySelectorAll<HTMLButtonElement>('nav button')).find((b) =>
       b.textContent?.includes('Afinador'),
@@ -53,5 +53,20 @@ describe('ARPEON shell', () => {
     await fixture.whenStable();
     expect(element.textContent).toContain('Abra uma partitura');
     expect(request.mock.calls.some(([path]) => path === '/api/tuner/start')).toBe(false);
+    const menu = element.querySelector<HTMLDetailsElement>('.menu');
+    const summary = menu?.querySelector('summary');
+    summary?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    expect(menu?.open).toBe(true);
+    summary?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(menu?.open).toBe(false);
+
+    const editorInput = element.querySelector('input');
+    editorInput?.dispatchEvent(
+      new KeyboardEvent('keydown', { key: '4', altKey: true, bubbles: true }),
+    );
+    expect(fixture.componentInstance.view()).toBe('score');
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: '4', altKey: true, bubbles: true }));
+    await fixture.whenStable();
+    expect(fixture.componentInstance.view()).toBe('tuner');
   });
 });

@@ -1,3 +1,4 @@
+import { scoreAppearance } from '../../shared/score-appearance';
 import { DecimalPipe } from '@angular/common';
 import {
   AfterViewInit,
@@ -6,15 +7,18 @@ import {
   inject,
   OnDestroy,
   OnInit,
+  computed,
+  signal,
   ViewChild,
 } from '@angular/core';
 import type { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
 import { TunerSession } from '../tuner/tuner-session';
 import { PracticeOptions, PracticeSession } from './practice-session';
+import { FluteFingering } from '../fingering/flute-fingering';
 
 @Component({
   selector: 'app-practice-panel',
-  imports: [DecimalPipe],
+  imports: [DecimalPipe, FluteFingering],
   providers: [PracticeSession, TunerSession],
   templateUrl: './practice-panel.html',
   styleUrl: './practice-panel.scss',
@@ -22,6 +26,13 @@ import { PracticeOptions, PracticeSession } from './practice-session';
 export class PracticePanel implements OnInit, AfterViewInit, OnDestroy {
   readonly session = inject(PracticeSession);
   readonly microphone = inject(TunerSession);
+  readonly inspectedPitch = signal<string | null>(null);
+  readonly guidePitch = computed(
+    () =>
+      this.inspectedPitch() ??
+      this.session.view()?.targets[this.session.view()?.targetIndex ?? 0]?.pitch ??
+      null,
+  );
   kind = 'NOTE';
   keyId = 'C_MAJOR';
   octave = 4;
@@ -87,7 +98,10 @@ export class PracticePanel implements OnInit, AfterViewInit, OnDestroy {
       loop: this.loop,
       progressiveStep: this.progressiveStep,
     };
-    if (await this.session.generate(options)) await this.render(this.session.view()?.xml ?? '');
+    if (await this.session.generate(options)) {
+      this.inspectedPitch.set(null);
+      await this.render(this.session.view()?.xml ?? '');
+    }
   }
 
   async finish(): Promise<void> {
@@ -106,7 +120,7 @@ export class PracticePanel implements OnInit, AfterViewInit, OnDestroy {
       this.sheet.nativeElement.replaceChildren();
       const renderer = new Constructor(this.sheet.nativeElement, {
         backend: 'svg',
-        darkMode: true,
+        ...scoreAppearance(),
         drawTitle: false,
         autoResize: true,
       });

@@ -12,8 +12,8 @@ import java.util.List;
 
 /** Local summaries only; no microphone samples, account identifiers or score contents. */
 final class PracticeHistory {
-  private static final long MAX_BYTES = 64 * 1024;
-  private static final int MAX_ENTRIES = 50;
+  private static final long MAX_BYTES = 8L * 1024 * 1024;
+  private static final int MAX_ENTRIES = 5000;
   private final Path file;
   private final Gson json = new Gson();
 

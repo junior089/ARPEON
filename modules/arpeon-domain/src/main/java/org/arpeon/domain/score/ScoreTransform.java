@@ -8,7 +8,12 @@ import org.arpeon.domain.pitch.Pitch;
 /** Pure pitch transformations. Duration and measure structure are retained by ScoreDocument. */
 public final class ScoreTransform {
   public record RangeWarning(
-      String partId, int measureIndex, int eventIndex, String pitch, String kind) {}
+      String partId, int measureIndex, String voiceId, int eventIndex, String pitch, String kind) {
+    public RangeWarning(
+        String partId, int measureIndex, int eventIndex, String pitch, String kind) {
+      this(partId, measureIndex, "1", eventIndex, pitch, kind);
+    }
+  }
 
   public record OctavePreview(int semitones, List<RangeWarning> before, List<RangeWarning> after) {}
 
@@ -50,18 +55,19 @@ public final class ScoreTransform {
     for (Part part : score.parts()) {
       if (!part.id().equals(partId)) continue;
       found = true;
-      for (int m = 0; m < part.measures().size(); m++) {
-        var events = part.measures().get(m).events();
-        for (int e = 0; e < events.size(); e++) {
-          if (events.get(e) instanceof Note note) {
-            var pitch = note.writtenPitch();
-            if (!profile.inRange(pitch))
-              result.add(new RangeWarning(partId, m, e, pitch.label(), "OUTSIDE_RANGE"));
-            else if (!profile.comfortable(pitch))
-              result.add(new RangeWarning(partId, m, e, pitch.label(), "ABOVE_COMFORT"));
+      for (int m = 0; m < part.measures().size(); m++)
+        for (var voice : part.measures().get(m).voices())
+          for (int e = 0; e < voice.events().size(); e++) {
+            for (Note note : voice.events().get(e).event().noteHeads()) {
+              var pitch = note.writtenPitch();
+              if (!profile.inRange(pitch))
+                result.add(
+                    new RangeWarning(partId, m, voice.id(), e, pitch.label(), "OUTSIDE_RANGE"));
+              else if (!profile.comfortable(pitch))
+                result.add(
+                    new RangeWarning(partId, m, voice.id(), e, pitch.label(), "ABOVE_COMFORT"));
+            }
           }
-        }
-      }
     }
     if (!found) throw new IllegalArgumentException("Unknown part");
     return List.copyOf(result);

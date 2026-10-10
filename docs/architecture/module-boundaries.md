@@ -10,8 +10,11 @@
 | arpeon-transport | Exact score timeline, tempo and position mapping | domain |
 | arpeon-playback | MIDI sequence, synthesized output and transport controls | transport |
 | arpeon-import | Bounded local text, MIDI and WAV draft parsers; explicit score conversion | domain, audio, dsp |
-| apps/desktop | Composition, local bridge, in-memory score/import workspaces and practice exercises, local practice summaries, resource serving | tuner, MusicXML, import, playback |
-| frontend | Score SVG, import review, editing and practice controls, transport controls, tuner display | HTTP contract |
+| arpeon-omr | PDF/image preflight, Audiveris process boundary and conservative MusicXML normalization | MusicXML, PDFBox |
+| arpeon-analysis | Bounded onset segmentation, fixed-tempo expected/observed alignment and separate metrics | None |
+| arpeon-ml | Offline experimental score-position model and reproducible synthetic benchmark; no runtime integration | analysis |
+| apps/desktop | Composition, local bridge, Commons API adapter and provider policy, score project persistence, active score/import/OMR/analysis workspaces, practice exercises and summaries, resource serving | tuner, MusicXML, import, OMR, playback, analysis |
+| frontend | Score SVG, import review, editing, practice and analysis controls, transport controls, tuner display | HTTP contract |
 
 The importer is exposed through the authenticated local bridge. No empty future modules exist. Interfaces
 represent external capture and interchangeable detection; score events use a sealed

@@ -9,11 +9,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import org.arpeon.analysis.ExpectedEvent;
+import org.arpeon.analysis.PerformanceAnalyzer;
 import org.arpeon.domain.instrument.InstrumentCatalog;
 import org.arpeon.domain.instrument.InstrumentProfile;
 import org.arpeon.domain.pitch.Accidental;
 import org.arpeon.domain.pitch.Pitch;
 import org.arpeon.domain.pitch.PitchClass;
+import org.arpeon.domain.score.Chord;
 import org.arpeon.domain.score.MusicalKey;
 import org.arpeon.domain.score.Note;
 import org.arpeon.domain.score.Score;
@@ -25,6 +28,7 @@ import org.arpeon.importer.DraftScoreBuilder;
 import org.arpeon.importer.ImportDraft;
 import org.arpeon.musicxml.MusicXmlExporter;
 import org.arpeon.musicxml.MusicXmlImporter;
+import org.arpeon.omr.OmrResult;
 import org.arpeon.playback.MidiScorePlayer;
 import org.arpeon.transport.ScoreTimeline;
 
@@ -34,15 +38,27 @@ final class ScoreWorkspace implements AutoCloseable {
 
   record EventView(
       int index,
+      String voiceId,
+      int eventIndex,
+      long onsetNumerator,
+      long onsetDenominator,
       String kind,
       String pitch,
       String step,
       int alter,
       int octave,
       long numerator,
-      long denominator) {}
+      long denominator,
+      boolean tieStart,
+      boolean tieStop,
+      List<HeadView> heads) {}
+
+  record HeadView(int index, String pitch, boolean tieStart, boolean tieStop) {}
 
   record MeasureEvents(int index, String number, List<EventView> events) {}
+
+  record MeasureEventsPage(
+      int revision, String partId, int index, String number, List<EventView> events) {}
 
   record PartView(String id, String name, List<MeasureEvents> measures) {}
 
@@ -65,6 +81,7 @@ final class ScoreWorkspace implements AutoCloseable {
       String parserVersion,
       String sourceKind,
       List<String> importWarnings,
+      ImportWorkspace.Source source,
       List<MeasureView> measures,
       List<PartView> parts,
       int revision,
@@ -75,7 +92,10 @@ final class ScoreWorkspace implements AutoCloseable {
       List<InstrumentView> instruments,
       List<KeyView> keys) {}
 
-  record PitchChange(String partId, int measureIndex, int eventIndex, String from, String to) {}
+  record PitchChange(
+      String partId, int measureIndex, String voiceId, int eventIndex, String from, String to) {}
+
+  private record ChangeSet(List<PitchChange> events, int changedHeads) {}
 
   record PreviewView(
       String token,
@@ -85,7 +105,23 @@ final class ScoreWorkspace implements AutoCloseable {
       List<ScoreTransform.RangeWarning> warningsBefore,
       List<ScoreTransform.RangeWarning> warningsAfter) {}
 
+  private record PositionedEvent(
+      String voiceId, int eventIndex, org.arpeon.domain.score.TimedEvent timed) {}
+
   record View(String xml, ScoreView score, MidiScorePlayer.State transport, PreviewView preview) {}
+
+  record AnalysisSource(
+      String title,
+      String filename,
+      String sha256,
+      int revision,
+      String partId,
+      String partName,
+      int soundingSemitones,
+      double durationMs,
+      double initialBpm,
+      List<ExpectedEvent> expected,
+      List<Long> expectedTicks) {}
 
   private record Pending(int revision, ScoreDocument.State candidate, PreviewView view) {}
 
@@ -98,13 +134,50 @@ final class ScoreWorkspace implements AutoCloseable {
   private Pending pending;
   private String sourceKind = "MUSICXML";
   private List<String> importWarnings = List.of();
+  private ImportWorkspace.Source source;
 
   synchronized View open(InputStream input, String filename) throws IOException {
     var next = importer.read(input, filename);
-    return openImported(next, "MUSICXML", List.of());
+    return openImported(next, "MUSICXML", List.of(), null);
+  }
+
+  synchronized View open(byte[] bytes, String filename) throws IOException {
+    var next = importer.read(bytes, filename);
+    return openImported(next, "MUSICXML", List.of(), null);
+  }
+
+  synchronized View openMxl(byte[] bytes, String filename) throws IOException {
+    var next = importer.readMxl(bytes, filename);
+    return openImported(next, "MUSICXML", List.of(), null);
+  }
+
+  synchronized View openOmr(OmrResult result) throws IOException {
+    var recognized = result.imported();
+    var source =
+        new MusicXmlImporter.ImportedScore(
+            recognized.score(),
+            result.sourceFilename(),
+            result.sourceSha256(),
+            "audiveris+" + recognized.parserVersion(),
+            recognized.keyId(),
+            recognized.instruments());
+    var warnings = new ArrayList<>(result.warnings());
+    warnings.add(
+        "Origem OMR: "
+            + result.pages()
+            + " página(s); SHA-256 do original: "
+            + result.sourceSha256());
+    warnings.add("Páginas a revisar: " + result.pagesRequiringReview());
+    return openImported(source, "OMR", List.copyOf(warnings), null);
   }
 
   synchronized View openDraft(ImportDraft draft, int fallbackOctave, int equalNoteTicks)
+      throws IOException {
+    return openDraft(draft, null, fallbackOctave, equalNoteTicks);
+  }
+
+  synchronized View openDraft(
+      ImportDraft draft, ImportWorkspace.Source origin, int fallbackOctave, int equalNoteTicks)
       throws IOException {
     var score = DraftScoreBuilder.build(draft, fallbackOctave, equalNoteTicks);
     var warnings = new ArrayList<>(draft.warnings());
@@ -114,14 +187,25 @@ final class ScoreWorkspace implements AutoCloseable {
           "Duração igual de " + equalNoteTicks + " ticks escolhida na revisão; não veio da fonte.");
     if (draft.notes().stream().anyMatch(note -> note.octave() == null))
       warnings.add("Oitava " + fallbackOctave + " aplicada apenas às notas sem número.");
+    if (origin != null) {
+      warnings.add(
+          "Fonte Wikimedia Commons: confira autoria e licença na página original antes de"
+              + " redistribuir.");
+      origin.notes().forEach(step -> warnings.add("Processamento: " + step));
+    }
     return openImported(
         new MusicXmlImporter.ImportedScore(
             score, draft.filename(), draft.sha256(), draft.parserVersion(), null, Map.of()),
         draft.kind(),
-        List.copyOf(warnings));
+        List.copyOf(warnings),
+        origin);
   }
 
-  private View openImported(MusicXmlImporter.ImportedScore next, String kind, List<String> warnings)
+  private View openImported(
+      MusicXmlImporter.ImportedScore next,
+      String kind,
+      List<String> warnings,
+      ImportWorkspace.Source origin)
       throws IOException {
     var candidate = new ScoreDocument(next.score(), next.keyId(), next.instruments());
     ScoreTimeline nextTimeline;
@@ -140,6 +224,7 @@ final class ScoreWorkspace implements AutoCloseable {
     imported = next;
     sourceKind = kind;
     importWarnings = warnings;
+    source = origin;
     document = candidate;
     timeline = nextTimeline;
     player = nextPlayer;
@@ -159,22 +244,7 @@ final class ScoreWorkspace implements AutoCloseable {
       var measureViews = new ArrayList<MeasureEvents>();
       for (int m = 0; m < part.measures().size(); m++) {
         var measure = part.measures().get(m);
-        var events = new ArrayList<EventView>();
-        for (int e = 0; e < measure.events().size(); e++) {
-          ScoreEvent event = measure.events().get(e);
-          Pitch pitch = event instanceof Note note ? note.writtenPitch() : null;
-          events.add(
-              new EventView(
-                  e,
-                  pitch == null ? "REST" : "NOTE",
-                  pitch == null ? "" : pitch.label(),
-                  pitch == null ? "" : pitch.pitchClass().name(),
-                  pitch == null ? 0 : pitch.accidental().semitones(),
-                  pitch == null ? 0 : pitch.octave(),
-                  event.duration().numerator(),
-                  event.duration().denominator()));
-        }
-        measureViews.add(new MeasureEvents(m, measure.number(), List.copyOf(events)));
+        measureViews.add(new MeasureEvents(m, measure.number(), List.of()));
       }
       partViews.add(new PartView(part.id(), part.name(), List.copyOf(measureViews)));
       String profileId = document.state().instruments().get(part.id());
@@ -193,6 +263,7 @@ final class ScoreWorkspace implements AutoCloseable {
             imported.parserVersion(),
             sourceKind,
             importWarnings,
+            source,
             measures,
             List.copyOf(partViews),
             document.revision(),
@@ -220,15 +291,158 @@ final class ScoreWorkspace implements AutoCloseable {
         pending == null ? null : pending.view());
   }
 
+  synchronized MeasureEventsPage measureEvents(String partId, int measureIndex) {
+    if (document == null) throw new IllegalStateException("No score is open");
+    var part =
+        document.current().parts().stream()
+            .filter(candidate -> candidate.id().equals(partId))
+            .findFirst()
+            .orElseThrow(() -> new IllegalArgumentException("Unknown score part"));
+    if (measureIndex < 0 || measureIndex >= part.measures().size())
+      throw new IllegalArgumentException("Unknown measure index");
+    var measure = part.measures().get(measureIndex);
+    var positionedEvents = new ArrayList<PositionedEvent>();
+    for (var voice : measure.voices())
+      for (int eventIndex = 0; eventIndex < voice.events().size(); eventIndex++)
+        positionedEvents.add(
+            new PositionedEvent(voice.id(), eventIndex, voice.events().get(eventIndex)));
+    positionedEvents.sort(
+        java.util.Comparator.comparing((PositionedEvent event) -> event.timed().onset())
+            .thenComparing(PositionedEvent::voiceId));
+    var events = new ArrayList<EventView>(positionedEvents.size());
+    for (int index = 0; index < positionedEvents.size(); index++) {
+      var positioned = positionedEvents.get(index);
+      var timed = positioned.timed();
+      ScoreEvent event = timed.event();
+      var heads = event.noteHeads();
+      var headViews = new ArrayList<HeadView>(heads.size());
+      for (int headIndex = 0; headIndex < heads.size(); headIndex++) {
+        Note head = heads.get(headIndex);
+        headViews.add(
+            new HeadView(headIndex, head.writtenPitch().label(), head.tieStart(), head.tieStop()));
+      }
+      Pitch pitch = heads.isEmpty() ? null : heads.getFirst().writtenPitch();
+      events.add(
+          new EventView(
+              index,
+              positioned.voiceId(),
+              positioned.eventIndex(),
+              timed.onset().numerator(),
+              timed.onset().denominator(),
+              event instanceof Chord ? "CHORD" : pitch == null ? "REST" : "NOTE",
+              event instanceof Chord
+                  ? heads.stream()
+                      .map(head -> head.writtenPitch().label())
+                      .collect(java.util.stream.Collectors.joining(" + "))
+                  : pitch == null ? "" : pitch.label(),
+              pitch == null ? "" : pitch.pitchClass().name(),
+              pitch == null ? 0 : pitch.accidental().semitones(),
+              pitch == null ? 0 : pitch.octave(),
+              event.duration().numerator(),
+              event.duration().denominator(),
+              heads.stream().anyMatch(Note::tieStart),
+              heads.stream().anyMatch(Note::tieStop),
+              List.copyOf(headViews)));
+    }
+    return new MeasureEventsPage(
+        document.revision(), partId, measureIndex, measure.number(), List.copyOf(events));
+  }
+
+  synchronized boolean isOpen() {
+    return document != null && player != null;
+  }
+
   synchronized String exportXml() {
     if (document == null) throw new IllegalStateException("No score is open");
     return exporter.write(
         document.current(), document.state().keyId(), profiles(document.state().instruments()));
   }
 
+  synchronized ProjectStore.Data projectData() {
+    if (document == null) throw new IllegalStateException("No score is open");
+    return new ProjectStore.Data(
+        document.current().title(),
+        imported.sourceFilename(),
+        imported.sha256(),
+        imported.parserVersion(),
+        sourceKind,
+        importWarnings,
+        source,
+        exportXml());
+  }
+
+  synchronized View openProject(ProjectStore.Data data) throws IOException {
+    if (data == null) throw new IllegalArgumentException("Invalid project");
+    var parsed =
+        importer.read(
+            data.xml().getBytes(java.nio.charset.StandardCharsets.UTF_8), "saved-project.musicxml");
+    var restored =
+        new MusicXmlImporter.ImportedScore(
+            parsed.score(),
+            data.filename(),
+            data.sha256(),
+            data.parserVersion(),
+            parsed.keyId(),
+            parsed.instruments());
+    return openImported(restored, data.sourceKind(), data.importWarnings(), data.source());
+  }
+
   synchronized MidiScorePlayer.State transport() {
     if (player == null) throw new IllegalStateException("No score is open");
     return player.snapshot();
+  }
+
+  synchronized AnalysisSource analysisSource(String partId) {
+    if (document == null) throw new IllegalStateException("No score is open");
+    int partIndex = -1;
+    for (int i = 0; i < document.current().parts().size(); i++)
+      if (document.current().parts().get(i).id().equals(partId)) partIndex = i;
+    if (partIndex < 0) throw new IllegalArgumentException("Unknown score part");
+    final int selectedPartIndex = partIndex;
+    var part = document.current().parts().get(partIndex);
+    int transposition =
+        InstrumentCatalog.get(document.state().instruments().get(partId))
+            .soundingTranspositionSemitones();
+    var selectedNotes =
+        timeline.notes().stream()
+            .filter(note -> note.partIndex() == selectedPartIndex)
+            .sorted(java.util.Comparator.comparingLong(ScoreTimeline.NotePosition::startTick))
+            .toList();
+    long previousEnd = -1;
+    for (var note : selectedNotes) {
+      if (note.startTick() < previousEnd)
+        throw new IllegalArgumentException(
+            "Live analysis supports one note at a time; choose a monophonic part");
+      previousEnd = Math.addExact(note.startTick(), note.durationTicks());
+    }
+    var expected = new ArrayList<ExpectedEvent>();
+    var expectedTicks = new ArrayList<Long>();
+    for (var note : selectedNotes) {
+      if (expected.size() == PerformanceAnalyzer.MAX_EXPECTED_EVENTS)
+        throw new IllegalArgumentException("Analysis supports up to 2048 notes");
+      double onset = 1000 * timeline.secondsAt(note.startTick());
+      double end = 1000 * timeline.secondsAt(note.startTick() + note.durationTicks());
+      expected.add(
+          new ExpectedEvent(
+              expected.size(), note.midiNumber() + transposition, onset, end - onset));
+      expectedTicks.add(note.startTick());
+    }
+    if (expected.isEmpty()) throw new IllegalArgumentException("Selected part has no notes");
+    double duration = 1000 * timeline.secondsAt(timeline.totalTicks());
+    if (duration > 600_000)
+      throw new IllegalArgumentException("Analysis supports up to ten minutes");
+    return new AnalysisSource(
+        document.current().title(),
+        imported.sourceFilename(),
+        imported.sha256(),
+        document.revision(),
+        partId,
+        part.name(),
+        transposition,
+        duration,
+        timeline.firstBpm(),
+        List.copyOf(expected),
+        List.copyOf(expectedTicks));
   }
 
   synchronized View edit(String action, JsonObject request) {
@@ -269,19 +483,31 @@ final class ScoreWorkspace implements AutoCloseable {
       instruments.put(partId, instrument.id());
       candidate = new ScoreDocument.State(score, instruments, state.keyId());
     } else if (action.equals("set-pitch")) {
-      keys(request, "partId", "measureIndex", "eventIndex", "step", "alter", "octave");
-      ScoreEvent event = event(score, request);
-      if (!(event instanceof Note)) throw new IllegalArgumentException("Select a note");
+      keys(
+          request,
+          withVoice(
+              request,
+              request != null && request.has("headIndex")
+                  ? new String[] {
+                    "partId", "measureIndex", "eventIndex", "headIndex", "step", "alter", "octave"
+                  }
+                  : new String[] {
+                    "partId", "measureIndex", "eventIndex", "step", "alter", "octave"
+                  }));
       candidate =
           scoreState(
-              ScoreDocument.replaceEvent(
+              ScoreDocument.setPitch(
                   score,
                   part(request),
                   index(request, "measureIndex"),
                   index(request, "eventIndex"),
-                  new Note(pitch(request), event.duration())));
+                  request.has("voiceId") ? string(request, "voiceId") : "1",
+                  selectedHeadIndex(request, score),
+                  pitch(request)));
     } else if (action.equals("set-duration")) {
-      keys(request, "partId", "measureIndex", "eventIndex", "numerator", "denominator");
+      keys(
+          request,
+          withVoice(request, "partId", "measureIndex", "eventIndex", "numerator", "denominator"));
       candidate =
           scoreState(
               ScoreDocument.changeDuration(
@@ -289,20 +515,26 @@ final class ScoreWorkspace implements AutoCloseable {
                   part(request),
                   index(request, "measureIndex"),
                   index(request, "eventIndex"),
+                  request.has("voiceId") ? string(request, "voiceId") : "1",
                   duration(request)));
     } else if (action.equals("insert-note") || action.equals("insert-rest")) {
       if (action.equals("insert-note"))
         keys(
             request,
-            "partId",
-            "measureIndex",
-            "eventIndex",
-            "numerator",
-            "denominator",
-            "step",
-            "alter",
-            "octave");
-      else keys(request, "partId", "measureIndex", "eventIndex", "numerator", "denominator");
+            withVoice(
+                request,
+                "partId",
+                "measureIndex",
+                "eventIndex",
+                "numerator",
+                "denominator",
+                "step",
+                "alter",
+                "octave"));
+      else
+        keys(
+            request,
+            withVoice(request, "partId", "measureIndex", "eventIndex", "numerator", "denominator"));
       candidate =
           scoreState(
               ScoreDocument.insertIntoRest(
@@ -310,17 +542,43 @@ final class ScoreWorkspace implements AutoCloseable {
                   part(request),
                   index(request, "measureIndex"),
                   index(request, "eventIndex"),
+                  request.has("voiceId") ? string(request, "voiceId") : "1",
                   duration(request),
                   action.equals("insert-note") ? pitch(request) : null));
     } else if (action.equals("delete")) {
-      keys(request, "partId", "measureIndex", "eventIndex");
+      keys(
+          request,
+          withVoice(
+              request,
+              request != null && request.has("headIndex")
+                  ? new String[] {"partId", "measureIndex", "eventIndex", "headIndex"}
+                  : new String[] {"partId", "measureIndex", "eventIndex"}));
       candidate =
           scoreState(
               ScoreDocument.deleteNote(
                   score,
                   part(request),
                   index(request, "measureIndex"),
-                  index(request, "eventIndex")));
+                  index(request, "eventIndex"),
+                  request.has("voiceId") ? string(request, "voiceId") : "1",
+                  selectedHeadIndex(request, score)));
+    } else if (action.equals("remove-tie")) {
+      keys(
+          request,
+          withVoice(
+              request,
+              request != null && request.has("headIndex")
+                  ? new String[] {"partId", "measureIndex", "eventIndex", "headIndex"}
+                  : new String[] {"partId", "measureIndex", "eventIndex"}));
+      candidate =
+          scoreState(
+              ScoreDocument.removeTie(
+                  score,
+                  part(request),
+                  index(request, "measureIndex"),
+                  index(request, "eventIndex"),
+                  request.has("voiceId") ? string(request, "voiceId") : "1",
+                  selectedHeadIndex(request, score)));
     } else throw new IllegalArgumentException("Unknown edit action");
     commit(candidate);
     return snapshot();
@@ -379,37 +637,60 @@ final class ScoreWorkspace implements AutoCloseable {
         new PreviewView(
             UUID.randomUUID().toString(),
             description,
-            changes.size(),
-            changes.stream().limit(24).toList(),
+            changes.changedHeads(),
+            changes.events().stream().limit(24).toList(),
             warnings(score, state.instruments()),
             warnings(candidate.score(), candidate.instruments()));
     pending = new Pending(document.revision(), candidate, view);
     return snapshot();
   }
 
-  private static List<PitchChange> changes(Score before, Score after, String partId) {
+  private static ChangeSet changes(Score before, Score after, String partId) {
     var result = new ArrayList<PitchChange>();
+    int changedHeads = 0;
     for (int p = 0; p < before.parts().size(); p++) {
       var original = before.parts().get(p);
       if (partId != null && !original.id().equals(partId)) continue;
       var changed = after.parts().get(p);
       for (int m = 0; m < original.measures().size(); m++) {
-        var first = original.measures().get(m).events();
-        var second = changed.measures().get(m).events();
-        for (int e = 0; e < first.size(); e++)
-          if (first.get(e) instanceof Note oldNote
-              && second.get(e) instanceof Note newNote
-              && !oldNote.writtenPitch().equals(newNote.writtenPitch()))
-            result.add(
-                new PitchChange(
-                    original.id(),
-                    m,
-                    e,
-                    oldNote.writtenPitch().label(),
-                    newNote.writtenPitch().label()));
+        for (var oldVoice : original.measures().get(m).voices()) {
+          var newVoice =
+              changed.measures().get(m).voices().stream()
+                  .filter(voice -> voice.id().equals(oldVoice.id()))
+                  .findFirst()
+                  .orElseThrow(
+                      () -> new IllegalArgumentException("Pitch transform changed voices"));
+          if (oldVoice.events().size() != newVoice.events().size())
+            throw new IllegalArgumentException("Pitch transform changed voice event structure");
+          for (int e = 0; e < oldVoice.events().size(); e++) {
+            var oldHeads = oldVoice.events().get(e).event().noteHeads();
+            var newHeads = newVoice.events().get(e).event().noteHeads();
+            if (oldHeads.size() != newHeads.size())
+              throw new IllegalArgumentException("Pitch transform changed chord structure");
+            int changedInEvent = 0;
+            for (int h = 0; h < oldHeads.size(); h++)
+              if (!oldHeads.get(h).writtenPitch().equals(newHeads.get(h).writtenPitch()))
+                changedInEvent++;
+            if (changedInEvent > 0) {
+              changedHeads = Math.addExact(changedHeads, changedInEvent);
+              result.add(
+                  new PitchChange(
+                      original.id(),
+                      m,
+                      oldVoice.id(),
+                      e,
+                      oldHeads.stream()
+                          .map(head -> head.writtenPitch().label())
+                          .collect(java.util.stream.Collectors.joining(" + ")),
+                      newHeads.stream()
+                          .map(head -> head.writtenPitch().label())
+                          .collect(java.util.stream.Collectors.joining(" + "))));
+            }
+          }
+        }
       }
     }
-    return List.copyOf(result);
+    return new ChangeSet(List.copyOf(result), changedHeads);
   }
 
   private static List<ScoreTransform.RangeWarning> warnings(
@@ -473,23 +754,6 @@ final class ScoreWorkspace implements AutoCloseable {
     return new ScoreDocument.State(score, document.state().instruments(), document.state().keyId());
   }
 
-  private static ScoreEvent event(Score score, JsonObject request) {
-    String partId = part(request);
-    int m = index(request, "measureIndex");
-    int e = index(request, "eventIndex");
-    var selected =
-        score.parts().stream()
-            .filter(item -> item.id().equals(partId))
-            .findFirst()
-            .orElseThrow(() -> new IllegalArgumentException("Unknown part"));
-    if (m < 0
-        || m >= selected.measures().size()
-        || e < 0
-        || e >= selected.measures().get(m).events().size())
-      throw new IllegalArgumentException("Event outside score");
-    return selected.measures().get(m).events().get(e);
-  }
-
   private static String part(JsonObject request) {
     return string(request, "partId");
   }
@@ -507,6 +771,39 @@ final class ScoreWorkspace implements AutoCloseable {
 
   private static int index(JsonObject request, String name) {
     return integer(request, name);
+  }
+
+  private static int selectedHeadIndex(JsonObject request, Score score) {
+    if (request.has("headIndex")) return index(request, "headIndex");
+    String partId = part(request);
+    int measureIndex = index(request, "measureIndex");
+    int eventIndex = index(request, "eventIndex");
+    var selectedPart =
+        score.parts().stream()
+            .filter(part -> part.id().equals(partId))
+            .findFirst()
+            .orElseThrow(() -> new IllegalArgumentException("Unknown part"));
+    if (measureIndex < 0 || measureIndex >= selectedPart.measures().size())
+      throw new IllegalArgumentException("Measure outside score");
+    String voiceId = request.has("voiceId") ? string(request, "voiceId") : "1";
+    var voice =
+        selectedPart.measures().get(measureIndex).voices().stream()
+            .filter(candidate -> candidate.id().equals(voiceId))
+            .findFirst()
+            .orElseThrow(() -> new IllegalArgumentException("Unknown voice"));
+    if (eventIndex < 0 || eventIndex >= voice.events().size())
+      throw new IllegalArgumentException("Event outside measure");
+    if (voice.events().get(eventIndex).event() instanceof Chord)
+      throw new IllegalArgumentException("Select a chord head explicitly");
+    return 0;
+  }
+
+  private static String[] withVoice(JsonObject request, String... keys) {
+    if (request == null || !request.has("voiceId")) return keys;
+    var result = new ArrayList<String>(List.of(keys));
+    int partIndex = result.indexOf("partId");
+    result.add(partIndex < 0 ? 0 : partIndex + 1, "voiceId");
+    return result.toArray(String[]::new);
   }
 
   private static int integer(JsonObject request, String name) {

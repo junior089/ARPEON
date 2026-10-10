@@ -8,7 +8,11 @@ retain notices. Do not use `latest` in build configuration or hand-edit dependen
 Runtime choices: Angular (required UI framework), RxJS/tslib (framework support),
 Gson (small Java JSON boundary), Inter/JetBrains Mono (specified fonts), and
 OpenSheetMusicDisplay 2.2.0 for MusicXML SVG rendering. Java Sound, XML, MIDI and HTTP use
-the JDK. No native audio, database, OMR or ML dependency is added.
+the JDK. PDFBox 3.0.8 (Apache-2.0) validates PDF page structure before the external
+Audiveris CLI receives input. Audiveris 5.11.0 is a separate AGPL-3.0 program, not bundled in
+ARPEON. On 64-bit Windows, the user can explicitly request its official MSI download; ARPEON
+checks the published SHA-256 and extracts it into the user's local data folder. No native audio,
+database or ML dependency is added.
 
 OpenSheetMusicDisplay is BSD-3-Clause. Its bundled VexFlow, loglevel and
 typescript-collections use MIT; JSZip is dual MIT/GPL-3.0-or-later and ARPEON chooses MIT;
@@ -19,8 +23,10 @@ are retained in `docs/legal/licenses` and the desktop distribution.
 
 MIT, BSD, ISC, Apache-2.0, 0BSD and CC0 tooling dependencies have permissive terms; retain
 applicable notices. OFL fonts are distributed unmodified, with complete licenses, and are
-not sold separately. JUnit EPL-2.0 is test-only, not packaged into the application. Gradle,
-the formatter are build tools. Java/Node runtimes are prerequisites, not bundled.
+not sold separately. JUnit EPL-2.0 is test-only, not packaged into the application. Gradle and
+the formatter are build tools. JDK 25 and Node 24 are build prerequisites. The portable Windows
+package embeds a trimmed Eclipse Temurin 25.0.4.1+1 runtime with its `runtime/legal` texts;
+Node is not shipped. The Gradle ZIP/TAR distribution still requires a local JDK 25.
 
 `scripts/check-licenses.mjs` checks installed npm metadata against a reviewed allowlist and
 the committed inventory. It fails on missing/unreviewed licenses. This is not a definitive

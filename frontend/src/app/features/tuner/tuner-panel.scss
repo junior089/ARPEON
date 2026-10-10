@@ -5,69 +5,79 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 1.5rem;
-  padding-bottom: 2rem;
+  gap: var(--space-4);
+  padding-bottom: var(--space-4);
   border-bottom: 1px solid var(--border);
 }
 h1 {
-  font-size: 1.65rem;
-  font-weight: 500;
-  margin: 0.5rem 0 0;
-  letter-spacing: -0.04em;
+  margin: 0;
 }
 .capture-state {
   color: var(--secondary);
-  font-size: 0.75rem;
-  border: 1px solid var(--border);
-  padding: 0.6rem 0.8rem;
+  font-size: var(--text-small);
 }
-.listening {
-  color: var(--accent);
-  border-color: var(--accent);
+.capture-state::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: var(--space-2);
+  border-radius: 50%;
+  background: var(--muted);
+}
+.capture-state.listening {
+  color: var(--success);
+}
+.capture-state.listening::before {
+  background: var(--success);
 }
 .tuner-body {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 290px;
+  grid-template-columns: minmax(0, 1fr) 304px;
 }
 .instrument-display {
-  padding: 3.5rem 3rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 480px;
+  padding: var(--space-6);
   text-align: center;
 }
 .state-label {
   color: var(--secondary);
-  min-height: 1.5rem;
-  font-size: 0.9rem;
+  min-height: 24px;
+  font-size: var(--text-control);
 }
 .pitch {
-  font: 500 clamp(5rem, 9vw, 8.5rem)/1.25 var(--mono);
-  letter-spacing: -0.09em;
-  min-height: 1.25em;
+  font: 500 clamp(64px, 8vw, 104px)/1.2 var(--mono);
+  letter-spacing: -0.04em;
+  min-height: 1.2em;
 }
 .frequency {
-  height: 2.5rem;
-  font: 1.25rem var(--mono);
-  color: var(--primary);
+  min-height: 32px;
+  font: 20px var(--mono);
 }
 .frequency span {
-  font: 0.8rem var(--ui);
+  font: var(--text-small) var(--ui);
   color: var(--secondary);
 }
 .tuning-scale {
-  margin: 2.5rem auto 0;
+  margin: var(--space-6) auto 0;
   max-width: 560px;
+  width: 100%;
 }
 .scale-track {
   position: relative;
   height: 44px;
   border-bottom: 1px solid var(--secondary);
-  background: repeating-linear-gradient(90deg, var(--border) 0 1px, transparent 1px 10%);
+  background: repeating-linear-gradient(90deg, var(--control-border) 0 1px, transparent 1px 10%);
 }
 .in-tune {
   position: absolute;
   left: 45%;
   width: 10%;
   height: 100%;
-  background: #62a87524;
+  background: color-mix(in srgb, var(--success) 12%, transparent);
   border-inline: 1px solid var(--success);
 }
 .center-line {
@@ -79,8 +89,8 @@ h1 {
 }
 .needle {
   position: absolute;
-  bottom: -5px;
-  top: -10px;
+  bottom: -4px;
+  top: -8px;
   width: 3px;
   background: var(--accent);
   transform: translateX(-50%);
@@ -88,59 +98,52 @@ h1 {
 .scale-labels {
   display: flex;
   justify-content: space-between;
-  font: 0.75rem var(--mono);
+  font: var(--text-small) var(--mono);
   color: var(--secondary);
-  padding-top: 0.8rem;
+  padding-top: var(--space-3);
 }
 .intonation {
-  min-height: 2.5rem;
-  margin: 1.5rem 0 2rem;
+  min-height: 32px;
+  margin: var(--space-5) 0;
   color: var(--secondary);
-  font-size: 0.85rem;
+  font-size: var(--text-control);
 }
 .measurement-line {
   display: flex;
   justify-content: center;
-  gap: 3rem;
+  gap: var(--space-6);
   border-top: 1px solid var(--border);
-  padding-top: 1.5rem;
+  padding-top: var(--space-5);
   color: var(--secondary);
-  font-size: 0.8rem;
+  font-size: var(--text-small);
 }
 .measurement-line strong {
   display: block;
-  margin-top: 0.6rem;
-  font: 1.25rem var(--mono);
+  margin-top: var(--space-2);
+  font: 20px var(--mono);
   color: var(--primary);
 }
 small {
-  font-size: 0.7rem;
+  font-size: var(--text-small);
   color: var(--secondary);
 }
 .input-panel {
   border-left: 1px solid var(--border);
-  padding: 2rem 0 1rem 1.75rem;
+  background: var(--surface);
+  padding: var(--space-5);
 }
 h2 {
-  font-size: 0.95rem;
-  font-weight: 600;
-  margin: 0 0 1.5rem;
+  margin: 0 0 var(--space-4);
 }
 label {
   display: block;
-  font-size: 0.8rem;
-  margin: 1.5rem 0 0.65rem;
+  font-size: var(--text-control);
+  margin: var(--space-4) 0 var(--space-2);
+  color: var(--secondary);
 }
 select,
 input {
-  background: var(--raised);
-  color: var(--primary);
-  border: 1px solid var(--border);
-  min-height: 42px;
-  padding: 0.65rem;
   width: 100%;
-  border-radius: 2px;
-  font: 0.8rem var(--ui);
 }
 .reference-field {
   display: flex;
@@ -149,56 +152,51 @@ input {
 }
 .reference-field input {
   font-family: var(--mono);
-  padding-right: 3rem;
+  padding-right: 52px;
 }
 .reference-field span {
   position: absolute;
-  right: 1.7rem;
-  font: 0.75rem var(--mono);
+  right: 28px;
+  font: var(--text-small) var(--mono);
   color: var(--secondary);
 }
 .field-hint,
 .privacy-note,
 .capture-details p {
-  font-size: 0.72rem;
-  line-height: 1.6;
+  font-size: var(--text-small);
   color: var(--secondary);
 }
 .text-button {
-  margin-top: 0.6rem;
-  padding: 0.4rem 0;
+  margin-top: var(--space-1);
+  padding-inline: 0;
   color: var(--secondary);
-  background: none;
-  border: none;
-  font-size: 0.75rem;
+  background: transparent;
+  border-color: transparent;
+  font-size: var(--text-small);
   text-decoration: underline;
   text-underline-offset: 3px;
 }
 .primary {
-  margin-top: 1.1rem;
+  margin-top: var(--space-3);
   width: 100%;
 }
 .privacy-note {
-  margin-top: 1rem;
+  margin-top: var(--space-3);
 }
 .capture-details {
   border-top: 1px solid var(--border);
-  margin-top: 1.75rem;
-  padding-top: 1rem;
-}
-h3 {
-  font-size: 0.75rem;
-  font-weight: 500;
+  margin-top: var(--space-5);
+  padding-top: var(--space-3);
 }
 dl {
-  font-size: 0.7rem;
+  font-size: var(--text-small);
   color: var(--secondary);
 }
 dl div {
   display: flex;
   justify-content: space-between;
-  gap: 0.75rem;
-  padding: 0.45rem 0;
+  gap: var(--space-3);
+  padding: var(--space-1) 0;
 }
 dd {
   margin: 0;
@@ -208,10 +206,7 @@ dd {
 }
 @media (max-width: 1000px) {
   .instrument-display {
-    padding-inline: 1rem;
-  }
-  .tuner-body {
-    grid-template-columns: minmax(0, 1fr) 260px;
+    padding-inline: var(--space-4);
   }
 }
 @media (max-width: 760px) {
@@ -221,13 +216,14 @@ dd {
   .input-panel {
     border-left: 0;
     border-top: 1px solid var(--border);
-    padding: 1.5rem 0;
+    padding: var(--space-4);
   }
   .panel-heading {
     align-items: start;
     flex-direction: column;
   }
   .instrument-display {
-    padding: 2rem 0;
+    min-height: 360px;
+    padding: var(--space-4) 0;
   }
 }

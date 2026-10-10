@@ -18,6 +18,6 @@ as a check. Alternative fingerings and trills are not catalogued, so the interfa
 guess them. The chart is only for the concert flute profile.
 
 Press **Encerrar e salvar** to store a summary in `~/.arpeon/practice-history.json`. History
-holds at most 50 summaries and no audio samples. Deleting that local file clears the history.
+holds at most 5000 summaries and no audio samples. Deleting that local file clears the history.
 Closing without saving an attempt leaves no summary. Hardware microphone, timing latency and
 audible flute quality still require device testing.

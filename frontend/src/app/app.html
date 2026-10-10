@@ -1,37 +1,127 @@
 <a class="skip-link" href="#workspace">Ir para o conteúdo</a>
+<input
+  #globalFile
+  hidden
+  type="file"
+  accept=".musicxml,.xml,.mxl,.mscz,application/xml,application/vnd.recordare.musicxml"
+  (change)="openFile($event)"
+  aria-label="Abrir arquivo de partitura"
+/>
 <header class="app-header">
-  <a class="wordmark" href="#workspace" aria-label="ARPEON">ARPEON</a>
-  <span class="app-description">PRÁTICA MUSICAL</span>
-  <span class="local-label">Local · Sem conta</span>
-</header>
-<div class="workspace-shell">
-  <nav aria-label="Área de trabalho">
-    <p class="eyebrow">ÁREA DE TRABALHO</p>
-    <button [attr.aria-current]="view() === 'score' ? 'page' : null" (click)="view.set('score')">
-      <span aria-hidden="true">≡</span> Partitura
-    </button>
-    <button [attr.aria-current]="view() === 'tuner' ? 'page' : null" (click)="view.set('tuner')">
-      <span aria-hidden="true">♮</span> Afinador
-    </button>
-    <button [attr.aria-current]="view() === 'import' ? 'page' : null" (click)="view.set('import')">
-      <span aria-hidden="true">↧</span> Importar
-    </button>
-    <button
-      [attr.aria-current]="view() === 'practice' ? 'page' : null"
-      (click)="view.set('practice')"
-    >
-      <span aria-hidden="true">♫</span> Prática
-    </button>
-    <div class="edition">Milestone 4<span>Importação local</span></div>
+  <a class="wordmark" href="#workspace" aria-label="ARPEON"
+    ><span class="brand-mark" aria-hidden="true">A</span> ARPEON</a
+  >
+  <nav class="menubar" aria-label="Menus do aplicativo" tabindex="-1" (keydown)="menuKeys($event)">
+    @for (menu of menus; track menu.label) {
+    <details class="menu" (toggle)="menuToggled($event)">
+      <summary>{{ menu.label }}</summary>
+      <div class="menu-popup">
+        @for (item of menu.items; track item.command) {
+        <button
+          type="button"
+          (click)="run(item.command)"
+          [disabled]="!available(item.command)"
+          [class.destructive]="item.command === 'shutdown'"
+          [attr.aria-pressed]="item.command.startsWith('theme-') ? item.command === 'theme-' + appearance.theme() : null"
+        >
+          <span>{{ item.label }}</span><kbd>{{ item.shortcut ?? '' }}</kbd>
+        </button>
+        }
+      </div>
+    </details>
+    }
   </nav>
-  <main id="workspace" tabindex="-1">
+  <span class="local-label">Processamento local</span>
+</header>
+@if (shuttingDown()) {
+<p class="shutdown-notice" role="status">
+  Encerramento do ARPEON solicitado. Aguarde um instante e feche esta aba.
+</p>
+} @if (shutdownError()) {
+<p class="shutdown-notice error" role="alert">{{ shutdownError() }}</p>
+}
+<div class="workspace-shell">
+  <nav class="activity-bar" aria-label="Área de trabalho">
+    @for (area of areas; track area.id) {
+    <button
+      type="button"
+      [attr.aria-current]="view() === area.id ? 'page' : null"
+      (click)="navigate(area.id)"
+      [title]="area.label + ' · Alt+' + ($index + 1)"
+    >
+      <app-icon [name]="area.id" /><span>{{ area.label }}</span>
+    </button>
+    }
+    <button
+      class="help-button"
+      type="button"
+      (click)="help.showModal()"
+      title="Ajuda e atalhos · F1"
+    >
+      <app-icon name="help" /><span>Ajuda</span>
+    </button>
+  </nav>
+  <main id="workspace" tabindex="-1" [class.score-view]="view() === 'score'">
     @if (view() === 'tuner') { <app-tuner-panel /> } @else if (view() === 'practice') {
-    <app-practice-panel /> } @else if (view() === 'import') {
-    <app-import-panel (imported)="view.set('score')" /> } @else { <app-score-workspace /> }
+    <app-practice-panel /> } @else if (view() === 'analysis') { <app-analysis-panel /> } @else if
+    (view() === 'import') { <app-import-panel (imported)="navigate('score')" /> } @else {
+    <app-score-workspace (requestedView)="navigate($event)" /> }
   </main>
 </div>
-<footer>
-  <app-transport-bar />
+<div class="audio-dock"><app-transport-bar /></div>
+<footer class="statusbar">
+  <span class="local-state"><span aria-hidden="true">●</span> Local · sem conta</span>
+  <span class="document-status"
+    >{{ score.score() ? score.projectDirty() ? 'Alterações não salvas' : 'Projeto salvo' : 'Nenhuma
+    partitura aberta' }}</span
+  >
+  <span class="status-spacer"></span>
   <a href="/source.zip" download>Código-fonte</a><a href="/license.txt">AGPL-3.0-or-later</a
-  ><a href="/notices.txt">Licenças de terceiros</a>
+  ><a href="/notices.txt">Licenças</a>
 </footer>
+<dialog #help aria-labelledby="help-title" class="help-dialog">
+  <div class="dialog-heading">
+    <h2 id="help-title">ARPEON · Ajuda e atalhos</h2>
+    <button type="button" (click)="help.close()" aria-label="Fechar ajuda">×</button>
+  </div>
+  <p>
+    Abra uma partitura no editor, importe outras fontes ou use as ferramentas de áudio pela barra
+    lateral. Seus arquivos e o processamento musical ficam neste computador.
+  </p>
+  <dl>
+    <div>
+      <dt>Abrir partitura / salvar projeto</dt>
+      <dd>{{ modifier }} O / {{ modifier }} S</dd>
+    </div>
+    <div>
+      <dt>Desfazer / refazer no editor</dt>
+      <dd>{{ modifier }} Z / {{ modifier }} ⇧ Z</dd>
+    </div>
+    <div>
+      <dt>Reproduzir / pausar</dt>
+      <dd>Espaço</dd>
+    </div>
+    <div>
+      <dt>Parar reprodução</dt>
+      <dd>Shift + Espaço</dd>
+    </div>
+    <div>
+      <dt>Trocar área de trabalho</dt>
+      <dd>Alt + 1–5</dd>
+    </div>
+    <div>
+      <dt>Explorador / inspetor</dt>
+      <dd>{{ modifier }} B / {{ modifier }} Alt B</dd>
+    </div>
+  </dl>
+  <p>
+    Selecione uma nota na pauta para editar suas propriedades. Pressione Enter na pauta para acessar
+    a seleção de notas pelo teclado. Arraste a divisória do inspetor ou use as setas quando ela
+    estiver em foco.
+  </p>
+  <p class="hint">
+    MIDI, WAV e reconhecimento óptico têm limites próprios, descritos na importação. Afinador e
+    análise utilizam uma nota por vez; o microfone só é ativado por você.
+  </p>
+  <form method="dialog"><button class="primary">Voltar ao trabalho</button></form>
+</dialog>

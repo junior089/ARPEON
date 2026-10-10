@@ -10,6 +10,9 @@ components retain their licenses; they are not relicensed by this repository.
 | RxJS | 7.8.2 | Apache-2.0 | Angular runtime; https://github.com/ReactiveX/rxjs |
 | tslib | 2.8.1 | 0BSD | TypeScript runtime; https://github.com/microsoft/tslib |
 | Gson | 2.14.0 | Apache-2.0 | Local JSON bridge; https://github.com/google/gson |
+| Apache PDFBox, FontBox and PDFBox IO | 3.0.8 | Apache-2.0 | PDF preflight; https://pdfbox.apache.org/ |
+| Apache Commons Logging | 1.4.0 | Apache-2.0 | PDFBox transitive; https://commons.apache.org/proper/commons-logging/ |
+| Audiveris | 5.11.0 optional download | AGPL-3.0 | OMR CLI, fetched from the official release after user action; not bundled; https://github.com/Audiveris/audiveris/releases/tag/5.11.0 |
 | OpenSheetMusicDisplay | 2.2.0 | BSD-3-Clause | Score SVG; https://github.com/opensheetmusicdisplay/opensheetmusicdisplay |
 | VexFlow | 1.2.93 | MIT | OSMD notation engine; https://github.com/0xfe/vexflow |
 | JSZip | 3.10.1 | MIT option | OSMD transitive; https://github.com/Stuk/jszip |
@@ -22,6 +25,7 @@ components retain their licenses; they are not relicensed by this repository.
 | Gradle / wrapper | 9.8.1 | Apache-2.0 | Build; https://github.com/gradle/gradle |
 | JUnit | 5.14.1 | EPL-2.0 | Tests only; https://github.com/junit-team/junit-framework |
 | google-java-format | 1.37.0 | Apache-2.0 | Java formatter; https://github.com/google/google-java-format |
+| Eclipse Temurin runtime | 25.0.4.1+1 | GPLv2 with Classpath/Assembly exceptions; module-specific notices | Bundled in Windows portable package; https://adoptium.net/temurin/releases/?version=25 |
 | Flute fingering chart | 2014 file | CC0 1.0 | Offline reference image; https://commons.wikimedia.org/wiki/File:Flute_fingering_chart.jpg |
 
 Frontend development dependencies and their transitive licenses are recorded in
@@ -33,7 +37,9 @@ The Angular build's `3rdpartylicenses.txt`, font licenses, Apache license and th
 are included in the desktop's web resources. Fonts are distributed unmodified, with their
 copyright and OFL notices in [docs/legal/licenses](docs/legal/licenses). Gradle's generated
 wrapper retains upstream copyright headers. Tooling is separate from the application runtime.
-JDK and Node distributions are developer prerequisites, not bundled in the desktop archive.
+JDK and Node are build prerequisites. The portable Windows ZIP bundles a trimmed Eclipse
+Temurin runtime, including its module license texts under `runtime/legal`; it does not bundle
+Node. The Gradle desktop ZIP/TAR still requires a separately installed JDK 25.
 
 YIN is implemented from its published mathematical description, without copied source:
 Alain de Cheveigné and Hideki Kawahara, “YIN, a fundamental frequency estimator for speech

@@ -28,15 +28,37 @@ export interface TransportState {
   parts: PartState[];
 }
 
+export interface EventHeadView {
+  index: number;
+  pitch: string;
+  tieStart: boolean;
+  tieStop: boolean;
+}
+
 export interface EventView {
   index: number;
-  kind: 'NOTE' | 'REST';
+  voiceId?: string;
+  eventIndex?: number;
+  onsetNumerator?: number;
+  onsetDenominator?: number;
+  kind: 'NOTE' | 'REST' | 'CHORD';
   pitch: string;
   step: string;
   alter: number;
   octave: number;
   numerator: number;
   denominator: number;
+  tieStart: boolean;
+  tieStop: boolean;
+  heads?: EventHeadView[];
+}
+
+export interface MeasureEventsPage {
+  revision: number;
+  partId: string;
+  index: number;
+  number: string;
+  events: EventView[];
 }
 
 export interface PartView {
@@ -48,6 +70,7 @@ export interface PartView {
 export interface RangeWarning {
   partId: string;
   measureIndex: number;
+  voiceId?: string;
   eventIndex: number;
   pitch: string;
   kind: 'OUTSIDE_RANGE' | 'ABOVE_COMFORT';
@@ -70,6 +93,16 @@ export interface KeyView {
   minor: boolean;
 }
 
+export interface SourceView {
+  providerId: string;
+  pageUrl: string;
+  fetchedAt: string;
+  licenseStatus: string;
+  licenseShortName: string;
+  licenseUrl: string;
+  notes: string[];
+}
+
 export interface ScoreView {
   title: string;
   filename: string;
@@ -77,6 +110,7 @@ export interface ScoreView {
   parserVersion: string;
   sourceKind: string;
   importWarnings: string[];
+  source: SourceView | null;
   measures: MeasureView[];
   parts: PartView[];
   revision: number;
@@ -92,7 +126,14 @@ export interface PreviewView {
   token: string;
   description: string;
   changedNotes: number;
-  changes: { partId: string; measureIndex: number; eventIndex: number; from: string; to: string }[];
+  changes: {
+    partId: string;
+    measureIndex: number;
+    voiceId?: string;
+    eventIndex: number;
+    from: string;
+    to: string;
+  }[];
   warningsBefore: RangeWarning[];
   warningsAfter: RangeWarning[];
 }
@@ -117,6 +158,7 @@ function isRangeWarning(value: unknown): value is RangeWarning {
     record(value) &&
     typeof value['partId'] === 'string' &&
     integer(value['measureIndex']) &&
+    (value['voiceId'] === undefined || typeof value['voiceId'] === 'string') &&
     integer(value['eventIndex']) &&
     typeof value['pitch'] === 'string' &&
     (value['kind'] === 'OUTSIDE_RANGE' || value['kind'] === 'ABOVE_COMFORT')
@@ -127,13 +169,43 @@ function isEvent(value: unknown): value is EventView {
   return (
     record(value) &&
     integer(value['index']) &&
-    (value['kind'] === 'NOTE' || value['kind'] === 'REST') &&
+    (value['voiceId'] === undefined || typeof value['voiceId'] === 'string') &&
+    (value['eventIndex'] === undefined || integer(value['eventIndex'])) &&
+    (value['onsetNumerator'] === undefined || integer(value['onsetNumerator'])) &&
+    (value['onsetDenominator'] === undefined || integer(value['onsetDenominator'])) &&
+    (value['kind'] === 'NOTE' || value['kind'] === 'REST' || value['kind'] === 'CHORD') &&
     typeof value['pitch'] === 'string' &&
     typeof value['step'] === 'string' &&
     integer(value['alter']) &&
     integer(value['octave']) &&
     integer(value['numerator']) &&
-    integer(value['denominator'])
+    integer(value['denominator']) &&
+    typeof value['tieStart'] === 'boolean' &&
+    typeof value['tieStop'] === 'boolean' &&
+    (value['heads'] === undefined ||
+      (Array.isArray(value['heads']) &&
+        value['heads'].every(
+          (head: unknown, index: number) =>
+            record(head) &&
+            integer(head['index']) &&
+            head['index'] === index &&
+            typeof head['pitch'] === 'string' &&
+            typeof head['tieStart'] === 'boolean' &&
+            typeof head['tieStop'] === 'boolean',
+        )))
+  );
+}
+
+export function isMeasureEventsPage(value: unknown): value is MeasureEventsPage {
+  return (
+    record(value) &&
+    integer(value['revision']) &&
+    typeof value['partId'] === 'string' &&
+    integer(value['index']) &&
+    typeof value['number'] === 'string' &&
+    Array.isArray(value['events']) &&
+    value['events'].every(isEvent) &&
+    value['events'].every((event: EventView, index: number) => event.index === index)
   );
 }
 
@@ -177,6 +249,16 @@ function isScore(value: unknown): value is ScoreView {
     typeof value['sourceKind'] === 'string' &&
     Array.isArray(value['importWarnings']) &&
     value['importWarnings'].every((warning: unknown) => typeof warning === 'string') &&
+    (value['source'] === null ||
+      (record(value['source']) &&
+        typeof value['source']['providerId'] === 'string' &&
+        typeof value['source']['pageUrl'] === 'string' &&
+        typeof value['source']['fetchedAt'] === 'string' &&
+        typeof value['source']['licenseStatus'] === 'string' &&
+        typeof value['source']['licenseShortName'] === 'string' &&
+        typeof value['source']['licenseUrl'] === 'string' &&
+        Array.isArray(value['source']['notes']) &&
+        value['source']['notes'].every((note: unknown) => typeof note === 'string'))) &&
     integer(value['revision']) &&
     typeof value['canUndo'] === 'boolean' &&
     typeof value['canRedo'] === 'boolean' &&
@@ -248,6 +330,7 @@ export function isWorkspace(value: unknown): value is WorkspaceView {
             record(change) &&
             typeof change['partId'] === 'string' &&
             integer(change['measureIndex']) &&
+            (change['voiceId'] === undefined || typeof change['voiceId'] === 'string') &&
             integer(change['eventIndex']) &&
             typeof change['from'] === 'string' &&
             typeof change['to'] === 'string',

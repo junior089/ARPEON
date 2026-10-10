@@ -32,7 +32,7 @@ public final class DraftScoreBuilder {
     for (var observed : draft.notes()) {
       long onset = exact ? observed.onsetTicks() : cursor;
       long length = exact ? observed.durationTicks() : equalNoteTicks;
-      if (onset < cursor || length < 1 || onset + length > 512L * MEASURE_TICKS)
+      if (onset < cursor || length < 1 || onset + length > 8192L * MEASURE_TICKS)
         throw new IllegalArgumentException("Overlapping or excessively long melody");
       while (onset >= measureStart + MEASURE_TICKS) {
         if (cursor < measureStart + MEASURE_TICKS)

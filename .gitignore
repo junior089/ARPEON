@@ -1,16 +1,36 @@
+# Local tooling and temporary workspace state
 .tools/
+.playwright-mcp/
+.test-tmp/
+
+# Gradle and JVM build output
 .gradle/
+.gradle-local/
 **/build/
-frontend/node_modules/
-frontend/dist/
-frontend/.angular/
-frontend/coverage/
+**/out/
+**/.kotlin/
+
+# Node, Angular, and frontend build output
+**/node_modules/
+**/dist/
+**/.angular/
+**/coverage/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Runtime and tool logs
 *.log
+
+# Local environment and credentials
 .env
 .env.*
 !.env.example
 *.pem
 *.key
+
+# IDE and operating-system metadata
 .idea/
 .vscode/
 Thumbs.db

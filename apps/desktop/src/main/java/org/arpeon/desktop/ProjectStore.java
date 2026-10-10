@@ -1,0 +1,379 @@
+package org.arpeon.desktop;
+
+import com.google.gson.Gson;
+import com.google.gson.JsonParseException;
+import java.io.IOException;
+import java.nio.channels.FileChannel;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
+import java.util.HexFormat;
+import java.util.List;
+import java.util.UUID;
+
+/**
+ * Versioned, local-only score project storage. Audio and imported source bytes are never stored.
+ */
+final class ProjectStore {
+  static final int MAX_PROJECTS = 500;
+  private static final int MAX_MANIFEST_BYTES = 64 * 1024;
+  private static final int SCHEMA_VERSION = 1;
+  private static final String SCORE_FILE = "score.musicxml";
+  private static final String MANIFEST_FILE = "manifest.json";
+
+  @FunctionalInterface
+  interface DurableWriter {
+    void write(Path path, byte[] content) throws IOException;
+  }
+
+  record Data(
+      String title,
+      String filename,
+      String sha256,
+      String parserVersion,
+      String sourceKind,
+      List<String> importWarnings,
+      ImportWorkspace.Source source,
+      String xml) {}
+
+  record Info(String id, String title, String filename, String updatedAt) {}
+
+  record Saved(String id, String updatedAt) {}
+
+  record Project(Data data, String createdAt, String updatedAt) {}
+
+  private record Manifest(
+      int schemaVersion,
+      String id,
+      String title,
+      String filename,
+      String sha256,
+      String parserVersion,
+      String sourceKind,
+      List<String> importWarnings,
+      ImportWorkspace.Source source,
+      String xmlSha256,
+      String createdAt,
+      String updatedAt) {}
+
+  private final Path root;
+  private final DurableWriter durableWriter;
+  private final Gson json = new Gson();
+
+  ProjectStore(Path root) {
+    this(root, ProjectStore::writeAndSync);
+  }
+
+  ProjectStore(Path root, DurableWriter durableWriter) {
+    this.root = root.toAbsolutePath().normalize();
+    this.durableWriter = durableWriter;
+  }
+
+  static ProjectStore defaultStore() {
+    return new ProjectStore(Path.of(System.getProperty("user.home"), ".arpeon", "projects"));
+  }
+
+  synchronized List<Info> list() throws IOException {
+    if (!Files.exists(root)) return List.of();
+    requireDirectory(root);
+    recoverBackups();
+    var result = new ArrayList<Info>();
+    try (var entries = Files.list(root)) {
+      for (Path directory : entries.sorted().toList()) {
+        if (!Files.isDirectory(directory) || Files.isSymbolicLink(directory)) continue;
+        String id = directory.getFileName().toString();
+        if (!isId(id)) continue;
+        Manifest manifest;
+        try {
+          manifest = readManifest(directory, id);
+        } catch (IOException invalid) {
+          System.getLogger(ProjectStore.class.getName())
+              .log(System.Logger.Level.WARNING, "Ignoring an invalid local project manifest");
+          continue;
+        }
+        result.add(new Info(id, manifest.title(), manifest.filename(), manifest.updatedAt()));
+        if (result.size() > MAX_PROJECTS)
+          throw new IOException("Local project limit reached; remove projects before adding more");
+      }
+    }
+    result.sort((left, right) -> right.updatedAt().compareTo(left.updatedAt()));
+    return List.copyOf(result);
+  }
+
+  synchronized Saved save(String requestedId, Data data) throws IOException {
+    String id =
+        requestedId == null || requestedId.isBlank() ? UUID.randomUUID().toString() : requestedId;
+    if (!isId(id)) throw new IllegalArgumentException("Invalid project ID");
+    validate(data);
+    Files.createDirectories(root);
+    requireDirectory(root);
+    recoverBackups();
+    Path target = root.resolve(id);
+    if (!Files.exists(target) && list().size() >= MAX_PROJECTS)
+      throw new IOException("Local project limit reached; remove projects before adding more");
+
+    Manifest previous = Files.exists(target) ? readManifest(target, id) : null;
+    String createdAt = previous == null ? java.time.Instant.now().toString() : previous.createdAt();
+    String updatedAt = java.time.Instant.now().toString();
+    byte[] xml = data.xml().getBytes(StandardCharsets.UTF_8);
+    Manifest manifest =
+        new Manifest(
+            SCHEMA_VERSION,
+            id,
+            data.title(),
+            data.filename(),
+            data.sha256(),
+            data.parserVersion(),
+            data.sourceKind(),
+            List.copyOf(data.importWarnings()),
+            data.source(),
+            sha256(xml),
+            createdAt,
+            updatedAt);
+
+    Path staging = Files.createTempDirectory(root, ".pending-");
+    Path backup = root.resolve(".backup-" + id + "-" + UUID.randomUUID());
+    boolean backedUp = false;
+    try {
+      durableWriter.write(staging.resolve(SCORE_FILE), xml);
+      byte[] encodedManifest = json.toJson(manifest).getBytes(StandardCharsets.UTF_8);
+      if (encodedManifest.length > MAX_MANIFEST_BYTES)
+        throw new IOException("Project manifest exceeds the supported limit");
+      durableWriter.write(staging.resolve(MANIFEST_FILE), encodedManifest);
+      if (Files.exists(target)) {
+        move(target, backup);
+        backedUp = true;
+      }
+      try {
+        move(staging, target);
+      } catch (IOException failure) {
+        if (backedUp) move(backup, target);
+        throw failure;
+      }
+      if (backedUp) {
+        try {
+          deleteProjectDirectory(backup);
+        } catch (IOException cleanupFailure) {
+          System.getLogger(ProjectStore.class.getName())
+              .log(System.Logger.Level.WARNING, "Saved project backup could not be removed");
+        }
+      }
+      return new Saved(id, updatedAt);
+    } finally {
+      if (Files.exists(staging)) deleteProjectDirectory(staging);
+    }
+  }
+
+  synchronized Project load(String id) throws IOException {
+    if (!isId(id)) throw new IllegalArgumentException("Invalid project ID");
+    if (Files.isDirectory(root) && !Files.isSymbolicLink(root)) recoverBackups();
+    Path directory = root.resolve(id);
+    requireDirectory(directory);
+    Manifest manifest = readManifest(directory, id);
+    verifyStoredScore(directory, manifest);
+    Path scorePath = directory.resolve(SCORE_FILE);
+    byte[] bytes = Files.readAllBytes(scorePath);
+    String xml =
+        StandardCharsets.UTF_8.newDecoder().decode(java.nio.ByteBuffer.wrap(bytes)).toString();
+    return new Project(
+        new Data(
+            manifest.title(),
+            manifest.filename(),
+            manifest.sha256(),
+            manifest.parserVersion(),
+            manifest.sourceKind(),
+            manifest.importWarnings(),
+            manifest.source(),
+            xml),
+        manifest.createdAt(),
+        manifest.updatedAt());
+  }
+
+  synchronized void delete(String id) throws IOException {
+    if (!isId(id)) throw new IllegalArgumentException("Invalid project ID");
+    if (Files.isDirectory(root) && !Files.isSymbolicLink(root)) recoverBackups();
+    Path directory = root.resolve(id);
+    readManifest(directory, id);
+    deleteProjectDirectory(directory);
+  }
+
+  private Manifest readManifest(Path directory, String expectedId) throws IOException {
+    requireDirectory(directory);
+    Path path = directory.resolve(MANIFEST_FILE);
+    if (Files.isSymbolicLink(path) || !Files.isRegularFile(path))
+      throw new IOException("Project manifest is missing");
+    if (Files.size(path) > MAX_MANIFEST_BYTES)
+      throw new IOException("Project manifest is too large");
+    try {
+      Manifest manifest =
+          json.fromJson(Files.readString(path, StandardCharsets.UTF_8), Manifest.class);
+      if (manifest == null
+          || manifest.schemaVersion() != SCHEMA_VERSION
+          || !expectedId.equals(manifest.id())
+          || manifest.title() == null
+          || manifest.filename() == null
+          || manifest.sha256() == null
+          || manifest.parserVersion() == null
+          || manifest.sourceKind() == null
+          || manifest.importWarnings() == null
+          || manifest.xmlSha256() == null
+          || manifest.createdAt() == null
+          || manifest.updatedAt() == null
+          || !manifest.xmlSha256().matches("[0-9a-f]{64}"))
+        throw new IOException("Invalid project manifest");
+      validate(
+          new Data(
+              manifest.title(),
+              manifest.filename(),
+              manifest.sha256(),
+              manifest.parserVersion(),
+              manifest.sourceKind(),
+              manifest.importWarnings(),
+              manifest.source(),
+              "<x/>"));
+      try {
+        java.time.Instant.parse(manifest.createdAt());
+        java.time.Instant.parse(manifest.updatedAt());
+      } catch (java.time.format.DateTimeParseException invalidTimestamp) {
+        throw new IOException("Invalid project timestamps", invalidTimestamp);
+      }
+      return manifest;
+    } catch (JsonParseException | IllegalStateException failure) {
+      throw new IOException("Invalid project manifest", failure);
+    }
+  }
+
+  private void recoverBackups() throws IOException {
+    try (var entries = Files.list(root)) {
+      for (Path backup : entries.toList()) {
+        String name = backup.getFileName().toString();
+        if (!name.startsWith(".backup-") || name.length() != 8 + 36 + 1 + 36) continue;
+        String id = name.substring(8, 44);
+        if (name.charAt(44) != '-' || !isId(id) || Files.exists(root.resolve(id))) continue;
+        try {
+          Manifest manifest = readManifest(backup, id);
+          verifyStoredScore(backup, manifest);
+          move(backup, root.resolve(id));
+        } catch (IOException invalidBackup) {
+          System.getLogger(ProjectStore.class.getName())
+              .log(System.Logger.Level.WARNING, "A local project backup could not be restored");
+        }
+      }
+    }
+  }
+
+  private static void writeAndSync(Path path, byte[] content) throws IOException {
+    Files.write(path, content, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
+    try (FileChannel channel = FileChannel.open(path, StandardOpenOption.WRITE)) {
+      channel.force(true);
+    }
+  }
+
+  private static void verifyStoredScore(Path directory, Manifest manifest) throws IOException {
+    Path scorePath = directory.resolve(SCORE_FILE);
+    if (Files.isSymbolicLink(scorePath) || !Files.isRegularFile(scorePath))
+      throw new IOException("Project MusicXML is missing or invalid");
+    long size = Files.size(scorePath);
+    if (size < 1 || size > org.arpeon.musicxml.MusicXmlImporter.MAX_BYTES)
+      throw new IOException("Project MusicXML size is outside the supported limit");
+    byte[] bytes = Files.readAllBytes(scorePath);
+    if (!MessageDigest.isEqual(
+        manifest.xmlSha256().getBytes(StandardCharsets.US_ASCII),
+        sha256(bytes).getBytes(StandardCharsets.US_ASCII)))
+      throw new IOException("Project integrity check failed");
+  }
+
+  private static void validate(Data data) throws IOException {
+    if (data == null
+        || data.title() == null
+        || data.title().length() > 500
+        || data.filename() == null
+        || data.filename().isBlank()
+        || data.filename().length() > 200
+        || data.filename().matches(".*[/\\\\:].*")
+        || data.sha256() == null
+        || !data.sha256().matches("[0-9a-f]{64}")
+        || data.parserVersion() == null
+        || data.parserVersion().length() > 100
+        || data.sourceKind() == null
+        || data.sourceKind().length() > 40
+        || data.importWarnings() == null
+        || data.importWarnings().size() > 256
+        || data.importWarnings().stream().anyMatch(w -> w == null || w.length() > 2000)
+        || data.xml() == null
+        || data.xml().isBlank()
+        || data.xml().getBytes(StandardCharsets.UTF_8).length
+            > org.arpeon.musicxml.MusicXmlImporter.MAX_BYTES)
+      throw new IOException("Project data is invalid or exceeds supported limits");
+    if (data.source() != null
+        && (!"wikimedia-commons".equals(data.source().providerId())
+            || !safeCommonsUrl(data.source().pageUrl())
+            || (data.source().licenseUrl() != null && !safeHttpsUrl(data.source().licenseUrl()))
+            || data.source().notes() == null
+            || data.source().notes().size() > 64
+            || data.source().notes().stream()
+                .anyMatch(note -> note == null || note.length() > 1000)))
+      throw new IOException("Project source metadata is invalid");
+  }
+
+  private static boolean safeCommonsUrl(String value) {
+    return safeHttpsUrl(value)
+        && "commons.wikimedia.org".equalsIgnoreCase(java.net.URI.create(value).getHost());
+  }
+
+  private static boolean safeHttpsUrl(String value) {
+    try {
+      var uri = java.net.URI.create(value);
+      return "https".equals(uri.getScheme()) && uri.getHost() != null && uri.getUserInfo() == null;
+    } catch (RuntimeException invalid) {
+      return false;
+    }
+  }
+
+  private static boolean isId(String id) {
+    try {
+      return UUID.fromString(id).toString().equals(id);
+    } catch (RuntimeException invalid) {
+      return false;
+    }
+  }
+
+  private static String sha256(byte[] bytes) {
+    try {
+      return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes));
+    } catch (NoSuchAlgorithmException impossible) {
+      throw new IllegalStateException("SHA-256 unavailable", impossible);
+    }
+  }
+
+  private static void move(Path source, Path destination) throws IOException {
+    try {
+      Files.move(source, destination, StandardCopyOption.ATOMIC_MOVE);
+    } catch (AtomicMoveNotSupportedException unsupported) {
+      Files.move(source, destination);
+    }
+  }
+
+  private static void requireDirectory(Path directory) throws IOException {
+    if (Files.isSymbolicLink(directory) || !Files.isDirectory(directory))
+      throw new IOException("Local project directory is missing or unsafe");
+  }
+
+  private static void deleteProjectDirectory(Path directory) throws IOException {
+    if (Files.isSymbolicLink(directory)) throw new IOException("Refusing project symlink");
+    try (var files = Files.list(directory)) {
+      for (Path file : files.toList()) {
+        if (Files.isSymbolicLink(file) || !Files.isRegularFile(file))
+          throw new IOException("Unexpected file in project directory");
+        Files.delete(file);
+      }
+    }
+    Files.delete(directory);
+  }
+}
