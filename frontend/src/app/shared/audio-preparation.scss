@@ -1,0 +1,61 @@
+:host {
+  display: block;
+  min-width: 0;
+}
+.audio-preparation {
+  min-width: 0;
+  max-width: 560px;
+}
+h2 {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-section);
+}
+.fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-3);
+}
+label {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+select,
+input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.actions button {
+  min-height: 36px;
+}
+p {
+  max-width: 70ch;
+  margin: var(--space-3) 0;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.hint,
+.save-state {
+  color: var(--secondary);
+  font-size: var(--text-small);
+}
+.audio-help {
+  margin-top: var(--space-3);
+  color: var(--secondary);
+  font-size: var(--text-small);
+}
+.save-state {
+  margin-bottom: 0;
+}
+.warning {
+  color: var(--warning);
+}
+.error {
+  color: var(--danger);
+}

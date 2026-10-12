@@ -1,5 +1,5 @@
 .import-panel {
-  max-width: 1120px;
+  max-width: none;
 }
 .import-panel h1 {
   margin: 0 0 var(--space-2);
@@ -12,7 +12,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-1);
-  margin-top: var(--space-5);
+  margin-top: var(--space-3);
   border-bottom: 1px solid var(--border);
 }
 .source-tabs button {
@@ -79,6 +79,52 @@
 }
 .import-error {
   color: var(--danger);
+  overflow-wrap: anywhere;
+}
+.omr-recognition-progress {
+  margin: var(--space-4) 0;
+}
+.omr-recognition-progress p {
+  color: var(--secondary);
+}
+.omr-recognition-progress progress {
+  width: min(100%, 320px);
+}
+.omr-comparison {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-4);
+  margin: var(--space-5) 0;
+}
+.omr-comparison section {
+  min-width: 0;
+}
+.omr-comparison .omr-measures {
+  max-height: 560px;
+  overflow: auto;
+}
+.omr-pdf-page {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--border);
+  background: #fff;
+}
+.draft-caution {
+  color: var(--warning);
+  line-height: 1.5;
+}
+.omr-diagnostic pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 280px;
+  overflow: auto;
+  font: var(--text-small) / 1.5 var(--mono);
+}
+@media (max-width: 900px) {
+  .omr-comparison {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 .import-preview {
   border-top: 1px solid var(--border);
@@ -112,8 +158,7 @@
   color: var(--warning);
   line-height: 1.5;
 }
-.provenance,
-.provider-note {
+.provenance {
   color: var(--secondary);
   font-size: var(--text-small);
   overflow-wrap: anywhere;
@@ -134,40 +179,125 @@
   width: 100%;
 }
 .omr-setup-state {
-  border-left: 2px solid var(--warning);
+  border-left: 1px solid var(--warning);
   color: var(--secondary);
   font-size: var(--text-small);
   margin: var(--space-4) 0;
   padding-left: var(--space-3);
 }
-.omr-setup-state.is-ready {
-  border-color: var(--success);
-  color: var(--success);
-}
-.omr-setup-progress {
-  margin: var(--space-4) 0;
-  padding: var(--space-4);
-  background: var(--surface);
-}
-.omr-setup-progress p {
-  font-size: var(--text-small);
-  margin: 0 0 var(--space-2);
-}
-.omr-setup-progress progress {
-  display: block;
-  height: 8px;
-  width: 100%;
-  accent-color: var(--accent);
-}
-.omr-setup-progress small {
-  color: var(--secondary);
-  display: block;
-  margin-top: var(--space-2);
-}
 .omr-original {
   display: block;
-  max-width: 100%;
-  max-height: 480px;
+  max-width: none;
   object-fit: contain;
   border: 1px solid var(--border);
+}
+
+.import-drop {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 148px;
+  max-width: 720px;
+  border: 1px dashed var(--control-border);
+  background: var(--surface);
+  cursor: pointer;
+}
+.import-drop input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+  width: 100%;
+  height: 100%;
+}
+.import-drop:hover,
+.import-drop.dragging,
+.import-drop:focus-within {
+  border-color: var(--accent);
+  background: var(--selection);
+}
+.import-drop:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.import-drop:has(input:disabled) {
+  opacity: 0.5;
+}
+.import-drop strong {
+  color: var(--accent);
+  font-size: var(--text-section);
+}
+.import-drop span,
+.format-routes dd,
+.format-limits,
+.comparison-limit {
+  color: var(--secondary);
+  font-size: var(--text-small);
+}
+.format-routes {
+  max-width: 720px;
+  margin: var(--space-4) 0;
+}
+.format-routes > div {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--border);
+  gap: var(--space-3);
+}
+.format-routes dt {
+  font-size: var(--text-control);
+  font-weight: 500;
+}
+.format-routes dd {
+  margin: 0;
+}
+.comparison-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-height: 40px;
+}
+.comparison-heading h3 {
+  margin: 0;
+}
+.comparison-heading label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--secondary);
+  font-size: var(--text-small);
+}
+.original-viewport,
+.recognized-viewport {
+  height: 62dvh;
+  overflow: auto;
+  background: var(--color-document-stage);
+  border: 1px solid var(--border);
+}
+.original-viewport img {
+  display: block;
+  max-width: none;
+}
+.recognition-details {
+  margin-block: var(--space-3);
+}
+.draft-notation {
+  max-height: 440px;
+  overflow: auto;
+  margin-top: var(--space-3);
+}
+@media (max-width: 600px) {
+  .format-routes > div {
+    grid-template-columns: 1fr;
+    gap: var(--space-1);
+  }
+  .original-viewport,
+  .recognized-viewport {
+    height: 50dvh;
+  }
 }

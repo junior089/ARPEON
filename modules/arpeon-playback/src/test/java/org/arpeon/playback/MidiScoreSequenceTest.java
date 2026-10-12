@@ -92,6 +92,50 @@ class MidiScoreSequenceTest {
   }
 
   @Test
+  void retriggersTiedNoteAtAAndReleasesItBeforeTheNativeLoopBoundary() {
+    var meter = new TimeSignature(1, 4);
+    var quarter = new Duration(1, 4);
+    var pitch = Pitch.fromMidiNumber(60);
+    var timeline =
+        new ScoreTimeline(
+            new Score(
+                "Tied loop",
+                List.of(
+                    new Part(
+                        "P1",
+                        "Flute",
+                        List.of(
+                            new Measure(
+                                "1",
+                                meter,
+                                Optional.empty(),
+                                List.of(new Note(pitch, quarter, true, false)),
+                                false),
+                            new Measure(
+                                "2",
+                                meter,
+                                Optional.empty(),
+                                List.of(new Note(pitch, quarter, false, true)),
+                                false))))));
+    var loop = new MidiScorePlayer.LoopRange(480, 960, 1, 1);
+    var sequence = MidiScoreSequence.build(timeline, Map.of(), loop);
+    var track = sequence.getTracks()[1];
+    var events =
+        java.util.stream.IntStream.range(0, track.size())
+            .mapToObj(track::get)
+            .filter(
+                event ->
+                    event.getMessage() instanceof ShortMessage note
+                        && (note.getCommand() == ShortMessage.NOTE_ON
+                            || note.getCommand() == ShortMessage.NOTE_OFF))
+            .toList();
+    assertEquals(2, events.size());
+    assertEquals(timeline.countInTicks() + 480, events.get(0).getTick());
+    assertEquals(timeline.countInTicks() + 959, events.get(1).getTick());
+    assertEquals(ShortMessage.NOTE_OFF, ((ShortMessage) events.get(1).getMessage()).getCommand());
+  }
+
+  @Test
   void schedulesChordHeadsAtTheSameMidiTick() {
     var duration = new Duration(1, 4);
     var measure =

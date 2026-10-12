@@ -3,13 +3,13 @@
 
 :root {
   color-scheme: dark;
-  --color-bg-base: #111315;
-  --color-bg-sidebar: #151719;
-  --color-bg-surface: #191b1e;
-  --color-bg-elevated: #24272b;
+  --color-bg-base: #0b0b0d;
+  --color-bg-sidebar: #141416;
+  --color-bg-surface: #1a1a1f;
+  --color-bg-elevated: #26262b;
   --color-bg-hover: #2b2e32;
   --color-bg-active: #34383d;
-  --color-accent-primary: #d8bb78;
+  --color-accent-primary: #e6c989;
   --color-accent-hover: #e8d39e;
   --color-accent-pressed: #aa8e54;
   --color-accent-subtle: #3b3324;
@@ -29,7 +29,8 @@
   --color-score-ink: #252525;
   --color-score-dark-paper: #191b1e;
   --color-score-dark-ink: #ecece7;
-  --color-score-cursor: #aa8e54;
+  --color-score-cursor: #806326;
+  --color-score-dark-cursor: #d8bb78;
   --color-reference-paper: #fff;
   --overlay: #111315b3;
   --shadow-overlay: 0 8px 24px #0005;
@@ -62,11 +63,17 @@
   --space-4: 16px;
   --space-5: 24px;
   --space-6: 32px;
-  --control-height: 32px;
+  --control-height: 30px;
   --radius-compact: 4px;
-  --radius: 6px;
-  --radius-panel: 8px;
-  --radius-dialog: 12px;
+  --radius: 4px;
+  --radius-panel: 4px;
+  --radius-dialog: 6px;
+  --color-toolbar: var(--color-bg-surface);
+  --color-document-stage: var(--color-bg-base);
+  --color-focus: var(--color-accent-primary);
+  --color-playback: var(--color-accent-primary);
+  --color-key-pressed: var(--color-accent-primary);
+  --color-key-open: var(--color-bg-elevated);
   --ui: 'Inter Variable', 'Segoe UI', sans-serif;
   --mono: 'JetBrains Mono Variable', monospace;
   --text-small: 12px;
@@ -272,7 +279,7 @@ button.destructive:hover:not(:disabled) {
 }
 .error {
   color: var(--danger);
-  border-left: 2px solid var(--danger);
+  border-left: 1px solid var(--danger);
   padding: var(--space-2) var(--space-3);
   line-height: 1.5;
 }
@@ -291,6 +298,12 @@ button.destructive:hover:not(:disabled) {
 kbd {
   font: 11px var(--mono);
   color: var(--secondary);
+}
+app-score-workspace .notation > div {
+  margin-bottom: var(--space-5);
+}
+app-score-workspace .notation > div:last-child {
+  margin-bottom: 0;
 }
 @media (prefers-reduced-motion: reduce) {
   *,

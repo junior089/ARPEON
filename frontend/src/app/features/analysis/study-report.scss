@@ -1,0 +1,107 @@
+:host {
+  display: block;
+  min-width: 0;
+}
+p {
+  color: var(--secondary);
+  overflow-wrap: anywhere;
+}
+.coverage {
+  margin-top: 0;
+}
+.coverage strong {
+  color: var(--primary);
+  font-weight: 500;
+}
+h3 {
+  margin: var(--space-5) 0 var(--space-3);
+}
+.hint {
+  font-size: var(--text-small);
+}
+.notice {
+  color: var(--primary);
+}
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-4);
+  margin: var(--space-4) 0;
+}
+.metrics div {
+  border-top: 1px solid var(--border);
+  padding: var(--space-3) 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.metrics strong {
+  font: 22px var(--mono);
+  overflow-wrap: anywhere;
+}
+.metrics span {
+  font-size: var(--text-small);
+  color: var(--secondary);
+}
+.tempo {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  max-width: 220px;
+  color: var(--secondary);
+}
+.tempo input {
+  width: 100%;
+}
+.passages {
+  list-style: none;
+  padding: 0;
+  margin: var(--space-4) 0;
+}
+.passages li {
+  padding: var(--space-4) 0;
+  border-top: 1px solid var(--border);
+}
+.passages p {
+  margin: var(--space-2) 0;
+}
+.passages button {
+  margin-top: var(--space-3);
+  white-space: normal;
+  text-align: left;
+}
+.table-scroll {
+  overflow-x: auto;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-small);
+}
+th,
+td {
+  padding: var(--space-2);
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  white-space: nowrap;
+}
+th {
+  color: var(--secondary);
+  font-weight: 500;
+}
+nav {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: var(--space-3);
+}
+details {
+  margin-top: var(--space-4);
+}
+@media (max-width: 900px) {
+  .metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

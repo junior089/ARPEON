@@ -1,5 +1,6 @@
 package org.arpeon.audio;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -37,17 +38,38 @@ public final class JavaSoundAudioInput implements AudioInputPort {
   public synchronized List<AudioInputDevice> devices() {
     var devices = new ArrayList<AudioInputDevice>();
     var snapshot = new LinkedHashMap<String, Mixer.Info>();
+    var duplicates = new LinkedHashMap<String, Integer>();
     var mixers = AudioSystem.getMixerInfo();
     for (int i = 0; i < mixers.length; i++) {
       var supported = rates(AudioSystem.getMixer(mixers[i]));
       if (!supported.isEmpty()) {
-        String id = UUID.randomUUID().toString();
+        String identity = descriptor(mixers[i]);
+        int ordinal = duplicates.merge(identity, 1, Integer::sum) - 1;
+        String id = deviceId(mixers[i], ordinal);
         snapshot.put(id, mixers[i]);
         devices.add(new AudioInputDevice(id, mixers[i].getName(), supported));
       }
     }
     discovered = Map.copyOf(snapshot);
     return List.copyOf(devices);
+  }
+
+  private static String descriptor(Mixer.Info info) {
+    return info.getName()
+        + "\u0000"
+        + info.getVendor()
+        + "\u0000"
+        + info.getDescription()
+        + "\u0000"
+        + info.getVersion();
+  }
+
+  // Unrelated device insertions do not change an input's identity. Identical driver
+  // descriptors have only an enumeration ordinal; Java Sound exposes no hardware serial.
+  static String deviceId(Mixer.Info info, int ordinal) {
+    return UUID.nameUUIDFromBytes(
+            (descriptor(info) + "\u0000" + ordinal).getBytes(StandardCharsets.UTF_8))
+        .toString();
   }
 
   @Override

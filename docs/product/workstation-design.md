@@ -1,137 +1,109 @@
-# ARPEON — workstation UX/UI
+# ARPEON — revisão da workstation
 
-## Audit and scope
+A implementação posterior, orientada pelo kit de marca fornecido em 12/10/2026, está em
+[Redesign integral: implementação e validação](redesign-2026-10-12.md). Este documento preserva
+o histórico da revisão anterior.
 
-The redesign was implemented over the existing, locally modified Angular application. No Java
-algorithms, transport contracts, import limits, microphone consent, licensing or domain models
-were changed by this work. No frontend dependency was added. Local Inter and JetBrains Mono
-assets were retained to avoid network fonts and preserve offline operation.
+Revisão de 10/10/2026 sobre a aplicação Angular existente. A estrutura musical, os limites de
+importação, os projetos locais, o consentimento do microfone e as licenças foram preservados.
+Nenhuma dependência foi adicionada. Inter e JetBrains Mono continuam locais para uso offline.
 
-The original interface used a tall masthead, floating playback card, horizontal numbered
-navigation, large introductory headings and a long document page. Editing was below notation
-and fingering rather than beside the selection. Import methods competed in a grid of cards.
-Most controls required scrolling away from the score.
+## Identidade e estrutura
 
-The app has no Angular router: the root switches five standalone workspaces and provides the
-shared `ScoreSession`. Import/practice/tuner/analysis services retain their existing lifecycles.
-Switching away still invokes cleanup of capture and polling through the existing components.
+As cinco áreas — Partitura, Importar, Prática, Afinador e Análise — usam superfícies planas,
+separadores discretos e controles consistentes. O dourado marca ações e seleção. Textos
+promocionais, etiquetas redundantes e caixas decorativas foram removidos. O transporte
+permanece acessível durante a rolagem da partitura.
 
-| Area | Operational capabilities preserved |
+O menu Exibir oferece temas escuro e claro, persistidos em `arpeon.theme.v1`. A preferência
+resiste a valores inválidos e armazenamento indisponível. A notação mantém papel e tinta
+independentes do tema do aplicativo, com opção própria de partitura escura.
+
+O explorador reúne projetos e partes; o inspetor reúne seleção, edição e transposição. O
+inspetor tem largura de 280–460px, ajuste por ponteiro e teclado. Preferências de painéis e
+zoom de 50–200% usam `arpeon.layout.v1`. Até 980px, os painéis recolhem; até 600px, somente
+a pauta mantém largura mínima e rolagem horizontal, preservando acesso aos controles.
+
+## Sistema visual
+
+Fonte única: `frontend/src/styles/styles.scss`. Componentes usam tokens semânticos; os aliases
+existentes são mantidos para compatibilidade.
+
+| Papel | Tema escuro |
 | --- | --- |
-| Score | MusicXML/MXL/MSCZ, local projects, part selection, mute/solo, instrument, note/chord/rest editing, duration, ties, transposition previews, undo/redo and export |
-| Transport | Java MIDI play/pause/stop, seek, starting BPM, metronome and count-in |
-| Practice | Generated flute exercises, reference playback, repeat/progressive tempo, note selection, fingering, microphone feedback and local history |
-| Tuner | Device selection, reference A, note/frequency/cents/confidence and capture diagnostics |
-| Import | Pasted notation, bounded MIDI/WAV, public Wikimedia MIDI, local Audiveris setup/OMR and explicit review/acceptance |
-| Analysis | Monophonic following, timed attempts, independent metrics and revision-specific reports |
+| Fundo / lateral / superfície / elevado | #111315 / #151719 / #191B1E / #24272B |
+| Dourado / hover / pressionado / seleção | #D8BB78 / #E8D39E / #AA8E54 / #3B3324 |
+| Texto principal / secundário / discreto | #ECECE7 / #B0B2AD / #929690 |
+| Separador / borda padrão / limite de formulário | #2B2E31 / #393D41 / #777D80 |
+| Sucesso / aviso / erro / informação | #82AD8E / #D6AA65 / #CA7777 / #86A8BE |
+| Papel / tinta / cursor | #F5F2EA / #252525 / #AA8E54 |
+| Espaçamento | 4, 8, 12, 16, 24, 32px |
+| Tipografia | 11–12px metadados, 13px controles, 14px corpo, 16px seções, 20px títulos |
+| Controles e cantos | 32px de altura; 6px nos controles; 4px em elementos compactos |
 
-Limitations remain explicit: OMR has no per-note confidence, live following is monophonic,
-recognition needs review, and learned-model experiments are not exposed as production features.
-There is no invented note palette, multi-document tab system, score loop API or generic settings
-screen. Exercise looping remains in the real practice controls.
+O tema claro usa neutros quentes e dourado #806326 para legibilidade. Hover, pressionado,
+selecionado, foco, desabilitado, erros e processamento seguem o mesmo sistema. Sombras
+existem somente para separar sobreposições. Não há fontes externas, brilho ou gradientes
+decorativos; as marcas da escala do afinador mantêm um fundo repetido funcional. Preferências
+de movimento reduzido e cores forçadas são respeitadas.
 
-## Workspace architecture
+## Páginas e reprodução
 
-- A 40px menu strip groups existing commands under Arquivo, Editar, Exibir, Partitura,
-  Reprodução, Ferramentas and Ajuda. Native disclosure menus support arrows, Home/End,
-  Escape, outside click and normal Tab navigation. Help uses a native modal dialog.
-- A 68px activity rail (56px in compact windows) switches the five workspaces. Labels supplement
-  monochrome, original SVG line icons. The active area has a side marker and text contrast.
-- The score workspace uses a 208px explorer, flexible document canvas and 280–460px inspector.
-  The score stays light by default; the existing optional dark score remains available.
-- Projects and instrument parts share the explorer. Editing and transposition occupy the
-  inspector; notes/fingering are a collapsible lower section. Selection on notation no longer
-  scrolls the user away from the score. Enter on notation opens the keyboard note list.
-- Inspector resizing supports pointer capture and a focusable separator. Arrow keys adjust it
-  in 16px steps; Home/End choose its bounds. ResizeObserver reflows notation after panel changes.
-- Real OSMD zoom spans 50–200%. Preferences are validated, bounded and stored under
-  `arpeon.layout.v1`; blocked/corrupt storage falls back safely. Exibir restores defaults.
-- At widths up to 980px, side panels fold to prioritize the score. Their toolbar buttons reopen
-  scrollable overlays; returning to a wide window restores the previous wide layout. At widths up to 600px, notation keeps a readable minimum width and scrolls horizontally within the canvas.
-- Transport is docked above a small status bar. Its document name identifies the score transport
-  separately from exercise playback. It remains reachable when the document scrolls.
-- Import uses a source selector and three explicit stages: source, review, editor. Switching
-  source panels does not discard their input. Assumptions must still be acknowledged.
-- Practice places the generated notation beside its setup, inside the execution area. Tuner
-  separates the measurement display from the device inspector. Analysis keeps preparation,
-  execution and reports distinct.
+A partitura usa páginas A4 em orientação retrato, com seletor, anterior/próxima e indicação
+que acompanha a rolagem. Todas as páginas geradas são exibidas. A paginação é recalculada
+com zoom e largura disponível; não reproduz necessariamente as quebras impressas da fonte.
+O cabeçalho conta compassos escritos; as ocorrências das repetições continuam na execução.
 
-## Visual system
+O clique usa a transformação do SVG da página selecionada e procura notas apenas nessa
+página. A busca no transporte encontra a primeira ocorrência do compasso escrito, evitando
+confundir índices de edição com ocorrências após uma repetição.
 
-Tokens live in `frontend/src/styles/styles.scss`. Feature styles reference semantic colors.
+A barra é uma linha sólida de 5px, com opacidade de desenho de 100%. O cursor mantém a nota
+até o próximo início e segue o tempo executado, incluindo repetições. Um iterador independente
+antecipa somente a consulta do próximo instante; clonar a posição intermediária do OSMD
+perdia o estado da repetição. Buscas para trás reiniciam a travessia corretamente.
 
-| Role | Token / value |
-| --- | --- |
-| Canvas / panel / raised | `--background` #0D0F12 / `--surface` #17191D / `--raised` #202329 |
-| Structural separator | `--border` #30343B |
-| Form boundary | `--control-border` #656F7E |
-| Primary / secondary text | #E6E8EC / #A4ADB9 |
-| Selected text / action fill | `--accent` #78B5D5 / `--accent-fill` #478FB5 |
-| Selection surface | #233B49 |
-| Error / success / warning | #F39595 / #8AC5A0 / #DBB776 |
-| Spacing | 4, 8, 12, 16, 24, 32px |
-| Controls / corners | 32px / 3px; 24–28px for secondary compact controls |
-| Type | 12px UI, 11px metadata, 18px workspace title; tabular monospace for musical measurements |
-| Focus | 2px accent outline, 2px offset |
+O backend continua usando o relógio MIDI como posição canônica. Agora informa também
+`audibleTick`, `audibleBpm` e `audioLatencyMs`. A compensação subtrai a latência informada
+pelo sintetizador em segundos, respeitando mudanças de andamento e o fator de BPM escolhido.
+A interpolação visual fica limitada a 160ms sem amostra nova; a barra fica oculta na contagem.
+A latência informada é uma estimativa do sintetizador, não uma calibração acústica.
 
-Hover and pressed states change surfaces without movement. Selection also uses borders or markers.
-Disabled actions remain labeled. Busy operations announce status; errors retain role=alert.
-The only shadow is the menu's overlay separation. No gradients, blur, glow or external font calls
-were added. Reduced-motion preference removes transitions. Native destructive-action confirmations
-remain in place, including dirty-document replacement, project deletion and application shutdown.
-The favicon uses a local JPEG because the existing Java static-resource allowlist supports JPEG.
+## Verificações da revisão inicial
 
-## Keyboard commands
+- Frontend: ESLint sem warnings, TypeScript de aplicação e testes, Prettier e build de produção.
+- 34 testes em 12 suítes, incluindo temas, preferências, menus, teclado, edição e cursor.
+  O cursor é testado também com MusicXML real contendo repetição, além de limites e busca.
+- Gradle completo com `--warning-mode=fail`: compilação, formatação, testes e distribuições.
+  Três testes novos cobrem latência entre andamentos, fator de tempo e busca sem abrir áudio.
+- Verificação de licenças: 586 entradas npm com licença e integridade conferidas.
+- Navegador com frontend de produção e backend real em perfil isolado: Badinerie contém
+  42 compassos escritos, distribuídos em quatro páginas a 1280px com painéis abertos.
+  A última página e a seleção/busca de sua nota do compasso 39 foram verificadas.
+- Reprodução real neste computador informou 120ms de latência: a 120 BPM, a posição audível
+  ficou 115 ticks MIDI atrás da posição canônica. Reprodução, pausa, parada e contagem testadas.
+- Temas claro/escuro, prática gerada, importação, afinador e análise inspecionados no navegador.
+  Capturas locais ficam em `.tools/identity-review`. Verificações responsivas cobriram janelas
+  de desktop e 390px. As capturas são evidência de revisão, não assets distribuídos.
 
-| Action | Windows/Linux | macOS |
-| --- | --- | --- |
-| Open / save | Ctrl O / Ctrl S | Cmd O / Cmd S |
-| Undo / redo (editor) | Ctrl Z / Ctrl Shift Z, Ctrl Y | Cmd Z / Cmd Shift Z |
-| Play/pause / stop score | Space / Shift Space | Space / Shift Space |
-| Switch workspace | Alt 1–5 | Option 1–5 |
-| Explorer / inspector | Ctrl B / Ctrl Alt B | Cmd B / Cmd Option B |
-| Help | F1 | F1 |
+## Limites de validação
 
-Global shortcuts do not intercept editable fields, held-key repeats or the help dialog.
-Space on buttons, links and disclosure summaries keeps its native activation behavior.
+A sincronização acústica exata ainda exige escuta ou medição na saída de áudio do usuário;
+a estimativa do sintetizador pode diferir de hardware, Bluetooth e drivers. Não foram
+revalidados precisão física do microfone, sessões longas de acompanhamento, reconhecimento
+Audiveris, fontes externas e comportamento nativo em macOS/Linux. A análise segue monofônica,
+e OMR exige revisão. Não há alegação de certificação integral de acessibilidade: foco,
+semântica, estados e responsividade foram conferidos, sem auditoria especializada completa.
 
-## Validation
+## Continuação: páginas e sincronização
 
-Validated with the bundled Node 24 runtime and a Java DesktopServer using an isolated local
-profile under `.tools/redesign-profile`. Production UI and real backend were used: no mocked
-requests or simulated scores in browser checks.
+A revisão complementar está registrada em
+[Revisão da reprodução e paginação](playback-review-2026-10-10.md), com os ajustes finais
+do cursor, contagem, acompanhamento automático e indicador da página visível. A suíte atual
+do frontend contém 48 testes em 13 suítes.
 
-- Angular production build; strict application/spec TypeScript checks; ESLint and Prettier.
-- Full Gradle build (compile, tests, distributions) passed with `-x checkJavaFormat`. The plain
-  build stopped on formatting in the already-modified `MidiScorePlayer.java` in
-  `modules/arpeon-playback`; this redesign did not edit that file.
-- 28 frontend tests, including bounded/corrupt layout preferences, keyboard safeguards,
-  menu navigation, inspector bounds and correct initial select values.
-- Browser: MusicXML open and rendering; pitch edit; undo/redo shortcuts; save; reload;
-  exported MusicXML; play/pause/stop; BPM; metronome; mute; zoom; inspector persistence.
-- Browser: pasted-note review gated by acknowledgment, accepted draft rendering, generated
-  practice notation, tuner idle/device controls and analysis workspace.
-- Responsive checks: 1440, 1280, 1024, 800, 600 and 390px widths. Capture files are stored locally
-  under `.tools/redesign-*.png` (ignored build/verification artifacts).
+## Referências consultadas
 
-Hardware microphone accuracy, audible output quality, long live-follow sessions, Audiveris
-recognition and macOS/Linux native behavior require their respective environments. This UI work
-does not claim those were revalidated. The initial empty practice endpoint returns its existing
-409 before an exercise exists; the UI handles it. The final loaded browser session has no console
-errors. No before screenshot was retained: the first static preview could not be reached before
-its bundle was rebuilt.
-
-## Design references
-
-Principles studied, with original ARPEON implementation and icons:
-
-- [Dorico: Write mode zones](https://www.steinberg.help/r/dorico-pro/6.1/en/dorico/topics/write_mode/write_mode_window_r.html): document priority and contextual panels.
-- [MuseScore Studio: workspaces](https://handbook.musescore.org/en_gb/customization/workspaces): coherent arrangement of toolbars and panels.
-- [Ableton: Live concepts](https://www.ableton.com/en/manual/live-concepts/): transport and context separated from document work.
-- [Logic Pro: main window](https://support.apple.com/en-my/guide/logicpro/lgcp2a07a994/10.7/mac/11.0): integrated working regions.
-- [VS Code: interface](https://code.visualstudio.com/docs/editing/getting-started/userinterface): compact navigation, secondary sidebar and status bar.
-- [Figma: properties sidebar](https://help.figma.com/hc/en-us/articles/360039832014-Design-prototype-and-explore-layer-properties-in-the-right-sidebar): selection-oriented properties.
-- [Blender: regions](https://docs.blender.org/manual/id/5.1/interface/window_system/regions.html): bounded, contextual editors.
-
-
-
+- [Dorico: painéis e zonas](https://www.steinberg.help/r/dorico-elements/6.2/en/dorico/topics/user_interface/user_interface_panels_r.html): prioridade da notação e contexto lateral.
+- [Ableton: conceitos do Live](https://www.ableton.com/en/manual/live-concepts/): transporte e áreas de trabalho integradas.
+- [Java: Synthesizer.getLatency](https://docs.oracle.com/en/java/javase/25/docs/api/java.desktop/javax/sound/midi/Synthesizer.html): estimativa de atraso de processamento.

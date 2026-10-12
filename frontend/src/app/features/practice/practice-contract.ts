@@ -55,6 +55,15 @@ export interface PracticeSummary {
   bpm: number;
 }
 
+export interface PracticeHistoryPage {
+  entries: PracticeSummary[];
+  page: number;
+  pageSize: number;
+  matchingCount: number;
+  totalCount: number;
+  completedCount: number;
+}
+
 export interface PracticeObservation {
   practice: PracticeView;
   observation: TunerObservation;
@@ -121,23 +130,41 @@ export function isPracticeObservation(value: unknown): value is PracticeObservat
 }
 
 export function isPracticeHistory(value: unknown): value is PracticeSummary[] {
+  return Array.isArray(value) && value.every(isPracticeSummary);
+}
+
+export function isPracticeSummary(item: unknown): item is PracticeSummary {
   return (
-    Array.isArray(value) &&
-    value.every(
-      (item: unknown) =>
-        record(item) &&
-        typeof item['id'] === 'string' &&
-        typeof item['kind'] === 'string' &&
-        typeof item['keyId'] === 'string' &&
-        typeof item['startedAt'] === 'string' &&
-        typeof item['endedAt'] === 'string' &&
-        typeof item['completed'] === 'boolean' &&
-        finite(item['targets']) &&
-        finite(item['reached']) &&
-        finite(item['heldMs']) &&
-        optionalNumber(item['stabilityCents']) &&
-        finite(item['interruptions']) &&
-        finite(item['bpm']),
-    )
+    record(item) &&
+    typeof item['id'] === 'string' &&
+    typeof item['kind'] === 'string' &&
+    typeof item['keyId'] === 'string' &&
+    typeof item['startedAt'] === 'string' &&
+    typeof item['endedAt'] === 'string' &&
+    typeof item['completed'] === 'boolean' &&
+    finite(item['targets']) &&
+    finite(item['reached']) &&
+    finite(item['heldMs']) &&
+    optionalNumber(item['stabilityCents']) &&
+    finite(item['interruptions']) &&
+    finite(item['bpm'])
+  );
+}
+
+export function isPracticeHistoryPage(value: unknown): value is PracticeHistoryPage {
+  if (!record(value) || !isPracticeHistory(value['entries'])) return false;
+  for (const key of ['page', 'pageSize', 'matchingCount', 'totalCount', 'completedCount'])
+    if (!Number.isSafeInteger(value[key]) || (value[key] as number) < 0) return false;
+  const page = value as unknown as PracticeHistoryPage;
+  return (
+    page.pageSize >= 1 &&
+    page.pageSize <= 50 &&
+    page.totalCount <= 5000 &&
+    page.matchingCount <= page.totalCount &&
+    page.completedCount <= page.matchingCount &&
+    page.page <= Math.max(0, Math.ceil(page.matchingCount / page.pageSize) - 1) &&
+    page.entries.length ===
+      Math.min(page.pageSize, page.matchingCount - page.page * page.pageSize) &&
+    page.entries.every((entry) => Number.isFinite(Date.parse(entry.endedAt)))
   );
 }

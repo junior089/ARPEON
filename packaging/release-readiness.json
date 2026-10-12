@@ -1,0 +1,10 @@
+{
+  "version": "0.1.1",
+  "gates": {
+    "redistributionLicenses": { "passed": false, "evidence": "docs/legal/native-distribution.md" },
+    "cleanWindowsInstall": { "passed": false, "evidence": "" },
+    "signedUpdateEndToEnd": { "passed": false, "evidence": "" },
+    "installerRecovery": { "passed": false, "evidence": "docs/development/production-validation.md" },
+    "audioHardware": { "passed": false, "evidence": "" }
+  }
+}

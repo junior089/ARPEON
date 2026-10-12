@@ -16,6 +16,16 @@ h1 {
   color: var(--secondary);
   font-size: var(--text-small);
 }
+.capture-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+.capture-controls .primary {
+  width: auto;
+  margin: 0;
+}
 .capture-state::before {
   content: '';
   display: inline-block;
@@ -214,8 +224,9 @@ dd {
     grid-template-columns: 1fr;
   }
   .input-panel {
+    order: -1;
     border-left: 0;
-    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
     padding: var(--space-4);
   }
   .panel-heading {
@@ -223,7 +234,7 @@ dd {
     flex-direction: column;
   }
   .instrument-display {
-    min-height: 360px;
+    min-height: 300px;
     padding: var(--space-4) 0;
   }
 }

@@ -72,21 +72,31 @@ remain available. See the [provider access review](../legal/provider-registry.md
 
 ## OMR (Milestone 6)
 
-Audiveris must be installed separately and its executable path supplied through
-`ARPEON_AUDIVERIS_EXECUTABLE`. One local PDF (1–32 pages, at most 64 MiB) or PNG/JPEG (at most
+On Windows, the app can prepare the verified official Audiveris 5.11.0 package for the current
+user; an existing installation can also be selected with `ARPEON_AUDIVERIS_EXECUTABLE`.
+One local PDF (1–32 pages, at most 64 MiB) or PNG/JPEG (at most
 32 MiB, at most 64 megapixels) is accepted. Recognition has a ten-minute deadline and must
 produce exactly one uncompressed MusicXML score of at most 128 MiB. The current score importer
 supports its documented voice-aware subset, including simultaneous chord heads and independent
 sequential voices. Ties are preserved and sounded as sustained notes; chord playback schedules
 all heads together. Non-nested repeats (2–8 passes) and contiguous pass-specific endings are
 preserved and expanded only during playback. Nested repeats/endings, discontinuous endings,
-tuplets and unsupported musical structures fail visibly rather than being flattened. Live
+and unsupported musical structures fail visibly rather than being flattened. The OMR adapter
+retains exact tuplet durations but omits grouping numbers/brackets with an explicit warning. Live
 analysis still requires non-overlapping monophonic notes.
 Presentation metadata and slurs may be omitted with a warning. Confidence by note is unavailable;
 the preview lists recognized notes and rests by measure (up to 16 parts, 2048 measures and
 16384 events), and every page and measure requires comparison with the original. The preview holds no durable
 Audiveris project or source image, and exported MusicXML contains the edited notation, not
 the original scan or OMR review history.
+
+The OMR-only draft preparation accepts repeated identical key declarations and incomplete
+measures without inventing recognized notes. Overfull measures receive a disclosed provisional
+meter; empty measures receive a disclosed provisional rest. The source meter returns in the
+next measure. These are review assumptions, not evidence that recognition was correct, and
+must be corrected before study. Actual key changes remain unsupported. The preview shows
+the original alongside recognized measures and requires acknowledgement of warnings before
+opening. Recognition displays phase progress and can be cancelled; cancelled results are discarded.
 
 The local caps are intentionally much larger than the original prototype limits. MusicXML UTF-8
 validation and browser upload are chunked and cancelable, but the server still holds the request

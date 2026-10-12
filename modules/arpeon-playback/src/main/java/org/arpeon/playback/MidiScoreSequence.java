@@ -19,6 +19,13 @@ public final class MidiScoreSequence {
   }
 
   public static Sequence build(ScoreTimeline timeline, Map<String, InstrumentProfile> profiles) {
+    return build(timeline, profiles, null);
+  }
+
+  static Sequence build(
+      ScoreTimeline timeline,
+      Map<String, InstrumentProfile> profiles,
+      MidiScorePlayer.LoopRange loop) {
     if (timeline.score().parts().size() > 15)
       throw new IllegalArgumentException("MIDI playback supports at most 15 parts");
     try {
@@ -43,18 +50,19 @@ public final class MidiScoreSequence {
             0);
         for (var note : timeline.notes()) {
           if (note.partIndex() != part) continue;
+          long start = note.startTick();
+          long endTick = start + note.durationTicks();
+          if (loop != null) {
+            if (endTick <= loop.startTick() || start >= loop.endTick()) continue;
+            start = Math.max(start, loop.startTick());
+            endTick = Math.min(endTick, loop.endTick() - 1);
+          }
           int sounding =
               note.midiNumber() + (profile == null ? 0 : profile.soundingTranspositionSemitones());
           if (sounding < 0 || sounding > 127)
             throw new IllegalArgumentException("Sounding pitch outside MIDI range");
-          add(track, ShortMessage.NOTE_ON, channel, sounding, 80, offset + note.startTick());
-          add(
-              track,
-              ShortMessage.NOTE_OFF,
-              channel,
-              sounding,
-              0,
-              offset + note.startTick() + note.durationTicks());
+          add(track, ShortMessage.NOTE_ON, channel, sounding, 80, offset + start);
+          add(track, ShortMessage.NOTE_OFF, channel, sounding, 0, offset + endTick);
         }
       }
       Track metronome = sequence.createTrack();

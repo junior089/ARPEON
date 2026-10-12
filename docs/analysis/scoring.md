@@ -53,6 +53,15 @@ observed events but no matches, matched-pair percentages/means are null. Inter-o
 is null with no eligible consecutive pair. Intonation is null with no matched same-MIDI pair.
 No overall score, weighted composite, automatic progression or claim about musicianship is made.
 
+The report interface shows correspondence coverage next to these metrics. Its study suggestions
+group notes by performed measure occurrence, rank the proportion with a deviation or missing
+correspondence, and show at most three passages. Musical deviations enter those suggestions
+only at confidence 0.80 or higher; the analyzer metrics above remain unchanged. Confidence
+below 0.80 and coverage below 70% prompt capture review. These are disclosed UI caution rules.
+Saved reports now retain criteria, note locations and a canonical MusicXML fingerprint; old
+reports without that metadata remain readable. Preparing study sets a stopped playback loop
+with adjustable tempo. A new analysis still uses the complete part and written tempo.
+
 Confidence is displayed separately; it is not secretly weighted into accuracy. The 0.65
 minimum determines whether a window can become an event. Browser polling may miss windows;
 low-confidence passages, microphone latency and hardware clock error limit precision. The

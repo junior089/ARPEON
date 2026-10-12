@@ -46,8 +46,14 @@ parser costs; it does not establish live Commons latency or bulk throughput.
 Milestone 6 tests cover PDF/image preflight, hostile or misleading file rejection, bounded
 MusicXML normalization, chord and independent-voice preservation with cursor offsets,
 rejection of repeats/entities, and the authenticated
-preview/acknowledge/open flow with a simulated OMR result. A real Audiveris executable and
-representative scanned pages were unavailable for automated integration and accuracy checks.
+preview/acknowledge/open flow with a simulated OMR result. The opt-in production acceptance
+runner additionally exercises real bundled Audiveris PDF/PNG recognition, compares pitches,
+opens the result in the score workspace, rejects a corrupt PDF and cancels a native process.
+The native UI runner also selects an actual PDF through Angular, waits for OMR, checks the
+rendered original, acknowledges the review, opens the recognized SVG and verifies autosave
+as a separate project. It waits for enabled controls rather than racing backend writes.
+See [production validation](production-validation.md); the small original fixture is not
+a representative scan corpus or a hardware-performance benchmark.
 
 Milestone 7 tests cover deterministic pitch-window segmentation, fixed-tempo alignment,
 separate metrics and missing-data handling. Device onset accuracy, repeated same-pitch attacks,
@@ -69,6 +75,28 @@ UI's ±5-cent region. Test doubles exist only in test sources; the application a
 Java Sound. No test pretends a live device was validated.
 
 ## Manual hardware acceptance matrix
+
+The manual Windows preparation workflow also builds two isolated MSI fixtures
+with a dedicated UpgradeCode, product names, component GUIDs, registry paths and
+shortcut names. It exercises same-version installation, missing-file repair,
+automatic discovery of a Unicode/custom directory, upgrade, refused downgrade,
+an injected failure after removal of the old product, rollback, uninstall and
+reinstall. Real MusicXML/OMR projects and preferences supply the preservation
+hashes. An unowned file placed inside the install directory must also survive.
+The second fixture changes installer metadata, not the application's musical
+code; this does not prove a signed network update between two public versions.
+Use build-windows-installer.ps1 -TestIdentity and test-msi-lifecycle.ps1
+-TestIdentity. Fault fixtures belong only under apps/desktop/build and must never
+be signed or distributed. The installer UI runner verifies accessible controls,
+captures the real native window and cancels without installing. A successful
+local lifecycle is not a clean-machine certification.
+
+For a repeated run on the same local host, supply a fresh matching `-TestRunId`
+to both builders and the lifecycle runner. Never overwrite an installed MSI's
+source. Rollback acceptance checks Windows Installer ProductState and skipped
+registry errors in addition to restored files. The 12/10/2026 normal cycle passed;
+the separate injected rollback failed internal registration and blocks release.
+See production-validation.md for exact evidence and limitations.
 
 Run on Windows, macOS and Linux with actual devices. Record OS/JDK, device, selected rate,
 permission result, measured latency and observed failures without including private paths.

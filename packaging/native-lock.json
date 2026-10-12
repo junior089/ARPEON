@@ -1,0 +1,179 @@
+{
+  "audiveris": {
+    "version": "5.11.0",
+    "url": "https://github.com/Audiveris/audiveris/releases/download/5.11.0/Audiveris-5.11.0-windowsConsole-x86_64.msi",
+    "sha256": "5f1b4e96a12c53c7da426814b76e599363c4181e291855996e0a6878dda95f71",
+    "sourceUrl": "https://codeload.github.com/Audiveris/audiveris/zip/refs/tags/5.11.0",
+    "sourceSha256": "5f63cd1bdc7f48a9afadfa616ab9f2d4c923b7d7dbff46712e2b3ef65e896616"
+  },
+  "winsparkle": {
+    "version": "0.9.4",
+    "url": "https://github.com/vslavik/winsparkle/releases/download/v0.9.4/WinSparkle-0.9.4.zip",
+    "sha256": "6037df37fc263bd1650a1c4949681a9d40ffe991d01f35892a406cb5d103c976"
+  },
+  "wix": {
+    "version": "3.14.1",
+    "url": "https://github.com/wixtoolset/wix3/releases/download/wix3141rtm/wix314-binaries.zip",
+    "sha256": "6ac824e1642d6f7277d0ed7ea09411a508f6116ba6fae0aa5f2c7daa2ff43d31"
+  },
+  "audiverisPatches": [
+    {
+      "group": "com.itextpdf",
+      "artifact": "itextpdf",
+      "oldFilename": "itextpdf-5.5.13.2.jar",
+      "version": "5.5.13.6",
+      "files": [
+        {
+          "name": "itextpdf-5.5.13.6.jar",
+          "url": "https://repo.maven.apache.org/maven2/com/itextpdf/itextpdf/5.5.13.6/itextpdf-5.5.13.6.jar",
+          "sha256": "c2b290659fd4381e5512cc9e69c67b409150b84921dc367b1ec983c376ca18f6"
+        },
+        {
+          "name": "itextpdf-5.5.13.6-sources.jar",
+          "url": "https://repo.maven.apache.org/maven2/com/itextpdf/itextpdf/5.5.13.6/itextpdf-5.5.13.6-sources.jar",
+          "sha256": "2bf896330b9447a6d7dd7cd4805c8e4dce08b9af83017463fb811ac190b334f3"
+        },
+        {
+          "name": "itextpdf-5.5.13.6.pom",
+          "url": "https://repo.maven.apache.org/maven2/com/itextpdf/itextpdf/5.5.13.6/itextpdf-5.5.13.6.pom",
+          "sha256": "a446a529d809bfaf266dc4fd2b1c4f0e5a6a001ae9c134ed3da89730cedddfa0"
+        }
+      ]
+    },
+    {
+      "group": "com.fasterxml.jackson.core",
+      "artifact": "jackson-core",
+      "oldFilename": "jackson-core-2.20.0.jar",
+      "version": "2.22.3",
+      "files": [
+        {
+          "name": "jackson-core-2.22.3.jar",
+          "url": "https://repo.maven.apache.org/maven2/com/fasterxml/jackson/core/jackson-core/2.22.3/jackson-core-2.22.3.jar",
+          "sha256": "8a501126a385b25841915d839508f8a66e2a0dbc8a6709d055ef3b3e852b094c"
+        },
+        {
+          "name": "jackson-core-2.22.3-sources.jar",
+          "url": "https://repo.maven.apache.org/maven2/com/fasterxml/jackson/core/jackson-core/2.22.3/jackson-core-2.22.3-sources.jar",
+          "sha256": "547caff8197f49beccdcbab1b0178e1aba628aa3c4269302b0067f529101e0e4"
+        },
+        {
+          "name": "jackson-core-2.22.3.pom",
+          "url": "https://repo.maven.apache.org/maven2/com/fasterxml/jackson/core/jackson-core/2.22.3/jackson-core-2.22.3.pom",
+          "sha256": "bc74c18b24f3ebbfd42741f2b29b37eca9b25e512e6fa7add77f6973cee50bf1"
+        }
+      ]
+    },
+    {
+      "group": "com.fasterxml.jackson.core",
+      "artifact": "jackson-databind",
+      "oldFilename": "jackson-databind-2.20.0.jar",
+      "version": "2.22.3",
+      "files": [
+        {
+          "name": "jackson-databind-2.22.3.jar",
+          "url": "https://repo.maven.apache.org/maven2/com/fasterxml/jackson/core/jackson-databind/2.22.3/jackson-databind-2.22.3.jar",
+          "sha256": "556db5439e206114346043f68d200497dc96a0bca62a360a81784092ebd0e0a9"
+        },
+        {
+          "name": "jackson-databind-2.22.3-sources.jar",
+          "url": "https://repo.maven.apache.org/maven2/com/fasterxml/jackson/core/jackson-databind/2.22.3/jackson-databind-2.22.3-sources.jar",
+          "sha256": "e6237bfb27df92e14edb4555ebb7b32f325b66d956e213644b720b65cb273fbb"
+        },
+        {
+          "name": "jackson-databind-2.22.3.pom",
+          "url": "https://repo.maven.apache.org/maven2/com/fasterxml/jackson/core/jackson-databind/2.22.3/jackson-databind-2.22.3.pom",
+          "sha256": "27a5c6657b955d088daf586f2be9769224e33618ab4f44682a1b36ed98f7b904"
+        }
+      ]
+    },
+    {
+      "group": "com.fasterxml.jackson.core",
+      "artifact": "jackson-annotations",
+      "oldFilename": "jackson-annotations-2.20.jar",
+      "version": "2.22",
+      "files": [
+        {
+          "name": "jackson-annotations-2.22.jar",
+          "url": "https://repo.maven.apache.org/maven2/com/fasterxml/jackson/core/jackson-annotations/2.22/jackson-annotations-2.22.jar",
+          "sha256": "21ddb598807d3a51a876704eb979d9296e1c6a6f47ab1826ff88c6d6a127a2d0"
+        },
+        {
+          "name": "jackson-annotations-2.22-sources.jar",
+          "url": "https://repo.maven.apache.org/maven2/com/fasterxml/jackson/core/jackson-annotations/2.22/jackson-annotations-2.22-sources.jar",
+          "sha256": "f5375c756ee3c585808f9937eb087d074743fd3f05f6aeff9b183cf19230c9f7"
+        },
+        {
+          "name": "jackson-annotations-2.22.pom",
+          "url": "https://repo.maven.apache.org/maven2/com/fasterxml/jackson/core/jackson-annotations/2.22/jackson-annotations-2.22.pom",
+          "sha256": "38c3ba52a0eade3e3eacc5b13499d56e1038ccbad8ec4bb79426dc21432b46d0"
+        }
+      ]
+    },
+    {
+      "group": "ch.qos.logback",
+      "artifact": "logback-core",
+      "oldFilename": "logback-core-1.4.14.jar",
+      "version": "1.5.38",
+      "files": [
+        {
+          "name": "logback-core-1.5.38.jar",
+          "url": "https://repo.maven.apache.org/maven2/ch/qos/logback/logback-core/1.5.38/logback-core-1.5.38.jar",
+          "sha256": "a855a0fc97b1d06f4efb1c3bba5ebd0eb508d8b58e68e89e4bbc23a85135c883"
+        },
+        {
+          "name": "logback-core-1.5.38-sources.jar",
+          "url": "https://repo.maven.apache.org/maven2/ch/qos/logback/logback-core/1.5.38/logback-core-1.5.38-sources.jar",
+          "sha256": "682355ce7b96b8c6350ae20df86fe13ea262ef6b5d863833f26da1f700d6800a"
+        },
+        {
+          "name": "logback-core-1.5.38.pom",
+          "url": "https://repo.maven.apache.org/maven2/ch/qos/logback/logback-core/1.5.38/logback-core-1.5.38.pom",
+          "sha256": "dba1707f025202fe344052163c3419a0f03d056777ac5c346175e5523c937d60"
+        }
+      ]
+    },
+    {
+      "group": "ch.qos.logback",
+      "artifact": "logback-classic",
+      "oldFilename": "logback-classic-1.4.14.jar",
+      "version": "1.5.38",
+      "files": [
+        {
+          "name": "logback-classic-1.5.38.jar",
+          "url": "https://repo.maven.apache.org/maven2/ch/qos/logback/logback-classic/1.5.38/logback-classic-1.5.38.jar",
+          "sha256": "afb439c61fa287c9e1925523b13baab03617e724406a389d48b61c2c3e46b700"
+        },
+        {
+          "name": "logback-classic-1.5.38-sources.jar",
+          "url": "https://repo.maven.apache.org/maven2/ch/qos/logback/logback-classic/1.5.38/logback-classic-1.5.38-sources.jar",
+          "sha256": "7f0a30657cb7b63379686419924e73851fa7e5159e0c3d7c653646030a142643"
+        },
+        {
+          "name": "logback-classic-1.5.38.pom",
+          "url": "https://repo.maven.apache.org/maven2/ch/qos/logback/logback-classic/1.5.38/logback-classic-1.5.38.pom",
+          "sha256": "63313f843b669c60255e66f2c52a9c1d3af3787009d9f389159e35a691b63857"
+        }
+      ]
+    }
+  ],
+  "tessdata": {
+    "revision": "ced78752cc61322fb554c280d13360b35b8684e4",
+    "files": [
+      {
+        "name": "eng.traineddata",
+        "url": "https://raw.githubusercontent.com/tesseract-ocr/tessdata/ced78752cc61322fb554c280d13360b35b8684e4/eng.traineddata",
+        "sha256": "daa0c97d651c19fba3b25e81317cd697e9908c8208090c94c3905381c23fc047"
+      },
+      {
+        "name": "por.traineddata",
+        "url": "https://raw.githubusercontent.com/tesseract-ocr/tessdata/ced78752cc61322fb554c280d13360b35b8684e4/por.traineddata",
+        "sha256": "016c6a371bb1e4c48fe521908cf3ba3d751fade0ab846ad5d4086b563f5c528c"
+      },
+      {
+        "name": "LICENSE",
+        "url": "https://raw.githubusercontent.com/tesseract-ocr/tessdata/ced78752cc61322fb554c280d13360b35b8684e4/LICENSE",
+        "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+      }
+    ]
+  }
+}

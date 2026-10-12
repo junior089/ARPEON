@@ -1,31 +1,23 @@
 import { DOCUMENT } from '@angular/common';
 import { inject, Injectable, signal } from '@angular/core';
+import { DesktopPreferences } from '../core/desktop-preferences';
 
 export type Theme = 'dark' | 'light';
 
 @Injectable({ providedIn: 'root' })
 export class Appearance {
   private readonly document = inject(DOCUMENT);
-  readonly theme = signal<Theme>('dark');
+  private readonly preferences = inject(DesktopPreferences);
+  readonly theme = signal<Theme>(this.preferences.snapshot().theme);
 
   constructor() {
-    try {
-      const saved = this.document.defaultView?.localStorage.getItem('arpeon.theme.v1');
-      if (saved === 'light') this.theme.set(saved);
-    } catch {
-      // Appearance remains available when local storage is blocked.
-    }
     this.apply();
   }
 
   setTheme(theme: Theme): void {
     this.theme.set(theme);
     this.apply();
-    try {
-      this.document.defaultView?.localStorage.setItem('arpeon.theme.v1', theme);
-    } catch {
-      // Saving a preference must not interrupt the session.
-    }
+    this.preferences.update({ theme });
   }
 
   private apply(): void {

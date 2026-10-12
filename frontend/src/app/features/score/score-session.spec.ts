@@ -2,10 +2,11 @@ import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LOCAL_FETCH, SESSION_TOKEN } from '../../core/local-session';
 import { ScoreSession } from './score-session';
+import type { ScoreView, TransportState } from '../../core/score-contract';
 
 describe('ScoreSession', () => {
   const fetcher = vi.fn<typeof fetch>();
-  const transport = {
+  const transport: TransportState = {
     status: 'STOPPED',
     tick: 0,
     totalTicks: 3840,
@@ -19,7 +20,7 @@ describe('ScoreSession', () => {
     activePartId: 'P1',
     parts: [{ id: 'P1', name: 'Melody', mute: false, solo: false, instrumentId: 'concert' }],
   };
-  const score = {
+  const score: ScoreView = {
     title: 'First notes',
     filename: 'first.musicxml',
     sha256: 'a'.repeat(64),
@@ -89,6 +90,63 @@ describe('ScoreSession', () => {
   afterEach(() => {
     vi.useRealTimers();
     TestBed.resetTestingModule();
+  });
+
+  it('prepares study atomically without editing or saving the score', async () => {
+    session.score.set(score);
+    session.transport.set(transport as NonNullable<ReturnType<ScoreSession['transport']>>);
+    session.xml.set('<original/>');
+    const location = {
+      index: 0,
+      measureIndex: 0,
+      measureNumber: '1',
+      eventIndex: 0,
+      executionMeasureIndex: 0,
+      endMeasureIndex: 0,
+    };
+    fetcher.mockResolvedValueOnce(
+      Response.json({ transport: { ...transport, startingBpm: 60 }, location }),
+    );
+    const request = {
+      sha256: score.sha256,
+      scoreXmlSha256: 'c'.repeat(64),
+      revision: 0,
+      partId: 'P1',
+      soundingSemitones: 0,
+      expectedIndex: 0,
+      bpm: 60,
+      repeat: true,
+    };
+    expect(await session.prepareStudy(request)).toBe(true);
+    expect(fetcher.mock.calls[0]?.[0]).toBe('/api/score/study');
+    expect(JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body))).toEqual(request);
+    expect(session.studySelection()).toEqual(location);
+    expect(session.score()).toBe(score);
+    expect(session.xml()).toBe('<original/>');
+    expect(session.transport()?.status).toBe('STOPPED');
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects stale or failed study preparations and keeps the workspace available', async () => {
+    session.score.set(score);
+    const request = {
+      sha256: score.sha256,
+      scoreXmlSha256: 'c'.repeat(64),
+      revision: 1,
+      partId: 'P1',
+      soundingSemitones: 0,
+      expectedIndex: 0,
+      bpm: 60,
+      repeat: true,
+    };
+    expect(await session.prepareStudy(request)).toBe(false);
+    expect(fetcher).not.toHaveBeenCalled();
+    fetcher.mockResolvedValueOnce(Response.json({ error: 'O conteúdo mudou.' }, { status: 409 }));
+    expect(await session.prepareStudy({ ...request, revision: 0 })).toBe(false);
+    expect(session.error()).toBe('O conteúdo mudou.');
+    expect(session.busy()).toBe(false);
+    expect(session.studySelection()).toBeNull();
+    expect(session.score()).toBe(score);
   });
 
   it('sends the original bytes for validation, then controls the canonical transport', async () => {
@@ -181,6 +239,8 @@ describe('ScoreSession', () => {
           index: 0,
           number: '1',
           events: [sourceEvent],
+          durationNumerator: 3,
+          durationDenominator: 4,
         }),
       );
     await session.open(new File(['<score-partwise/>'], 'first.musicxml'));
@@ -188,8 +248,56 @@ describe('ScoreSession', () => {
     expect(await session.loadMeasureEvents('P1', 0)).toBe(true);
     expect(await session.loadMeasureEvents('P1', 0)).toBe(true);
     expect(session.score()?.parts[0]?.measures[0]?.events).toEqual([sourceEvent]);
+    expect(session.score()?.parts[0]?.measures[0]?.durationNumerator).toBe(3);
+    expect(session.score()?.parts[0]?.measures[0]?.durationDenominator).toBe(4);
     expect(fetcher.mock.calls[1]?.[0]).toBe('/api/score/measure-events?partId=P1&measureIndex=0');
     expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it('duplicates a saved project without replacing or saving the current dirty score', async () => {
+    vi.useFakeTimers();
+    const originalId = '123e4567-e89b-42d3-a456-426614174000';
+    const copyId = '123e4567-e89b-42d3-a456-426614174001';
+    fetcher.mockResolvedValueOnce(
+      Response.json({ xml: '<current/>', score, transport, preview: null }),
+    );
+    await session.acceptImport('draft', 4, 120);
+    session.projectId.set(originalId);
+    const current = session.score();
+    fetcher
+      .mockResolvedValueOnce(Response.json({ id: copyId, updatedAt: '2026-10-11T00:00:00Z' }))
+      .mockResolvedValueOnce(
+        Response.json([
+          {
+            id: copyId,
+            title: 'Estudo lento',
+            filename: 'study.musicxml',
+            updatedAt: '2026-10-11T00:00:00Z',
+          },
+        ]),
+      );
+    expect(await session.manageProject(originalId, 'duplicate', ' Estudo lento ')).toBe(copyId);
+    expect(fetcher.mock.calls[1]?.[0]).toBe(`/api/projects/${originalId}/duplicate`);
+    expect(fetcher.mock.calls[1]?.[1]?.body).toBe('{"name":"Estudo lento"}');
+    expect(session.score()).toBe(current);
+    expect(session.xml()).toBe('<current/>');
+    expect(session.projectId()).toBe(originalId);
+    expect(session.projectDirty()).toBe(true);
+    expect(session.savedRevision()).toBeNull();
+  });
+
+  it('rejects a mismatched rename response and keeps library and session unchanged', async () => {
+    const originalId = '123e4567-e89b-42d3-a456-426614174000';
+    fetcher.mockResolvedValueOnce(
+      Response.json({
+        id: '123e4567-e89b-42d3-a456-426614174001',
+        updatedAt: '2026-10-11T00:00:00Z',
+      }),
+    );
+    expect(await session.manageProject(originalId, 'rename', 'Study')).toBeNull();
+    expect(session.projects()).toEqual([]);
+    expect(session.error()).toContain('Resposta da biblioteca inválida');
+    expect(session.busy()).toBe(false);
   });
 
   it('autosaves an accepted import as a local project after the debounce', async () => {
@@ -216,6 +324,72 @@ describe('ScoreSession', () => {
     expect(session.projectId()).toBe('123e4567-e89b-42d3-a456-426614174000');
     expect(session.projectDirty()).toBe(false);
     vi.useRealTimers();
+  });
+
+  it('keeps unsaved edits after a failed save and clears the warning after retry', async () => {
+    vi.useFakeTimers();
+    fetcher.mockResolvedValueOnce(
+      Response.json({ xml: '<score-partwise/>', score, transport, preview: null }),
+    );
+    await session.acceptImport('draft', 4, 120);
+    const current = session.score();
+    fetcher.mockResolvedValueOnce(Response.json({ error: 'Disk unavailable' }, { status: 500 }));
+    expect(await session.saveProject()).toBe(false);
+    expect(session.score()).toBe(current);
+    expect(session.projectDirty()).toBe(true);
+    expect(session.savedRevision()).toBeNull();
+    expect(session.projectSaveError()).toContain('alterações continuam abertas');
+    fetcher
+      .mockResolvedValueOnce(
+        Response.json({
+          id: '123e4567-e89b-42d3-a456-426614174000',
+          updatedAt: '2026-10-10T00:00:00Z',
+        }),
+      )
+      .mockResolvedValueOnce(Response.json([]));
+    expect(await session.saveProject()).toBe(true);
+    expect(session.projectDirty()).toBe(false);
+    expect(session.projectSaveError()).toBe('');
+    expect(session.busy()).toBe(false);
+  });
+
+  it('reconnects playback without replacing the score or marking unsaved edits as saved', async () => {
+    vi.useFakeTimers();
+    fetcher.mockResolvedValueOnce(
+      Response.json({ xml: '<score-partwise/>', score, transport, preview: null }),
+    );
+    await session.acceptImport('draft', 4, 120);
+    const current = session.score();
+    session.transport.set(null);
+    fetcher.mockResolvedValueOnce(Response.json({ ...transport, tick: 1920 }));
+    await session.refreshTransport();
+    expect(fetcher.mock.lastCall?.[0]).toBe('/api/transport');
+    expect(session.transport()?.tick).toBe(1920);
+    expect(session.score()).toBe(current);
+    expect(session.savedRevision()).toBeNull();
+    expect(session.projectDirty()).toBe(true);
+  });
+
+  it('rejects malformed loop boundaries without replacing the current transport', async () => {
+    vi.useFakeTimers();
+    fetcher.mockResolvedValueOnce(
+      Response.json({ xml: '<score-partwise/>', score, transport, preview: null }),
+    );
+    await session.acceptImport('draft', 4, 120);
+    fetcher.mockResolvedValueOnce(
+      Response.json({
+        ...transport,
+        loop: {
+          startTick: 1920,
+          endTick: 9999,
+          startMeasureIndex: 1,
+          endMeasureIndex: 1,
+        },
+      }),
+    );
+    await session.action('loop', { startMeasureIndex: 1, endMeasureIndex: 1, enabled: true });
+    expect(session.transport()).toEqual(transport);
+    expect(session.error()).toContain('inválida');
   });
 
   it('rejects oversized and malformed server responses without replacing the score', async () => {

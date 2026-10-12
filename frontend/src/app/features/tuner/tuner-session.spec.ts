@@ -32,16 +32,26 @@ describe('TunerSession lifecycle', () => {
       ],
     });
     session = TestBed.inject(TunerSession);
+    session.devices.set([{ id: 'a', name: 'Input', sampleRatesHz: [48000] }]);
   });
   afterEach(() => TestBed.resetTestingModule());
 
   it('discovers inputs without activating capture', async () => {
-    request.mockResolvedValue(Response.json([{ id: 'a', name: 'Input', sampleRatesHz: [48000] }]));
+    request.mockImplementation(async (path) =>
+      Response.json(
+        path === '/api/audio/preferences'
+          ? null
+          : [{ id: 'a', name: 'Input', sampleRatesHz: [48000] }],
+      ),
+    );
     await session.refreshDevices();
     expect(session.selectedDevice()).toBe('a');
     expect(session.active()).toBe(false);
-    expect(request).toHaveBeenCalledOnce();
-    expect(request.mock.calls[0]?.[0]).toBe('/api/devices');
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(request.mock.calls.map(([path]) => path)).toEqual([
+      '/api/audio/preferences',
+      '/api/devices',
+    ]);
   });
   it('sends explicit consent and clears display on stop', async () => {
     session.selectedDevice.set('a');
@@ -52,7 +62,11 @@ describe('TunerSession lifecycle', () => {
     expect(start?.[1]?.body).toBe(
       JSON.stringify({ deviceId: 'a', referenceHz: 440, consent: true }),
     );
+    const owner = new Headers(start?.[1]?.headers).get('X-Arpeon-Capture-Owner');
+    expect(owner).toMatch(/^[0-9a-f-]{36}$/);
     await session.stop();
+    const stopped = request.mock.calls.find(([path]) => path === '/api/tuner/stop');
+    expect(new Headers(stopped?.[1]?.headers).get('X-Arpeon-Capture-Owner')).toBe(owner);
     expect(session.observation()).toBeNull();
     expect(session.active()).toBe(false);
   });

@@ -17,7 +17,7 @@ describe('Appearance', () => {
     appearance.setTheme('light');
     expect(document.documentElement.dataset['theme']).toBe('light');
     expect(localStorage.getItem('arpeon.theme.v1')).toBe('light');
-    expect(localStorage.getItem('arpeon.layout.v1')).toBe('{"zoom":125}');
+    expect(JSON.parse(localStorage.getItem('arpeon.layout.v1') ?? '{}').zoom).toBe(125);
     TestBed.resetTestingModule();
     expect(TestBed.inject(Appearance).theme()).toBe('light');
     localStorage.removeItem('arpeon.layout.v1');

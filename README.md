@@ -1,122 +1,111 @@
 # ARPEON
 
-Local-first, open-source music practice software. License: **AGPL-3.0-or-later**.
+A local-first music workstation for reading, editing and practising scores. Built
+with Java and Angular, with a native desktop window and local audio processing.
 
-Milestone 9 includes an offline evaluation of a learned score-position model against the
-deterministic follower. The experimental model stays out of the app after its benchmark showed
-more false jumps; see the [evaluation](docs/analysis/ml-evaluation.md). Local import limits are
-substantially higher; see [format and resource limits](docs/product/import-capabilities.md).
+[![Build and test](https://github.com/junior089/ARPEON/actions/workflows/build.yml/badge.svg)](https://github.com/junior089/ARPEON/actions/workflows/build.yml)
+[![License: AGPL v3](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue)](LICENSE)
+[![Version 0.1.1](https://img.shields.io/badge/version-0.1.1-gold)](https://github.com/junior089/ARPEON/releases/tag/v0.1.1)
 
-Milestone 8 adds live monophonic note following for one selected score part. Two stable pitch
-windows confirm a note; silence holds the position, and a distant jump needs two consecutive
-score notes before recovery. The local session ends on request or after twenty minutes. The live
-view shows the notation cursor and a note sequence. See
-[following limits](docs/analysis/following.md).
+![ARPEON score editor, notation and MIDI transport](docs/assets/score-editor.png)
 
-Milestone 7 adds a bounded, monophonic performance attempt for one selected score part.
-The local microphone supplies pitch windows; after playing at the written tempo, the app
-reports separate pitch, timing, rhythm, intonation, missed/extra and confidence measures.
-See [scoring formulas and limits](docs/analysis/scoring.md). Fixed-tempo reports are kept
-locally by score revision; live-follow positions remain temporary. The fixed-tempo analysis
-remains available as a separate mode.
+## What it does
 
-Milestone 4 adds a local import review flow for pasted note names and melodic cipher,
-monophonic MIDI, and a short monophonic WAV prototype. Its preview distinguishes source
-timing from estimates and missing rhythm. The user must acknowledge assumptions before a
-draft enters the score editor. See [import capabilities](docs/product/import-capabilities.md)
-for supported syntax and limits.
+- **Score editing:** import MusicXML/MXL and supported MSCZ files; edit notes,
+  chords, voices and durations; transpose with previews; undo/redo and export
+  MusicXML. Originals remain unchanged.
+- **Project library:** autosave, named projects, search, duplication and recovery
+  through checksums, backups and durable writes.
+- **Playback:** part selection, mute/solo, seek, tempo, metronome, count-in and
+  A–B loops, with a synchronized notation cursor and General MIDI instruments.
+- **Practice:** flute exercises, scales, arpeggios, long tones and rhythm tasks,
+  with pitch measurements, offline fingering guidance and local session history.
+- **Tuning and analysis:** a chromatic YIN tuner, fixed-tempo performance reports
+  and monophonic score following. Pitch, rhythm, timing and confidence remain
+  separate measurements.
+- **Reviewed imports:** textual notes, monophonic MIDI/WAV drafts and PDF/image
+  recognition through Audiveris. Uncertain rhythm and recognition results require
+  review before entering the editor. A bounded Wikimedia MIDI adapter retains
+  provenance and declared rights.
+- **Desktop maintenance:** Windows executable, per-user MSI, version detection,
+  repair, downgrade protection and data preservation. WinSparkle/Ed25519 provides
+  the update integration; automatic checks require explicit consent.
 
-Milestone 5 adds a reviewed single-URL path for public MIDI files on Wikimedia Commons using
-its official API. The import preview shows provenance and declared rights before acceptance.
-MuseScore stays manual/export and Cifra Melódica stays paste-only. See the
-[provider access review](docs/legal/provider-registry.md).
-An [offline diagnostic benchmark](docs/development/source-import-benchmark.md) records
-filtering, simulated fetch and parser measurements without claiming live network speed.
+Score editing, local imports and audio processing run on this computer. No
+account, telemetry or audio upload is required. Microphone capture starts only
+on request. Wikimedia imports and configured update checks use the network.
 
-Milestone 3 adds a flute practice area with generated notes, long tones, scales, arpeggios and
-basic rhythm. Exercises use the score domain and flute MIDI voice. Live microphone feedback
-shows pitch deviation, confidence, response time and long-tone stability; rhythm taps show
-timing error. Loop playback can raise its BPM between repetitions. A CC0 fingering
-chart is available offline. Up to 5000 summaries persist locally without audio. See
-[beginner practice](docs/product/beginner-mode.md) for limits and data provenance.
+## Architecture and engineering
 
-Milestone 2 adds editable score revisions to the local workspace. Open a supported MusicXML
-file (`.musicxml`, `.xml`, `.mxl` or single-staff `.mscz`), select an event by part and measure, change pitch or duration, insert notes into rests,
-remove notes, and undo/redo. Transformations preview note and range changes before applying:
-semitone interval, octave, explicitly selected source/target key, and written/sounding pitch
-for the chosen instrument. Export the current score as MusicXML. The original file is never
-modified. Use **Salvar projeto** to keep an editable local project; later edits to that saved
-project are saved automatically. A newly opened score remains unsaved until you save it as a
-project or export its MusicXML.
+| Layer | Responsibility |
+| --- | --- |
+| Java 25 / Gradle | Musical domain, exact score timelines, secure parsers, audio/DSP, MIDI transport, storage and application services |
+| Angular 22 / TypeScript | Score workspace, OpenSheetMusicDisplay notation, practice, analysis and accessible interaction |
+| Authenticated loopback HTTP | Session-scoped communication; bounded requests, restrictive origin checks and no exposed JavaScript-to-Java bridge |
+| JCEF / Chromium | Dedicated desktop window with the frontend and renderer shipped together |
+| Audiveris CLI | Isolated recognition jobs, bundled runtime, progress, timeout and process-tree cancellation |
+| jpackage / WiX / WinSparkle | Windows launcher, installer ownership, maintenance and signed update integration |
 
-The score renderer and MIDI transport support part selection, play/pause/stop/seek, BPM,
-mute/solo, synchronized cursor, metronome and count-in. Flute has a selectable General MIDI
-voice and range warnings. B-flat clarinet demonstrates instrument transposition through the
-same profile mechanism. The actual sound depends on the local MIDI synthesizer and audio
-device; no recorded flute sample is bundled.
+The musical modules remain independent of the UI and native packaging. Chords,
+voices and bounded repeats are preserved instead of silently flattened.
+Unsupported input fails explicitly. Application files and user projects have
+separate lifecycles; installer updates do not migrate or delete personal data.
 
-The standalone chromatic tuner remains available: Java Sound microphone capture,
-YIN analysis and an Angular display served only on this computer. No account, telemetry,
-audio upload or recording. A4 is configurable from 400 to 480 Hz. Detection covers
-50–2000 Hz for one sustained note at a time.
+Read the [architecture](docs/architecture/overview.md),
+[module boundaries](docs/architecture/module-boundaries.md) and
+[desktop distribution decision](docs/adr/0006-native-desktop-distribution.md).
 
-The MusicXML importer preserves simultaneous chord heads, independent sequential voices and
-bounded non-nested repeats with pass-specific endings. Written measures remain unchanged;
-playback uses a separate execution map. Nested repeats/endings and unsupported semantics are
-rejected instead of being flattened. Chords can be edited by note head and voices by voice ID;
-live analysis remains monophonic.
-MXL archives are bounded and only their first declared score is imported; embedded media is not
-retained. The experimental ML model is **not integrated into the app**.
-Practice feedback reports measurements, without a single grade.
+## Version 0.1.1 and validation
 
-## Run
+**0.1.1 is a source-code pre-release. Public Windows binaries are pending release
+qualification.** The release includes the implementation and build tooling;
+packaged runtimes are not attached while redistribution and recovery gates remain
+open. See the [release notes](docs/releases/0.1.1-windows.md).
 
-Install JDK 25 and Node 24.15 or newer in the Node 24 line. Set `JAVA_HOME` to JDK 25.
+Local Windows validation recorded **190 Java tests and 147 Angular tests** with
+no failures, plus frontend formatting, linting, type checking and production
+build. Native acceptance exercised MusicXML editing, real Audiveris recognition,
+and launch without Java/Node in PATH. The normal MSI lifecycle passed install,
+same-version maintenance, repair, upgrade, downgrade rejection, uninstall and
+reinstall, preserving projects and preferences.
 
-```sh
+These results do not certify a clean machine or physical audio devices. Fault
+injection restored binaries but failed Windows Installer registration rollback
+on the test host. JAI redistribution, exact native source obligations, trusted
+signing and a complete HTTPS update remain pending. The experimental learned
+score-position model is evaluated offline and is not enabled in the application.
+
+Details: [validation evidence](docs/development/production-validation.md),
+[import limits](docs/product/import-capabilities.md),
+[analysis limits](docs/analysis/scoring.md) and
+[native distribution review](docs/legal/native-distribution.md).
+
+## Build and run
+
+Development requires **JDK 25**, **Node 24.15+ in the 24.x line**, and Windows x64
+for native packaging. End-user packages include their own runtimes. Python is
+optional for the dependency auditor and is not an application dependency.
+
+```powershell
 cd frontend
 npm ci
 npm run build
 cd ..
-./gradlew :apps:desktop:run
+./gradlew.bat build --warning-mode=fail
+./scripts/package-windows.ps1 -SkipFrontendBuild -OutputSubdirectory local-build
+./scripts/verify-package.ps1 -Package apps/desktop/build/native/local-build/ARPEON
 ```
 
-On Windows use `gradlew.bat` instead of `./gradlew`. The launcher opens the default browser.
-To build a portable Windows `.exe` with Java included, run
-`powershell -ExecutionPolicy Bypass -File scripts/package-windows.ps1` at the repository root.
-Extract `apps/desktop/build/native/ARPEON-0.1.0-windows-x64.zip` and open `ARPEON.exe` inside
-the extracted `ARPEON` folder. Keep its console open during use; closing it stops the local app.
-Verify the adjacent `.sha256` checksum before sharing the ZIP. See
-[Windows packaging](docs/development/setup.md) for build requirements and
-[release notes](docs/releases/0.1.0-windows.md) for current limitations.
-Open a local `.musicxml`, `.xml`, `.mxl` or single-staff `.mscz` file in **Partitura**. Select a part's flute timbre to hear
-its MIDI voice. Use the editor below the score; review a transformation before applying it,
-then choose **Exportar MusicXML** to save your revision. Press Play for local MIDI output;
-the operating system must provide a MIDI synthesizer/audio device. Choose an input in
-**Importar** to paste a note sequence or analyze a supported MIDI/WAV file, review warnings,
-or paste a Wikimedia Commons MIDI file-page URL and provide an API contact. Review its source,
-rights and warnings, choose any missing octave or duration, and create a draft in **Partitura**.
-For PDF/image recognition on Windows, select **Configurar Audiveris automaticamente** in
-**Importar** the first time. ARPEON downloads the official package, shows download progress,
-checks its SHA-256 and prepares it in your local user folder. Then select the PDF/image, compare the OMR preview with
-the original, acknowledge uncertainty, and edit the resulting score in **Partitura**.
-Choose an input in
-**Prática**, generate an exercise, turn on the microphone, start an attempt and save its
-summary when finished. Rhythm also accepts button taps. Or choose an input in
-**Afinador** and click
-**Ligar microfone**. System microphone permission may be required.
-Click **Desligar microfone** to release the device. Closing or navigating away from the tuner
-releases capture; if the UI disappears abruptly, the bridge stops capture after a five-second
-lease (checked once per second). Refreshing the tab reconnects to the running launcher and
-restores its open score. Use **Encerrar ARPEON** in the interface or Ctrl+C in the launcher
-console to stop the server; after a restart, open its new browser window to establish a session.
+Run `apps/desktop/build/native/local-build/ARPEON/ARPEON.exe` with all adjacent
+files. Local builds are unsigned unless signing is configured. Public release
+gates remain enforced; updates stay inactive without a real feed and signing key.
+macOS/Linux module CI does not imply validated native installers.
 
-This foundation uses a local browser window; the portable Windows executable is not a native
-webview or installer.
-There are no external requests during normal score or tuner use. Initial dependency installation
-requires network access; cached dependencies permit offline builds.
+For incremental development and isolated profiles, see
+[setup](docs/development/setup.md). Do not use a development build against your
+only copy of a project.
 
-## Validate
+## Verify changes
 
 ```sh
 cd frontend
@@ -130,11 +119,12 @@ node scripts/check-licenses.mjs
 ./gradlew build --warning-mode=fail
 ```
 
-The Gradle build includes Java tests, compilation with all compiler lint warnings treated
-as errors, formatting checks, and desktop distributions containing the frontend and source archive.
-Tests use synthetic audio, not a live microphone. Hardware verification is separate.
+CI validates the modules on Windows, Linux and macOS. Tests use synthetic audio;
+microphone, synthesizer and latency acceptance require real devices. See
+[testing](docs/development/testing.md) and [update publishing](docs/development/updates.md).
 
-See [setup](docs/development/setup.md), [testing](docs/development/testing.md),
-[architecture](docs/architecture/overview.md), [roadmap](docs/product/roadmap.md),
-[limitations](docs/product/import-capabilities.md)
-and [third-party notices](THIRD_PARTY_NOTICES.md).
+## License
+
+ARPEON source code is **AGPL-3.0-or-later**. Third-party components retain their
+own licenses and notices. See [LICENSE](LICENSE) and
+[third-party notices](THIRD_PARTY_NOTICES.md).

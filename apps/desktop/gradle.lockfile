@@ -5,7 +5,16 @@
 com.google.code.gson:gson:2.14.0=compileClasspath,runtimeClasspath,testCompileClasspath,testRuntimeClasspath
 com.google.errorprone:error_prone_annotations:2.48.0=compileClasspath,runtimeClasspath,testCompileClasspath,testRuntimeClasspath
 com.google.googlejavaformat:google-java-format:1.37.0=javaFormatter
+commons-codec:commons-codec:1.19.0=compileClasspath,runtimeClasspath,testCompileClasspath,testRuntimeClasspath
+commons-io:commons-io:2.20.0=compileClasspath,runtimeClasspath,testCompileClasspath,testRuntimeClasspath
 commons-logging:commons-logging:1.4.0=runtimeClasspath,testRuntimeClasspath
+me.friwi:gluegen-rt:v2.4.0=compileClasspath,runtimeClasspath,testCompileClasspath,testRuntimeClasspath
+me.friwi:jcef-api:jcef-17e805a+cef-152.0.6+g708dc14+chromium-152.0.7977.83=compileClasspath,runtimeClasspath,testCompileClasspath,testRuntimeClasspath
+me.friwi:jcef-natives-windows-amd64:jcef-17e805a+cef-152.0.6+g708dc14+chromium-152.0.7977.83=cefNatives
+me.friwi:jcefmaven:152.0.6=compileClasspath,runtimeClasspath,testCompileClasspath,testRuntimeClasspath
+me.friwi:jogl-all:v2.4.0=compileClasspath,runtimeClasspath,testCompileClasspath,testRuntimeClasspath
+org.apache.commons:commons-compress:1.28.0=compileClasspath,runtimeClasspath,testCompileClasspath,testRuntimeClasspath
+org.apache.commons:commons-lang3:3.18.0=compileClasspath,runtimeClasspath,testCompileClasspath,testRuntimeClasspath
 org.apache.pdfbox:fontbox:3.0.8=runtimeClasspath,testRuntimeClasspath
 org.apache.pdfbox:pdfbox-io:3.0.8=runtimeClasspath,testRuntimeClasspath
 org.apache.pdfbox:pdfbox:3.0.8=runtimeClasspath,testRuntimeClasspath

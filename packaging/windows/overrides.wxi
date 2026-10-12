@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Include xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <!-- Older installers must not silently downgrade a profile written by a newer version. -->
+  <?undef JpAllowDowngrades?>
+</Include>

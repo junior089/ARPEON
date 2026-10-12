@@ -1,7 +1,6 @@
 <section class="practice" aria-labelledby="practice-title">
   <header class="practice-heading">
     <h1 id="practice-title">Prática de flauta</h1>
-    <p>Escolha um exercício. A pauta, a referência MIDI e a escuta usam a mesma altura escrita.</p>
   </header>
 
   <div class="practice-grid">
@@ -10,7 +9,11 @@
       <div class="practice-fields">
         <label
           >Exercício
-          <select [value]="kind" (change)="kind = text($event)">
+          <select
+            [value]="kind"
+            (change)="kind = text($event)"
+            [disabled]="session.busy() || session.view()?.attemptOpen"
+          >
             <option value="NOTE">Reconhecer nota</option>
             <option value="LONG_TONE">Nota longa</option>
             <option value="SCALE">Escala</option>
@@ -20,7 +23,11 @@
         </label>
         <label
           >Tom
-          <select [value]="keyId" (change)="setKey($event)">
+          <select
+            [value]="keyId"
+            (change)="setKey($event)"
+            [disabled]="session.busy() || session.view()?.attemptOpen"
+          >
             <option value="C_MAJOR">Dó maior</option>
             <option value="G_MAJOR">Sol maior</option>
             <option value="F_MAJOR">Fá maior</option>
@@ -30,63 +37,111 @@
             <option value="D_MINOR">Ré menor</option>
           </select>
         </label>
+        <label
+          >Andamento · BPM
+          <input
+            type="number"
+            min="40"
+            max="180"
+            step="1"
+            [value]="bpm"
+            (input)="bpm = number($event)"
+            [disabled]="session.busy() || session.view()?.attemptOpen"
+            [attr.aria-invalid]="!!setupErrors().bpm"
+            aria-describedby="practice-setup-errors"
+          />
+        </label>
         @if (kind === 'SCALE') {
         <label
           >Tipo de escala
-          <select [value]="scaleType" (change)="scaleType = text($event)">
+          <select
+            [value]="scaleType"
+            (change)="scaleType = text($event)"
+            [disabled]="session.busy() || session.view()?.attemptOpen"
+          >
             @if (!keyId.endsWith('_MINOR')) {
-            <option value="MAJOR">Maior</option>
+            <option value="MAJOR" [selected]="scaleType === 'MAJOR'">Maior</option>
             } @else {
-            <option value="NATURAL_MINOR">Menor natural</option>
-            <option value="HARMONIC_MINOR">Menor harmônica</option>
-            <option value="MELODIC_MINOR">Menor melódica</option>
+            <option value="NATURAL_MINOR" [selected]="scaleType === 'NATURAL_MINOR'">
+              Menor natural
+            </option>
+            <option value="HARMONIC_MINOR" [selected]="scaleType === 'HARMONIC_MINOR'">
+              Menor harmônica
+            </option>
+            <option value="MELODIC_MINOR" [selected]="scaleType === 'MELODIC_MINOR'">
+              Menor melódica
+            </option>
             }
-            <option value="CHROMATIC">Cromática</option>
+            <option value="CHROMATIC" [selected]="scaleType === 'CHROMATIC'">Cromática</option>
           </select>
         </label>
         }
-        <label
-          >Oitava inicial
-          <select [value]="octave" (change)="octave = number($event)">
-            <option value="4">4</option>
-            <option value="5">5</option>
-          </select>
-        </label>
-        <label
-          >Andamento · BPM
-          <input type="number" min="40" max="180" [value]="bpm" (input)="bpm = number($event)" />
-        </label>
-        <label class="check"
-          ><input type="checkbox" [checked]="loop" (change)="loop = !loop" /> Repetir
-          reprodução</label
-        >
-        <label
-          >+ BPM por repetição
-          <input
-            type="number"
-            min="0"
-            max="20"
-            [value]="progressiveStep"
-            (input)="progressiveStep = number($event)"
-          />
-        </label>
       </div>
-      <button
-        type="button"
-        class="primary"
-        (click)="generate()"
-        [disabled]="session.busy() || session.view()?.attemptOpen"
-      >
-        Gerar exercício
+      <p class="setup-summary">
+        {{ octave }}ª oitava · {{ loop ? 'reprodução em repetição' : 'uma reprodução' }}{{ loop &&
+        progressiveStep ? ' · +' + progressiveStep + ' BPM por repetição' : '' }}
+      </p>
+      @if (setupMessages().length) {
+      <ul id="practice-setup-errors" class="setup-errors" role="alert">
+        @for (message of setupMessages(); track message) {
+        <li>{{ message }}</li>
+        }
+      </ul>
+      } @else { <span id="practice-setup-errors" hidden>Ajustes válidos.</span> }
+      <button type="button" class="primary" (click)="generate()" [disabled]="!canGenerate()">
+        {{ session.busy() ? 'Preparando exercício…' : 'Gerar exercício' }}
       </button>
       <p class="aside-note">
-        O aumento gradual atua na referência reproduzida; a avaliação usa o andamento escolhido ao
-        iniciar a tentativa.
+        Para exercícios de notas, ligue o microfone antes da tentativa. Ritmo usa o botão de pulso.
       </p>
+      <details class="setup-advanced">
+        <summary>Ajustes avançados do exercício</summary>
+        <div class="practice-fields">
+          <label
+            >Oitava inicial
+            <select
+              [value]="octave"
+              (change)="octave = number($event)"
+              [disabled]="session.busy() || session.view()?.attemptOpen"
+            >
+              <option value="4">4</option>
+              <option value="5">5</option>
+            </select>
+          </label>
+          <label class="check"
+            ><input
+              type="checkbox"
+              [checked]="loop"
+              (change)="loop = !loop"
+              [disabled]="session.busy() || session.view()?.attemptOpen"
+            />
+            Repetir reprodução</label
+          >
+          <label
+            >+ BPM por repetição
+            <input
+              type="number"
+              min="0"
+              max="20"
+              step="1"
+              [value]="progressiveStep"
+              (input)="progressiveStep = number($event)"
+              [disabled]="session.busy() || session.view()?.attemptOpen"
+              [attr.aria-invalid]="!!setupErrors().progressiveStep"
+              aria-describedby="practice-setup-errors practice-tempo-help"
+            />
+          </label>
+        </div>
+        <p id="practice-tempo-help" class="aside-note">
+          O aumento vale quando Repetir reprodução está ligado. Ele altera a referência MIDI; a
+          avaliação usa o andamento escolhido ao iniciar a tentativa.
+        </p>
+      </details>
     </section>
 
     <section class="practice-card" aria-labelledby="listen-title">
       <h2 id="listen-title">Execução e escuta</h2>
+      <app-audio-preparation [captureActive]="microphone.active()" [busy]="microphone.busy()" />
       <div #sheet class="practice-sheet" aria-label="Pauta do exercício"></div>
       @if (session.view(); as exercise) {
       <p class="sequence-intro">
@@ -129,27 +184,7 @@
           Parar áudio
         </button>
       </div>
-      <label
-        >Entrada do microfone
-        <select
-          #device
-          [value]="microphone.selectedDevice()"
-          (change)="microphone.selectedDevice.set(device.value)"
-          [disabled]="microphone.active()"
-        >
-          @for (input of microphone.devices(); track input.id) {
-          <option [value]="input.id">{{ input.name }}</option>
-          }
-        </select>
-      </label>
       <div class="practice-actions">
-        <button
-          type="button"
-          (click)="microphone.refreshDevices()"
-          [disabled]="microphone.active()"
-        >
-          Atualizar entradas
-        </button>
         <button
           type="button"
           (click)="microphone.start()"
@@ -216,53 +251,21 @@
   }
   <div class="practice-grid secondary">
     <section class="practice-card" aria-labelledby="finger-title">
-      <h2 id="finger-title">Referência de digitação · carta completa</h2>
+      <h2 id="finger-title">Referência de digitação</h2>
       <p>
-        A orientação acima destaca uma nota por vez. Abra a carta completa para comparar as
-        posições. Alternativas não estão catalogadas nesta versão.
+        O diagrama acompanha a nota escolhida. As alternativas verificadas aparecem no seletor de
+        digitação.
       </p>
-      @if (session.view()?.fingeringDatasetId === 'flute-cc0-chart-v1') {
-      <a
-        href="/flute-fingering-cc0.jpg"
-        target="_blank"
-        rel="noopener"
-        aria-label="Ampliar carta de digitação da flauta"
-      >
-        <img
-          src="/flute-fingering-cc0.jpg"
-          alt="Carta de posições da flauta transversal, com notas na pauta e teclas indicadas"
-          loading="lazy"
-        />
-      </a>
-      } @else {
-      <p>Gere um exercício de flauta para abrir a carta licenciada.</p>
-      }
-      <p class="aside-note">
-        Carta CC0 no Wikimedia Commons; confira também o guia da Yamaha. A fonte e o checksum estão
-        nos avisos de terceiros.
-      </p>
+      <details>
+        <summary>Consultar carta completa</summary>
+        <a href="/flute-fingering-cc0.jpg" target="_blank" rel="noopener"
+          >Carta CC0 para flauta transversal</a
+        >
+        <p class="aside-note">
+          Fonte e checksum nos avisos de terceiros. Esquema Boehm com pé em Dó.
+        </p>
+      </details>
     </section>
-    <section class="practice-card" aria-labelledby="history-title">
-      <h2 id="history-title">Histórico local</h2>
-      <p class="aside-note">
-        Resumos de até 50 tentativas, salvos neste computador. Nenhuma amostra de microfone é
-        guardada.
-      </p>
-      @if (!session.history().length) {
-      <p>Nenhuma tentativa salva.</p>
-      }
-      <ul class="history-list">
-        @for (item of session.history(); track item.id) {
-        <li>
-          <strong>{{ item.kind }} · {{ item.keyId }}</strong>
-          <span>{{ item.endedAt }} · {{ item.completed ? 'Concluído' : 'Interrompido' }}</span>
-          <span
-            >{{ item.reached }}/{{ item.targets }} notas · {{ item.heldMs | number:'1.0-0' }} ms
-            sustentados · {{ item.interruptions }} interrupções</span
-          >
-        </li>
-        }
-      </ul>
-    </section>
+    <app-practice-history class="practice-card" />
   </div>
 </section>

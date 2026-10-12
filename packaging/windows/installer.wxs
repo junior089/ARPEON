@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="$(var.ProductCode)" Name="$(var.ProductName)" Language="1033" Version="$(var.AppVersion)"
+           Manufacturer="ARPEON" UpgradeCode="$(var.UpgradeCode)">
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perUser" Platform="x64"
+             Description="ARPEON — partituras, edição e estudo musical" />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+    <Property Id="MSIINSTALLPERUSER" Value="1" />
+    <Property Id="ARPNOMODIFY" Value="1" />
+    <Property Id="MSIRESTARTMANAGERCONTROL" Value="DisableShutdown" />
+    <Property Id="ARPEON_AUTOLAUNCH" Secure="yes" />
+    <Property Id="ARPPRODUCTICON" Value="ArpeonIcon" />
+    <Icon Id="ArpeonIcon" SourceFile="$(var.PackageRoot)/ARPEON.exe" />
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLDIR" />
+    <Property Id="INSTALLDESKTOPSHORTCUT" Value="1" Secure="yes">
+      <RegistrySearch Id="DesktopChoice" Root="HKCU" Key="$(var.RegistryRoot)\Installation" Name="DesktopShortcut" Type="raw" Win64="yes" />
+    </Property>
+    <Property Id="INSTALLMENUSHORTCUT" Value="1" Secure="yes">
+      <RegistrySearch Id="MenuChoice" Root="HKCU" Key="$(var.RegistryRoot)\Installation" Name="MenuShortcut" Type="raw" Win64="yes" />
+    </Property>
+    <Property Id="ARPEON_EXISTING_DIR" Secure="yes">
+      <RegistrySearch Id="ExistingDirectory" Root="HKCU" Key="$(var.RegistryRoot)\Installation" Name="InstallLocation" Type="raw" Win64="yes" />
+    </Property>
+    <Property Id="ARPEON_EXISTING_PRODUCT" Secure="yes">
+      <RegistrySearch Id="ExistingProduct" Root="HKCU" Key="$(var.RegistryRoot)\Installation" Name="ProductCode" Type="raw" Win64="yes" />
+    </Property>
+    <Property Id="ARPEON_EXISTING_VERSION" Secure="yes">
+      <RegistrySearch Id="ExistingVersion" Root="HKCU" Key="$(var.RegistryRoot)\Installation" Name="Version" Type="raw" Win64="yes" />
+    </Property>
+    <SetProperty Id="ARPEON_RECOVERY" Value="1" After="AppSearch" Sequence="both">NOT Installed AND ARPEON_EXISTING_DIR AND ARPEON_EXISTING_PRODUCT = ProductCode AND ARPEON_EXISTING_VERSION = ProductVersion</SetProperty>
+    <Property Id="ARPEON_LEGACY_DIR" Secure="yes">
+      <?ifndef TestIdentity ?>
+      <RegistrySearch Id="LegacyDirectory" Root="HKCU" Key="Software\ARPEON\ARPEON\0.1.0" Name="RM_RF48431AECBD69377EA800D62616352F20" Type="raw" Win64="yes" />
+      <RegistrySearch Id="LegacyUninstallDirectory" Root="HKCU" Key="Software\Microsoft\Windows\CurrentVersion\Uninstall\{731373D2-F51E-3855-B856-CF2CC6299F02}" Name="InstallLocation" Type="raw" Win64="yes" />
+      <?endif?>
+    </Property>
+    <Property Id="ARPEON_MACHINE_DIR" Secure="yes">
+      <RegistrySearch Id="MachineDirectory" Root="HKLM" Key="$(var.RegistryRoot)\Installation" Name="InstallLocation" Type="raw" Win64="yes" />
+      <?ifndef TestIdentity ?>
+      <RegistrySearch Id="LegacyMachineDirectory" Root="HKLM" Key="Software\ARPEON\ARPEON\0.1.0" Name="RM_RF48431AECBD69377EA800D62616352F20" Type="raw" Win64="yes" />
+      <?endif?>
+    </Property>
+    <Upgrade Id="$(var.UpgradeCode)">
+      <UpgradeVersion Maximum="$(var.AppVersion)" IncludeMaximum="no" Property="ARPEON_OLDER" MigrateFeatures="yes" />
+      <UpgradeVersion Minimum="$(var.AppVersion)" Maximum="$(var.AppVersion)" IncludeMinimum="yes" IncludeMaximum="yes" OnlyDetect="yes" Property="ARPEON_SAME" />
+      <UpgradeVersion Minimum="$(var.AppVersion)" IncludeMinimum="no" OnlyDetect="yes" Property="ARPEON_NEWER" />
+    </Upgrade>
+    <!-- MSI may report the compatibility build 9600 on Windows 10/11. -->
+    <Property Id="ARPEON_OS_BUILD">
+      <RegistrySearch Id="WindowsBuildNumber" Root="HKLM" Key="SOFTWARE\Microsoft\Windows NT\CurrentVersion" Name="CurrentBuildNumber" Type="raw" Win64="yes" />
+    </Property>
+    <Condition Message="Este pacote requer Windows 10 ou posterior de 64 bits.">Installed OR (VersionNT64 AND ARPEON_OS_BUILD &gt;= 10240)</Condition>
+    <Condition Message="Existe uma instalação para todos os usuários. Use a manutenção dessa instalação antes de instalar este pacote por usuário.">Installed OR NOT ARPEON_MACHINE_DIR</Condition>
+    <CustomAction Id="RejectDowngrade" Error="Uma versão mais recente do ARPEON já está instalada. Abra o aplicativo pelo menu Iniciar ou use sua opção de reparação no Windows." />
+    <CustomAction Id="RejectSameVersion" Error="Esta versão do ARPEON já está instalada a partir de outro pacote. Abra o aplicativo pelo menu Iniciar. Para reparar, use a manutenção dessa instalação em Aplicativos do Windows." />
+    <CustomAction Id="RejectDuplicate" Error="Foram encontradas instalações conflitantes do ARPEON. Nenhum arquivo foi alterado. Revise as instalações em Aplicativos do Windows." />
+    <CustomAction Id="RejectUnknownLocation" Error="O Windows identifica uma instalação anterior, mas seu diretório não pôde ser confirmado. Repare a instalação existente em Aplicativos do Windows antes de atualizar." />
+    <SetProperty Id="ARPEON_DATA_PATH" Value="[LocalAppDataFolder]ARPEON\" Before="CostFinalize" Sequence="both">1</SetProperty>
+    <SetProperty Id="ARPEON_LEGACY_DATA_PATH" Value="[UserProfileFolder].arpeon\" Before="CostFinalize" Sequence="both">1</SetProperty>
+    <CustomAction Id="RejectDataDirectory" Error="Escolha uma pasta de aplicativo separada dos dados do ARPEON. A instalação não pode ocupar a pasta de projetos e preferências." />
+    <SetProperty Id="INSTALLDIR" Action="SetExistingDirectory" Value="[ARPEON_EXISTING_DIR]" Before="CostInitialize" Sequence="both">ARPEON_EXISTING_DIR AND (Installed OR ARPEON_OLDER OR ARPEON_SAME OR ARPEON_NEWER OR ARPEON_RECOVERY)</SetProperty>
+    <SetProperty Id="INSTALLDIR" Action="SetLegacyDirectory" Value="[ARPEON_LEGACY_DIR]" After="SetExistingDirectory" Sequence="both">NOT ARPEON_EXISTING_DIR AND ARPEON_LEGACY_DIR AND (Installed OR ARPEON_OLDER OR ARPEON_SAME OR ARPEON_NEWER)</SetProperty>
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="LocalAppDataFolder"><Directory Id="INSTALLDIR" Name="$(var.InstallFolder)" /></Directory>
+      <Directory Id="DesktopFolder" />
+      <Directory Id="ProgramMenuFolder"><Directory Id="ArpeonMenuFolder" Name="$(var.ProductName)" /></Directory>
+    </Directory>
+    <DirectoryRef Id="INSTALLDIR">
+      <Component Id="InstallationIdentity" Guid="$(var.InstallationGuid)" Win64="yes">
+        <RemoveFolder Id="RemoveEmptyApplicationDirectory" On="uninstall" />
+        <RegistryValue Root="HKCU" Key="$(var.RegistryRoot)\Installation" Name="InstallLocation" Type="string" Value="[INSTALLDIR]" KeyPath="yes" />
+        <RegistryValue Root="HKCU" Key="$(var.RegistryRoot)\Installation" Name="Version" Type="string" Value="[ProductVersion]" />
+        <RegistryValue Root="HKCU" Key="$(var.RegistryRoot)\Installation" Name="ProductCode" Type="string" Value="[ProductCode]" />
+        <RegistryValue Root="HKCU" Key="$(var.RegistryRoot)\Installation" Name="UpgradeCode" Type="string" Value="[UpgradeCode]" />
+        <RegistryValue Root="HKCU" Key="$(var.RegistryRoot)\Installation" Name="DesktopShortcut" Type="string" Value="[INSTALLDESKTOPSHORTCUT]" />
+        <RegistryValue Root="HKCU" Key="$(var.RegistryRoot)\Installation" Name="MenuShortcut" Type="string" Value="[INSTALLMENUSHORTCUT]" />
+      </Component>
+      <Component Id="DesktopShortcut" Guid="$(var.DesktopGuid)" Win64="yes">
+        <Condition>INSTALLDESKTOPSHORTCUT = "1"</Condition>
+        <Shortcut Id="DesktopLink" Directory="DesktopFolder" Name="$(var.ProductName)" Target="[INSTALLDIR]ARPEON.exe" WorkingDirectory="INSTALLDIR" Icon="ArpeonIcon" />
+        <RegistryValue Root="HKCU" Key="$(var.RegistryRoot)\Installer" Name="DesktopShortcut" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+      <Component Id="MenuShortcut" Guid="$(var.MenuGuid)" Win64="yes">
+        <Condition>INSTALLMENUSHORTCUT = "1"</Condition>
+        <Shortcut Id="MenuLink" Directory="ArpeonMenuFolder" Name="$(var.ProductName)" Target="[INSTALLDIR]ARPEON.exe" WorkingDirectory="INSTALLDIR" Icon="ArpeonIcon" />
+        <RemoveFolder Id="RemoveMenu" Directory="ArpeonMenuFolder" On="uninstall" />
+        <RegistryValue Root="HKCU" Key="$(var.RegistryRoot)\Installer" Name="MenuShortcut" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
+    <Feature Id="Application" Title="ARPEON" Level="1">
+      <ComponentGroupRef Id="ApplicationFiles" />
+      <ComponentRef Id="InstallationIdentity" /><ComponentRef Id="DesktopShortcut" /><ComponentRef Id="MenuShortcut" />
+    </Feature>
+    <SetProperty Id="ARPINSTALLLOCATION" Value="[INSTALLDIR]" After="CostFinalize" Sequence="execute">NOT Installed</SetProperty>
+    <CustomAction Id="LaunchArpeon" Directory="INSTALLDIR" ExeCommand="&quot;[INSTALLDIR]ARPEON.exe&quot;" Return="asyncNoWait" Impersonate="yes" />
+    <InstallExecuteSequence>
+      <Custom Action="RejectDowngrade" After="FindRelatedProducts">ARPEON_NEWER AND NOT Installed</Custom>
+      <Custom Action="RejectSameVersion" After="RejectDowngrade">ARPEON_SAME AND NOT Installed</Custom>
+      <Custom Action="RejectDuplicate" After="AppSearch">(ARPEON_OLDER &gt;&lt; ";") OR (ARPEON_SAME &gt;&lt; ";") OR (ARPEON_OLDER AND ARPEON_SAME) OR (ARPEON_NEWER AND ARPEON_OLDER) OR (ARPEON_EXISTING_DIR AND ARPEON_LEGACY_DIR AND ARPEON_EXISTING_DIR &lt;&gt; ARPEON_LEGACY_DIR)</Custom>
+      <Custom Action="RejectUnknownLocation" After="SetARPEON_RECOVERY">NOT REMOVE AND ((ARPEON_OLDER AND NOT ARPEON_EXISTING_DIR AND NOT ARPEON_LEGACY_DIR) OR (ARPEON_EXISTING_DIR AND NOT Installed AND NOT ARPEON_OLDER AND NOT ARPEON_SAME AND NOT ARPEON_NEWER AND NOT ARPEON_RECOVERY))</Custom>
+      <!-- Native rollback covers removal; actual registry recovery remains a release gate. -->
+      <RemoveExistingProducts After="InstallInitialize" />
+      <Custom Action="RejectDataDirectory" Before="InstallInitialize">NOT REMOVE AND ((INSTALLDIR ~&lt;&lt; ARPEON_DATA_PATH) OR (INSTALLDIR ~&lt;&lt; ARPEON_LEGACY_DATA_PATH))</Custom>
+      <Custom Action="LaunchArpeon" After="InstallFinalize">ARPEON_AUTOLAUNCH = "1" AND NOT REMOVE = "ALL"</Custom>
+    </InstallExecuteSequence>
+    <InstallUISequence>
+      <Custom Action="RejectDowngrade" After="FindRelatedProducts">ARPEON_NEWER AND NOT Installed</Custom>
+      <Custom Action="RejectSameVersion" After="RejectDowngrade">ARPEON_SAME AND NOT Installed</Custom>
+      <Custom Action="RejectDuplicate" After="AppSearch">(ARPEON_OLDER &gt;&lt; ";") OR (ARPEON_SAME &gt;&lt; ";") OR (ARPEON_OLDER AND ARPEON_SAME) OR (ARPEON_NEWER AND ARPEON_OLDER) OR (ARPEON_EXISTING_DIR AND ARPEON_LEGACY_DIR AND ARPEON_EXISTING_DIR &lt;&gt; ARPEON_LEGACY_DIR)</Custom>
+      <Custom Action="RejectUnknownLocation" After="SetARPEON_RECOVERY">NOT REMOVE AND ((ARPEON_OLDER AND NOT ARPEON_EXISTING_DIR AND NOT ARPEON_LEGACY_DIR) OR (ARPEON_EXISTING_DIR AND NOT Installed AND NOT ARPEON_OLDER AND NOT ARPEON_SAME AND NOT ARPEON_NEWER AND NOT ARPEON_RECOVERY))</Custom>
+    </InstallUISequence>
+    <UIRef Id="ArpeonUI" />
+  </Product>
+</Wix>

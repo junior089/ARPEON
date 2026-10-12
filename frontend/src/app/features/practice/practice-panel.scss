@@ -88,7 +88,7 @@
   color-scheme: light;
 }
 .practice-sheet:empty {
-  display: none;
+  margin: 0;
 }
 .note-sequence {
   display: flex;
@@ -120,22 +120,6 @@
   display: block;
   background: var(--color-reference-paper);
 }
-.history-list {
-  list-style: none;
-  padding: 0;
-  display: grid;
-  gap: var(--space-3);
-}
-.history-list li {
-  display: grid;
-  gap: var(--space-1);
-  border-bottom: 1px solid var(--border);
-  padding-bottom: var(--space-3);
-  font-size: var(--text-small);
-}
-.history-list span {
-  color: var(--secondary);
-}
 @media (max-width: 950px) {
   .practice-grid,
   .practice-grid.secondary {
@@ -150,4 +134,31 @@
   .practice-fields {
     grid-template-columns: 1fr;
   }
+}
+
+.setup-advanced {
+  margin-top: var(--space-5);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+.setup-advanced summary {
+  width: fit-content;
+  max-width: 100%;
+  min-height: 32px;
+  color: var(--secondary);
+  cursor: pointer;
+  line-height: 1.5;
+}
+.setup-advanced[open] summary {
+  margin-bottom: var(--space-4);
+}
+.setup-errors {
+  padding-left: var(--space-4);
+  margin: var(--space-3) 0;
+  color: var(--danger);
+  font-size: var(--text-control);
+  line-height: 1.5;
+}
+.setup-summary {
+  font-size: var(--text-small);
 }

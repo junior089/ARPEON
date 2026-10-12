@@ -3,15 +3,36 @@
   #globalFile
   hidden
   type="file"
-  accept=".musicxml,.xml,.mxl,.mscz,application/xml,application/vnd.recordare.musicxml"
+  [accept]="fileAccept"
   (change)="openFile($event)"
   aria-label="Abrir arquivo de partitura"
 />
 <header class="app-header">
   <a class="wordmark" href="#workspace" aria-label="ARPEON"
-    ><span class="brand-mark" aria-hidden="true">A</span> ARPEON</a
+    ><img
+      class="brand-lockup"
+      [src]="appearance.theme() === 'light' ? '/brand/arpeon-logo-horizontal-light.svg' : '/brand/arpeon-logo-horizontal-dark.svg'"
+      alt="ARPEON"
+  /></a>
+  <button
+    class="menus-toggle"
+    type="button"
+    aria-label="Menus do aplicativo"
+    aria-controls="app-menus"
+    [attr.aria-expanded]="menusOpen()"
+    (click)="menusOpen.set(!menusOpen())"
+    (keydown)="menuKeys($event)"
   >
-  <nav class="menubar" aria-label="Menus do aplicativo" tabindex="-1" (keydown)="menuKeys($event)">
+    <app-icon name="menu" /><span>Menu</span>
+  </button>
+  <nav
+    id="app-menus"
+    class="menubar"
+    [class.compact-open]="menusOpen()"
+    aria-label="Menus do aplicativo"
+    tabindex="-1"
+    (keydown)="menuKeys($event)"
+  >
     @for (menu of menus; track menu.label) {
     <details class="menu" (toggle)="menuToggled($event)">
       <summary>{{ menu.label }}</summary>
@@ -31,27 +52,68 @@
     </details>
     }
   </nav>
-  <span class="local-label">Processamento local</span>
 </header>
-@if (shuttingDown()) {
-<p class="shutdown-notice" role="status">
-  Encerramento do ARPEON solicitado. Aguarde um instante e feche esta aba.
-</p>
+@if (preferences.error()) {
+<div class="preferences-notice" role="status">
+  <span>{{ preferences.error() }}</span
+  ><button type="button" (click)="preferences.retry()" [disabled]="preferences.saving()">
+    Guardar ajustes
+  </button>
+</div>
+} @if (shuttingDown()) {
+<p class="shutdown-notice" role="status">Encerrando ARPEON…</p>
 } @if (shutdownError()) {
 <p class="shutdown-notice error" role="alert">{{ shutdownError() }}</p>
+} @if (updateMessage()) {
+<div class="preferences-notice" role="status">
+  <span>{{ updateMessage() }}</span
+  ><button
+    type="button"
+    (click)="updateMessage.set('')"
+    aria-label="Fechar mensagem de atualização"
+  >
+    ×
+  </button>
+</div>
 }
-<div class="workspace-shell">
+<div
+  class="workspace-shell"
+  (dragover)="dragOver($event)"
+  (dragleave)="dragLeave($event)"
+  (drop)="dropFile($event)"
+>
+  @if (dragging() && view() !== 'import') {
+  <div class="drop-overlay" aria-hidden="true">
+    <app-icon name="import" /><strong>Solte o arquivo para abrir ou importar</strong
+    ><span>O formato determina o processamento.</span>
+  </div>
+  }
   <nav class="activity-bar" aria-label="Área de trabalho">
-    @for (area of areas; track area.id) {
+    @for (area of sidebar; track area.id) {
     <button
       type="button"
-      [attr.aria-current]="view() === area.id ? 'page' : null"
-      (click)="navigate(area.id)"
-      [title]="area.label + ' · Alt+' + ($index + 1)"
+      [attr.aria-current]="sidebarSelected(area.id) ? 'page' : null"
+      (click)="run(area.command)"
+      [disabled]="!available(area.command)"
+      [title]="area.label"
     >
-      <app-icon [name]="area.id" /><span>{{ area.label }}</span>
+      <app-icon [name]="area.icon" /><span
+        >{{ area.label }}@if (area.id === 'tuner') { <small>Afinador cromático</small> } @if
+        (area.id === 'practice') { <small>Prática de flauta</small> }</span
+      >
     </button>
     }
+    <button
+      class="import-button"
+      type="button"
+      (click)="navigate('import')"
+      [attr.aria-current]="view() === 'import' ? 'page' : null"
+    >
+      <app-icon name="import" /><span>Importar</span>
+    </button>
+    <button class="settings-button" type="button" (click)="run('settings')" title="Preferências">
+      <app-icon name="settings" /><span>Preferências</span>
+    </button>
     <button
       class="help-button"
       type="button"
@@ -61,19 +123,46 @@
       <app-icon name="help" /><span>Ajuda</span>
     </button>
   </nav>
-  <main id="workspace" tabindex="-1" [class.score-view]="view() === 'score'">
-    @if (view() === 'tuner') { <app-tuner-panel /> } @else if (view() === 'practice') {
-    <app-practice-panel /> } @else if (view() === 'analysis') { <app-analysis-panel /> } @else if
-    (view() === 'import') { <app-import-panel (imported)="navigate('score')" /> } @else {
-    <app-score-workspace (requestedView)="navigate($event)" /> }
-  </main>
+  <div class="work-area">
+    <main id="workspace" tabindex="-1" [class.score-view]="view() === 'score'">
+      @if (view() === 'library') {
+      <section class="library-workspace" aria-labelledby="library-title">
+        <header>
+          <h1 id="library-title">Biblioteca</h1>
+          <button class="primary" type="button" (click)="run('open')" [disabled]="score.busy()">
+            <app-icon name="import" />Abrir arquivo
+          </button>
+        </header>
+        <app-project-library (opened)="openProject($event)" />
+      </section>
+      } @else if (view() === 'tuner') { <app-tuner-panel /> } @else if (view() === 'practice') {
+      <app-practice-panel /> } @else if (view() === 'analysis') {
+      <app-analysis-panel (requestedScore)="navigate('score')" /> } @else if (view() === 'import') {
+      <app-import-panel (imported)="navigate('score')" /> } @else {
+      <app-score-workspace (requestedView)="navigate($event)" (requestedFile)="routeFile($event)" />
+      }
+    </main>
+    <div class="audio-dock">
+      @if (fileError()) {
+      <p class="audio-error" role="alert">
+        {{ fileError() }}
+        <button type="button" (click)="fileError.set('')" aria-label="Fechar erro de arquivo">
+          ×
+        </button>
+      </p>
+      } @if (view() !== 'score' && score.error()) {
+      <p class="audio-error" role="alert">Partitura: {{ score.error() }}</p>
+      }
+      <app-transport-bar />
+    </div>
+  </div>
 </div>
-<div class="audio-dock"><app-transport-bar /></div>
 <footer class="statusbar">
   <span class="local-state"><span aria-hidden="true">●</span> Local · sem conta</span>
   <span class="document-status"
-    >{{ score.score() ? score.projectDirty() ? 'Alterações não salvas' : 'Projeto salvo' : 'Nenhuma
-    partitura aberta' }}</span
+    >{{ score.score() ? score.savingProject() ? 'Salvando projeto…' : score.projectSaveError() ?
+    'Falha ao salvar · tentar novamente' : score.projectDirty() ? 'Alterações não salvas' : 'Projeto
+    salvo' : 'Nenhuma partitura aberta' }}</span
   >
   <span class="status-spacer"></span>
   <a href="/source.zip" download>Código-fonte</a><a href="/license.txt">AGPL-3.0-or-later</a
@@ -85,8 +174,7 @@
     <button type="button" (click)="help.close()" aria-label="Fechar ajuda">×</button>
   </div>
   <p>
-    Abra uma partitura no editor, importe outras fontes ou use as ferramentas de áudio pela barra
-    lateral. Seus arquivos e o processamento musical ficam neste computador.
+    Abra ou arraste um arquivo. Partitura, prática, afinador e análise usam processamento local.
   </p>
   <dl>
     <div>
@@ -115,13 +203,157 @@
     </div>
   </dl>
   <p>
-    Selecione uma nota na pauta para editar suas propriedades. Pressione Enter na pauta para acessar
-    a seleção de notas pelo teclado. Arraste a divisória do inspetor ou use as setas quando ela
-    estiver em foco.
+    Selecione notas na pauta; Enter abre a navegação pelo teclado. Ajuste o inspetor pela divisória
+    ou pelas setas.
   </p>
   <p class="hint">
-    MIDI, WAV e reconhecimento óptico têm limites próprios, descritos na importação. Afinador e
-    análise utilizam uma nota por vez; o microfone só é ativado por você.
+    Afinador e análise são monofônicos. O microfone exige sua autorização. Confira os limites na
+    importação.
   </p>
   <form method="dialog"><button class="primary">Voltar ao trabalho</button></form>
+</dialog>
+<dialog
+  #productDialog
+  class="product-dialog"
+  aria-labelledby="product-dialog-title"
+  (close)="tone.stop(); stopUpdateStatusPolling()"
+>
+  <div class="dialog-heading">
+    <h2 id="product-dialog-title">
+      {{ productPage() === 'settings' ? 'Preferências' : productPage() === 'updates' ?
+      'Atualizações' : productPage() === 'changes' ? 'Notas da versão' : 'Sobre o ARPEON' }}
+    </h2>
+    <button type="button" (click)="productDialog.close()" aria-label="Fechar diálogo">×</button>
+  </div>
+  @if (productPage() === 'settings') {
+  <section class="preference-section">
+    <h3>Aparência</h3>
+    <div class="preference-row">
+      <span>Interface</span>
+      <div role="group" aria-label="Tema da interface">
+        <button
+          type="button"
+          [attr.aria-pressed]="appearance.theme() === 'dark'"
+          (click)="appearance.setTheme('dark')"
+        >
+          Escuro</button
+        ><button
+          type="button"
+          [attr.aria-pressed]="appearance.theme() === 'light'"
+          (click)="appearance.setTheme('light')"
+        >
+          Claro
+        </button>
+      </div>
+    </div>
+    <div class="preference-row">
+      <span>Partitura</span
+      ><button type="button" [attr.aria-pressed]="layout.scoreDark()" (click)="editorTheme()">
+        {{ layout.scoreDark() ? 'Papel escuro' : 'Papel claro' }}
+      </button>
+    </div>
+  </section>
+  <section class="preference-section">
+    <h3>Áudio de estudo</h3>
+    <app-audio-preparation [captureActive]="captureActive()" [busy]="score.busy()" />
+  </section>
+  <section class="preference-section">
+    <h3>Área de trabalho</h3>
+    <button type="button" (click)="layout.reset()">Restaurar painéis e zoom</button>
+  </section>
+  <section class="preference-section">
+    <h3>Atualizações</h3>
+    <div class="preference-row">
+      <span>Versão {{ updateVersion() || 'Consultando…' }}</span>
+      <button type="button" (click)="openProduct('updates')">Gerenciar atualizações</button>
+    </div>
+  </section>
+  @if (preferences.error()) {
+  <p class="error" role="alert">{{ preferences.error() }}</p>
+  <button type="button" (click)="preferences.retry()">Tentar guardar novamente</button> } } @else if
+  (productPage() === 'updates') {
+  <dl class="update-details">
+    <div>
+      <dt>Versão instalada</dt>
+      <dd>{{ updateVersion() || 'Consultando…' }}</dd>
+    </div>
+    @if (updateChannel()) {
+    <div>
+      <dt>Canal</dt>
+      <dd>
+        {{ updateChannel() === 'stable' ? 'Estável' : updateChannel() === 'beta' ? 'Beta' :
+        updateChannel() === 'testing' ? 'Teste' : 'Desenvolvimento' }}
+      </dd>
+    </div>
+    } @if (updateLastChecked()) {
+    <div>
+      <dt>Última verificação</dt>
+      <dd>{{ updateLastChecked() }}</dd>
+    </div>
+    }
+  </dl>
+  <p class="update-status" role="status" aria-live="polite">
+    {{ checkingUpdates() ? 'Consultando o mecanismo de atualização…' : updateMessage() ||
+    updateStatusMessage() }}
+  </p>
+  @if (updateEnabled()) {
+  <label class="update-preference">
+    <input
+      type="checkbox"
+      [checked]="automaticUpdates()"
+      [disabled]="savingUpdatePreference()"
+      (change)="setAutomaticUpdates($any($event.target).checked)"
+    />
+    <span
+      >Verificar automaticamente
+      <small>Uma vez por dia. Você escolhe quando baixar e instalar.</small></span
+    >
+  </label>
+  @if (updatePreferenceError()) {
+  <p class="error" role="alert">{{ updatePreferenceError() }}</p>
+  }
+  <p class="hint">
+    Se houver uma atualização, a janela de atualização mostra as novidades, o download e a
+    instalação. Salve seu trabalho antes de aplicar.
+  </p>
+  }
+  <div class="dialog-actions">
+    <button type="button" (click)="openProduct('changes')">Notas da versão</button
+    ><button
+      type="button"
+      class="primary"
+      (click)="checkUpdates()"
+      [disabled]="checkingUpdates() || loadingUpdateStatus() || updateEnabled() === false || updateState() === 'checking'"
+    >
+      {{ updateState() === 'checking' ? 'Verificando…' : updateState() === 'error' ? 'Tentar
+      novamente' : 'Verificar atualizações' }}
+    </button>
+  </div>
+  } @else if (productPage() === 'changes') {
+  <p class="version-row">{{ updateVersion() || 'Consultando…' }}</p>
+  @for (section of releaseSections; track section.title) {
+  <section class="release-section">
+    <h3>{{ section.title }}</h3>
+    <ul>
+      @for (item of section.items; track item) {
+      <li>{{ item }}</li>
+      }
+    </ul>
+  </section>
+  } } @else {
+  <img
+    class="about-logo"
+    [src]="appearance.theme() === 'light' ? '/brand/arpeon-logo-horizontal-light.svg' : '/brand/arpeon-logo-horizontal-dark.svg'"
+    alt="ARPEON"
+  />
+  <p>Partituras, edição e estudo musical com processamento local.</p>
+  <p class="version-row">Versão <strong>{{ updateVersion() || 'Consultando…' }}</strong></p>
+  <div class="about-links">
+    <a href="/source.zip" download>Código-fonte</a
+    ><a href="/license.txt" target="_blank" rel="noopener">AGPL-3.0-or-later</a
+    ><a href="/notices.txt" target="_blank" rel="noopener">Avisos de terceiros</a>
+  </div>
+  <button type="button" (click)="openProduct('changes')">Notas da versão</button>
+  }
+  <form method="dialog" class="dialog-footer"><button type="submit">Concluído</button></form>
 </dialog>

@@ -9,7 +9,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
@@ -31,6 +31,7 @@ jobs:
           npm run typecheck
           npm test
           npm run build
+          npm audit --audit-level=low
       - name: Dependency licenses
         run: node scripts/check-licenses.mjs
       - name: Java build, tests and format checks
@@ -49,3 +50,9 @@ jobs:
           $actual = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
           $expected = (Get-Content "$zip.sha256" -Raw).Split(' ')[0]
           if ($actual -ne $expected) { throw 'Windows ZIP checksum mismatch.' }
+          ./scripts/verify-package.ps1 -Package apps/desktop/build/native/ARPEON
+          python scripts/audit-dependencies.py --audiveris apps/desktop/build/native-resources/audiveris-5.11.0 --output apps/desktop/build/dependency-audit.json
+          if ($LASTEXITCODE -ne 0) { throw 'Dependency audit failed.' }
+          $java = Join-Path $env:JAVA_HOME 'bin/java.exe'
+          & $java --enable-native-access=ALL-UNNAMED -classpath 'apps/desktop/build/classes/java/test;apps/desktop/build/native/ARPEON/app/*' org.arpeon.desktop.BundledOmrAcceptance (Resolve-Path apps/desktop/build/native/ARPEON/tools/audiveris-5.11.0) (Join-Path $env:RUNNER_TEMP 'arpeon-omr-profile') (Resolve-Path fixtures/omr) (Join-Path $env:RUNNER_TEMP 'arpeon-omr-results')
+          if ($LASTEXITCODE -ne 0) { throw 'Real bundled OMR acceptance failed.' }

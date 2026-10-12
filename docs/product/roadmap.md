@@ -72,7 +72,7 @@ only for sources that permit automation; it is not an unrestricted site scraper.
   per-provider review to any additional site before adding its adapter.
 
 Milestone 6 now has a bounded Audiveris CLI adapter and explicit PDF/image review path.
-The executable is installed separately; the narrow MusicXML subset rejects unsupported
+The executable/runtime is bundled during Windows packaging; the narrow MusicXML subset rejects unsupported
 musical structures. Milestones 7–9 retain the order and scope in the attached specification.
 
 Milestone 7 adds fixed-tempo, end-of-attempt monophonic comparison for a selected score part.

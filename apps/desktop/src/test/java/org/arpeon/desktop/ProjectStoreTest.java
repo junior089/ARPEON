@@ -19,6 +19,78 @@ class ProjectStoreTest {
   @TempDir Path temporaryDirectory;
 
   @Test
+  void libraryNameSurvivesAutosaveAndRestartWithoutChangingMusicalTitle() throws Exception {
+    var store = new ProjectStore(temporaryDirectory);
+    var original = store.save(null, data("Written title", "<original/>"));
+    store.rename(original.id(), "  Estudo diário  ");
+    assertEquals("Written title", store.load(original.id()).data().title());
+    store.save(original.id(), data("Written title", "<edited/>"));
+    var restarted = new ProjectStore(temporaryDirectory);
+    assertEquals("Estudo diário", restarted.list().getFirst().title());
+    assertEquals("<edited/>", restarted.load(original.id()).data().xml());
+  }
+
+  @Test
+  void duplicateRetainsProvenanceAndIsIndependentOfTheOriginal() throws Exception {
+    var store = new ProjectStore(temporaryDirectory);
+    var originalData =
+        new ProjectStore.Data(
+            "Study",
+            "study.musicxml",
+            "a".repeat(64),
+            "parser-v1",
+            "MUSICXML",
+            List.of("Original warning"),
+            null,
+            "<original/>");
+    var original = store.save(null, originalData);
+    var duplicate = store.duplicate(original.id(), "Segunda tentativa");
+    assertFalse(original.id().equals(duplicate.id()));
+    assertEquals(originalData, store.load(duplicate.id()).data());
+    store.save(duplicate.id(), data("Study", "<copy-edited/>"));
+    assertEquals(originalData, store.load(original.id()).data());
+    assertEquals(
+        "Segunda tentativa",
+        store.list().stream()
+            .filter(p -> p.id().equals(duplicate.id()))
+            .findFirst()
+            .orElseThrow()
+            .title());
+  }
+
+  @Test
+  void invalidNamesAndCorruptedSourcesCannotChangeTheLibrary() throws Exception {
+    var store = new ProjectStore(temporaryDirectory);
+    var original = store.save(null, data("Study", "<original/>"));
+    for (String invalid : List.of(" ", "a".repeat(201), "two\nlines", "null\u0000name")) {
+      assertThrows(IllegalArgumentException.class, () -> store.rename(original.id(), invalid));
+      assertThrows(IllegalArgumentException.class, () -> store.duplicate(original.id(), invalid));
+    }
+    assertEquals("Study", store.list().getFirst().title());
+    Files.writeString(
+        temporaryDirectory.resolve(original.id()).resolve("score.musicxml"), "<tampered/>");
+    assertThrows(IOException.class, () -> store.duplicate(original.id(), "Copy"));
+    assertEquals(1, store.list().size());
+  }
+
+  @Test
+  void failedLibraryWritePreservesTheOriginalAndLeavesNoDuplicate() throws Exception {
+    var store = new ProjectStore(temporaryDirectory);
+    var original = store.save(null, data("Study", "<original/>"));
+    var failing =
+        new ProjectStore(
+            temporaryDirectory,
+            (path, bytes) -> {
+              throw new IOException("Disk full");
+            });
+    assertThrows(IOException.class, () -> failing.rename(original.id(), "Renamed"));
+    assertThrows(IOException.class, () -> failing.duplicate(original.id(), "Copy"));
+    assertEquals(1, store.list().size());
+    assertEquals("Study", store.list().getFirst().title());
+    assertEquals("<original/>", store.load(original.id()).data().xml());
+  }
+
+  @Test
   void doesNotRestoreBackupWhoseScoreChecksumIsInvalid() throws Exception {
     var store = new ProjectStore(temporaryDirectory);
     var saved =

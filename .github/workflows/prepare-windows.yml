@@ -1,0 +1,51 @@
+name: Prepare internal Windows candidate
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  prepare:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: '24.21.0'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install and validate frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run format:check
+          npm run lint
+          npm run typecheck
+          npm test
+          npm run build
+          npm audit --audit-level=low
+      - name: Java validation and internal package
+        shell: pwsh
+        run: |
+          ./gradlew.bat build --warning-mode=fail
+          if ($LASTEXITCODE -ne 0) { throw 'Java validation failed.' }
+          ./scripts/package-windows.ps1 -SkipFrontendBuild -OutputSubdirectory internal
+          ./scripts/verify-package.ps1 -Package apps/desktop/build/native/internal/ARPEON
+          python scripts/audit-dependencies.py --audiveris apps/desktop/build/native-resources/audiveris-5.11.0 --output apps/desktop/build/dependency-audit.json
+          if ($LASTEXITCODE -ne 0) { throw 'Dependency audit failed.' }
+      - name: Exercise isolated Windows Installer lifecycle
+        shell: pwsh
+        run: |
+          $package = 'apps/desktop/build/native/internal/ARPEON'
+          $fixtures = 'apps/desktop/build/msi-test-fixtures'
+          # The second MSI changes installer metadata only; this is lifecycle acceptance,
+          # not proof of a signed network update between two released application versions.
+          ./scripts/build-windows-installer.ps1 -Package $package -Version 0.1.0 -OutputDirectory $fixtures -TestIdentity
+          ./scripts/build-windows-installer.ps1 -Package $package -Version 0.1.1 -OutputDirectory $fixtures -TestIdentity
+          ./scripts/new-failing-test-msi.ps1 -Installer "$fixtures/ARPEON-0.1.1.msi" -Output "$fixtures/failing-upgrade.msi"
+          ./scripts/test-msi-lifecycle.ps1 -TestIdentity -BaseInstaller "$fixtures/ARPEON-0.1.0.msi" -UpgradeInstaller "$fixtures/ARPEON-0.1.1.msi" -FailingUpgradeInstaller "$fixtures/failing-upgrade.msi" -WorkingDirectory apps/desktop/build/msi-lifecycle-ci
+      # No upload or release publishing while native redistribution remains under review.

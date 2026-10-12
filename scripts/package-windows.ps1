@@ -2,8 +2,13 @@ param(
     [switch]$SkipFrontendBuild,
     [switch]$SkipDesktopBuild,
     [switch]$SkipZip,
+    [switch]$SkipInstaller,
     [switch]$RequireSignature,
-    [string]$OutputSubdirectory = ''
+    [switch]$ForRelease,
+    [string]$OutputSubdirectory = '',
+    [ValidateSet('stable','beta','nightly','testing')][string]$UpdateChannel = 'stable',
+    [string]$UpdateFeedUrl = '',
+    [string]$UpdatePublicKey = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -14,12 +19,28 @@ if ($env:OS -ne 'Windows_NT') {
 }
 
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+if ($UpdateFeedUrl -or $UpdatePublicKey) {
+    $feed = $null
+    if (-not [Uri]::TryCreate($UpdateFeedUrl, [UriKind]::Absolute, [ref]$feed) -or
+        $feed.Scheme -ne 'https' -or -not $feed.Host -or $feed.UserInfo -or $feed.Fragment -or
+        $UpdateFeedUrl.Contains("`r") -or $UpdateFeedUrl.Contains("`n")) { throw 'Updates require a real HTTPS feed without credentials or fragments.' }
+    try { $decodedKey = [Convert]::FromBase64String($UpdatePublicKey) } catch { throw 'Invalid update public key.' }
+    if ($decodedKey.Length -ne 32) { throw 'Updates require a 32-byte Ed25519 public key.' }
+} elseif ($ForRelease) { throw 'A release build requires -UpdateFeedUrl and -UpdatePublicKey.' }
+if ($ForRelease) {
+    & (Join-Path $PSScriptRoot 'assert-release-ready.ps1')
+    $RequireSignature = $true
+}
 $buildFile = Join-Path $repoRoot 'build.gradle.kts'
 $versionMatch = [regex]::Match((Get-Content -LiteralPath $buildFile -Raw), 'version\s*=\s*"([0-9]+(?:\.[0-9]+){1,3})"')
 if (-not $versionMatch.Success) {
     throw "Cannot read the application version from $buildFile"
 }
 $appVersion = $versionMatch.Groups[1].Value
+$msiVersion = [Version]::Parse($appVersion)
+if ($appVersion -notmatch '^\d+\.\d+\.\d+$' -or $msiVersion.Major -gt 255 -or $msiVersion.Minor -gt 255 -or $msiVersion.Build -gt 65535) {
+    throw 'Windows requires major.minor.patch, with major/minor <= 255 and patch <= 65535. MSI ignores a fourth component.'
+}
 $certificateThumbprint = $env:ARPEON_SIGN_CERT_THUMBPRINT
 $timestampUrl = $env:ARPEON_TIMESTAMP_URL
 $signingRequested = -not [string]::IsNullOrWhiteSpace($certificateThumbprint) -or
@@ -73,17 +94,20 @@ if (-not $SkipFrontendBuild) {
     $localNode = Join-Path $repoRoot '.tools/node/node-v24.21.0-win-x64'
     if (Test-Path -LiteralPath (Join-Path $localNode 'npm.cmd')) {
         $env:PATH = "$localNode;$env:PATH"
-        $npm = Join-Path $localNode 'npm.cmd'
+        $node = Join-Path $localNode 'node.exe'
+        $npmCli = Join-Path $localNode 'node_modules/npm/bin/npm-cli.js'
     } else {
-        $npm = (Get-Command npm.cmd -ErrorAction Stop).Source
+        $node = (Get-Command node.exe -ErrorAction Stop).Source
+        $npmCli = Join-Path (Split-Path $node) 'node_modules/npm/bin/npm-cli.js'
+        if (-not (Test-Path -LiteralPath $npmCli)) { throw 'npm CLI not found beside Node.js.' }
     }
     Push-Location $frontend
     try {
         if (-not (Test-Path -LiteralPath (Join-Path $frontend 'node_modules'))) {
-            & $npm ci
+            & $node $npmCli ci
             if ($LASTEXITCODE -ne 0) { throw 'npm ci failed.' }
         }
-        & $npm run build
+        & $node (Join-Path $frontend 'node_modules/@angular/cli/bin/ng.js') build
         if ($LASTEXITCODE -ne 0) { throw 'Frontend build failed.' }
     } finally {
         Pop-Location
@@ -96,12 +120,16 @@ if (-not (Test-Path -LiteralPath $frontendIndex)) {
 if (-not $SkipDesktopBuild) {
     Push-Location $repoRoot
     try {
-        & (Join-Path $repoRoot 'gradlew.bat') ':apps:desktop:installDist'
+        & $java --enable-native-access=ALL-UNNAMED -classpath (Join-Path $repoRoot 'gradle/wrapper/gradle-wrapper.jar') org.gradle.wrapper.GradleWrapperMain ':apps:desktop:installDist' ':apps:desktop:prepareChromium'
         if ($LASTEXITCODE -ne 0) { throw 'Gradle desktop distribution build failed.' }
     } finally {
         Pop-Location
     }
 }
+
+& (Join-Path $PSScriptRoot 'prepare-windows-runtime.ps1') -PrepareInstallerTools:(-not $SkipInstaller)
+$cefRoot = Join-Path $repoRoot 'apps/desktop/build/native-resources/cef'
+if (-not (Test-Path -LiteralPath (Join-Path $cefRoot 'install.lock'))) { throw 'Run :apps:desktop:prepareChromium before packaging.' }
 
 $appInput = Join-Path $repoRoot 'apps/desktop/build/install/desktop/lib'
 $mainJar = "desktop-$appVersion.jar"
@@ -138,15 +166,16 @@ if (Test-Path -LiteralPath $imageDir) {
     --type app-image `
     --name ARPEON `
     --app-version $appVersion `
-    --description 'ARPEON local music practice' `
+    --description 'ARPEON — partituras, edição e estudo musical' `
     --vendor ARPEON `
+    --icon (Join-Path $repoRoot 'packaging/arpeon.ico') `
     --input $appInput `
     --main-jar $mainJar `
     --main-class org.arpeon.desktop.DesktopApplication `
     --java-options '-Xmx2g' `
     --java-options '-Dfile.encoding=UTF-8' `
+    --java-options '--enable-native-access=ALL-UNNAMED' `
     --add-modules 'java.se,jdk.httpserver,jdk.charsets,jdk.crypto.ec,jdk.localedata,jdk.unsupported' `
-    --win-console `
     --dest $outputDir
 if ($LASTEXITCODE -ne 0) { throw 'jpackage failed.' }
 
@@ -158,7 +187,22 @@ Copy-Item -LiteralPath (Join-Path $repoRoot 'LICENSE') -Destination (Join-Path $
 Copy-Item -LiteralPath (Join-Path $repoRoot 'THIRD_PARTY_NOTICES.md') -Destination (Join-Path $imageDir 'THIRD_PARTY_NOTICES.md')
 Copy-Item -LiteralPath (Join-Path $repoRoot 'apps/desktop/build/source/source.zip') -Destination (Join-Path $imageDir 'source.zip')
 Copy-Item -LiteralPath (Join-Path $repoRoot 'docs/development/windows-portable.txt') -Destination (Join-Path $imageDir 'LEIA-ME.txt')
-Copy-Item -LiteralPath (Join-Path $repoRoot 'docs/releases/0.1.0-windows.md') -Destination (Join-Path $imageDir 'RELEASE-NOTES.md')
+$releaseNotes = Join-Path $repoRoot "docs/releases/$appVersion-windows.md"
+if (-not (Test-Path -LiteralPath $releaseNotes -PathType Leaf)) { throw "Release notes missing for version $appVersion." }
+Copy-Item -LiteralPath $releaseNotes -Destination (Join-Path $imageDir 'RELEASE-NOTES.md')
+$toolsDir = Join-Path $imageDir 'tools'
+New-Item -ItemType Directory -Path $toolsDir -Force | Out-Null
+foreach ($component in @('cef', 'audiveris-5.11.0', 'updater')) {
+    Copy-Item -LiteralPath (Join-Path $repoRoot "apps/desktop/build/native-resources/$component") -Destination $toolsDir -Recurse
+}
+$configDir = Join-Path $imageDir 'config'
+New-Item -ItemType Directory -Path $configDir -Force | Out-Null
+Copy-Item -LiteralPath (Join-Path $repoRoot 'packaging/updates.properties') -Destination $configDir
+if ($UpdateFeedUrl) {
+    $escapedFeed = $UpdateFeedUrl.Replace('\', '\\')
+    [IO.File]::WriteAllText((Join-Path $configDir 'updates.properties'), "enabled=true`nchannel=$UpdateChannel`nappcastUrl=$escapedFeed`npublicKey=$UpdatePublicKey`n", [Text.UTF8Encoding]::new($false))
+}
+Copy-Item -LiteralPath (Join-Path $repoRoot 'packaging/native-lock.json') -Destination $imageDir
 
 if ($signingRequested) {
     $signToolCommand = Get-Command 'signtool.exe' -ErrorAction Stop
@@ -173,6 +217,22 @@ if ($signingRequested) {
     Write-Host "Authenticode signature verified: $($authenticode.SignerCertificate.Thumbprint)"
 } else {
     Write-Warning 'The Windows package is unsigned. Configure signing variables for a release build.'
+}
+
+& (Join-Path $PSScriptRoot 'write-package-manifest.ps1') -Package $imageDir -Version $appVersion -PublicDistributionApproved:$ForRelease
+
+if (-not $SkipInstaller) {
+    & (Join-Path $PSScriptRoot 'build-windows-installer.ps1') -Package $imageDir -Version $appVersion -OutputDirectory $outputDir
+    $msiPath = Join-Path $outputDir "ARPEON-$appVersion.msi"
+    if ($signingRequested) {
+        & $signToolCommand.Source sign /sha1 $certificateThumbprint /s My /fd SHA256 /tr $timestampUrl /td SHA256 $msiPath
+        if ($LASTEXITCODE -ne 0) { throw 'Installer signing failed.' }
+        & $signToolCommand.Source verify /pa /v $msiPath
+        if ($LASTEXITCODE -ne 0) { throw 'Installer signature verification failed.' }
+    }
+    $msiHash = (Get-FileHash -LiteralPath $msiPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    Set-Content -LiteralPath "$msiPath.sha256" -Value "$msiHash  $(Split-Path -Leaf $msiPath)" -Encoding ascii
+    Write-Host "Windows installer: $msiPath"
 }
 
 if (-not $SkipZip) {

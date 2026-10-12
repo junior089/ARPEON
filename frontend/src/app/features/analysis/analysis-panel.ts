@@ -8,110 +8,38 @@ import {
   inject,
   OnDestroy,
   OnInit,
+  output,
   signal,
   ViewChild,
 } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
 import type { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
 import { LOCAL_FETCH, SESSION_TOKEN } from '../../core/local-session';
-import { isDevices, AudioInputDevice } from '../../core/tuner-contract';
+import { AudioSettings } from '../../core/audio-settings';
+import { AudioPreparation } from '../../shared/audio-preparation';
+import { AnalysisSetup, analysisDefaults, analysisSetupErrors } from './analysis-setup';
 import { ScoreSession } from '../score/score-session';
+import { StudyReport, StudyRequest } from './study-report';
+import { WorkspaceLayout } from '../../shared/workspace-layout';
 
-interface Match {
-  expectedIndex: number;
-  observedIndex: number;
-  expectedMidi: number;
-  observedMidi: number;
-  onsetErrorMs: number;
-  durationErrorPercent: number;
-  centsError: number;
-  confidence: number;
-  pitchWithinTolerance: boolean;
-  timingWithinTolerance: boolean;
-  durationWithinTolerance: boolean;
-}
-interface Report {
-  status: string;
-  expectedCount: number;
-  observedCount: number;
-  matchedCount: number;
-  missedCount: number | null;
-  extraCount: number | null;
-  earlyCount: number | null;
-  lateCount: number | null;
-  pitchAccuracyPercent: number | null;
-  timingAccuracyPercent: number | null;
-  durationAccuracyPercent: number | null;
-  interOnsetAccuracyPercent: number | null;
-  meanAbsoluteTimingErrorMs: number | null;
-  meanAbsoluteIntonationCents: number | null;
-  meanMatchedConfidence: number | null;
-  matches: Match[];
-  missedIndices: number[];
-  extraIndices: number[];
-}
-interface HistorySummary {
-  id: string;
-  projectId: string | null;
-  sha256: string;
-  revision: number;
-  title: string;
-  filename: string;
-  partName: string;
-  mode: string;
-  completedAt: string;
-  reportStatus: string;
-  expectedCount: number;
-  matchedCount: number;
-  missedCount: number | null;
-  extraCount: number | null;
-  pitchAccuracyPercent: number | null;
-  timingAccuracyPercent: number | null;
-  durationAccuracyPercent: number | null;
-  interOnsetAccuracyPercent: number | null;
-}
-interface SavedReport extends HistorySummary {
-  partId: string;
-  report: Report;
-}
-interface AnalysisView {
-  status: string;
-  mode: 'ANALYSIS' | 'FOLLOW';
-  title: string | null;
-  filename: string | null;
-  sha256: string | null;
-  revision: number | null;
-  partId: string | null;
-  partName: string | null;
-  soundingSemitones: number | null;
-  expectedCount: number | null;
-  durationMs: number | null;
-  initialBpm: number | null;
-  startsAtEpochMs: number | null;
-  elapsedMs: number | null;
-  observedOnsets: number;
-  expected: { index: number; midi: number; onsetMs: number; durationMs: number }[] | null;
-  expectedTicks: number[] | null;
-  follow: {
-    noteIndex: number;
-    state: string;
-    confidence: number;
-    confirmedNotes: number;
-    tempoRatio: number;
-    tempoSamples: number;
-    tempoState: string;
-  } | null;
-  report: Report | null;
-  message: string;
-}
-
+import {
+  AnalysisView,
+  HistorySummary,
+  SavedReport,
+  isHistorySummary,
+  isSavedReport,
+  isReport,
+  isStudyContext,
+} from './analysis-contract';
 @Component({
   selector: 'app-analysis-panel',
-  imports: [DecimalPipe],
+  imports: [DecimalPipe, StudyReport, AudioPreparation],
   templateUrl: './analysis-panel.html',
   styleUrl: './analysis-panel.scss',
 })
 export class AnalysisPanel implements OnInit, AfterViewInit, OnDestroy {
+  readonly requestedScore = output<void>();
+  private readonly layout = inject(WorkspaceLayout);
   statusLabel(status: string | undefined): string {
     const labels: Record<string, string> = {
       IDLE: 'Aguardando',
@@ -122,6 +50,7 @@ export class AnalysisPanel implements OnInit, AfterViewInit, OnDestroy {
       ERROR: 'Erro de captura',
       INSUFFICIENT_DATA: 'Dados insuficientes',
       SCORED: 'Análise concluída',
+      ANALYZED: 'Análise concluída',
     };
     return labels[status ?? 'IDLE'] ?? status ?? 'Aguardando';
   }
@@ -138,20 +67,53 @@ export class AnalysisPanel implements OnInit, AfterViewInit, OnDestroy {
   });
   private readonly fetch = inject(LOCAL_FETCH);
   private readonly token = inject(SESSION_TOKEN);
-  readonly devices = signal<AudioInputDevice[]>([]);
-  readonly deviceId = signal('');
+  private readonly captureOwner = crypto.randomUUID();
+  readonly audio = inject(AudioSettings);
+  readonly deviceId = this.audio.selectedDevice;
   readonly partId = signal('');
   readonly mode = signal<'ANALYSIS' | 'FOLLOW'>('FOLLOW');
-  readonly referenceHz = signal(440);
-  readonly alignmentWindowMs = signal(450);
-  readonly timingToleranceMs = signal(120);
-  readonly pitchToleranceCents = signal(50);
-  readonly rhythmTolerancePercent = signal(20);
-  readonly latencyCompensationMs = signal(0);
+  readonly referenceHz = this.audio.referenceHz;
+  private readonly setup = inject(AnalysisSetup);
+  readonly alignmentWindowMs = this.setup.alignmentWindowMs;
+  readonly timingToleranceMs = this.setup.timingToleranceMs;
+  readonly pitchToleranceCents = this.setup.pitchToleranceCents;
+  readonly rhythmTolerancePercent = this.setup.rhythmTolerancePercent;
+  readonly latencyCompensationMs = this.setup.latencyCompensationMs;
   readonly state = signal<AnalysisView | null>(null);
   readonly busy = signal(false);
   readonly error = signal('');
   readonly active = computed(() => ['COUNT_IN', 'RECORDING'].includes(this.state()?.status ?? ''));
+  readonly setupErrors = computed(() =>
+    analysisSetupErrors({
+      alignmentWindowMs: this.alignmentWindowMs(),
+      timingToleranceMs: this.timingToleranceMs(),
+      pitchToleranceCents: this.pitchToleranceCents(),
+      rhythmTolerancePercent: this.rhythmTolerancePercent(),
+      latencyCompensationMs: this.latencyCompensationMs(),
+    }),
+  );
+  readonly setupMessages = computed(() => Object.values(this.setupErrors()));
+  readonly canStart = computed(
+    () =>
+      !this.active() &&
+      !this.busy() &&
+      this.audio.ready() &&
+      ['FOLLOW', 'ANALYSIS'].includes(this.mode()) &&
+      !!this.score.score()?.parts.some((part) => part.id === this.partId()) &&
+      !this.setupMessages().length,
+  );
+
+  inputNumber(event: Event): number {
+    return event.target instanceof HTMLInputElement ? event.target.valueAsNumber : NaN;
+  }
+  resetAnalysisSettings(): void {
+    if (this.active() || this.busy()) return;
+    this.alignmentWindowMs.set(analysisDefaults.alignmentWindowMs);
+    this.timingToleranceMs.set(analysisDefaults.timingToleranceMs);
+    this.pitchToleranceCents.set(analysisDefaults.pitchToleranceCents);
+    this.rhythmTolerancePercent.set(analysisDefaults.rhythmTolerancePercent);
+    this.latencyCompensationMs.set(analysisDefaults.latencyCompensationMs);
+  }
   readonly visibleNotes = computed(() => {
     const notes = this.state()?.expected ?? [];
     const current = this.state()?.follow?.noteIndex ?? 0;
@@ -176,12 +138,18 @@ export class AnalysisPanel implements OnInit, AfterViewInit, OnDestroy {
   private timer: ReturnType<typeof setTimeout> | undefined;
   private disposed = false;
   @ViewChild('followSheet') private followSheet?: ElementRef<HTMLDivElement>;
+  @ViewChild('reportDetail') private reportDetail?: ElementRef<HTMLDivElement>;
   private renderer?: OpenSheetMusicDisplay;
   private rendering = false;
   private renderedXml = '';
   private cursorTick = -1;
 
   constructor() {
+    effect(() => {
+      const parts = this.score.score()?.parts ?? [];
+      if (!this.active() && !this.busy() && !parts.some((part) => part.id === this.partId()))
+        this.partId.set(parts[0]?.id ?? '');
+    });
     effect(() => {
       const state = this.state();
       const index = state?.follow?.noteIndex ?? -1;
@@ -257,11 +225,8 @@ export class AnalysisPanel implements OnInit, AfterViewInit, OnDestroy {
 
   private async initialize(): Promise<void> {
     try {
-      const devices = await this.request('/api/devices');
-      if (!isDevices(devices)) throw new Error('Lista de entradas inválida.');
+      await this.audio.refresh();
       if (this.disposed) return;
-      this.devices.set(devices);
-      this.deviceId.set(devices[0]?.id ?? '');
       const state = await this.request('/api/analysis');
       this.accept(state);
       await this.refreshHistory();
@@ -274,7 +239,7 @@ export class AnalysisPanel implements OnInit, AfterViewInit, OnDestroy {
   }
 
   async start(): Promise<void> {
-    if (!this.score.score() || !this.partId() || !this.deviceId() || this.busy()) return;
+    if (!this.canStart()) return;
     this.busy.set(true);
     this.error.set('');
     try {
@@ -365,6 +330,14 @@ export class AnalysisPanel implements OnInit, AfterViewInit, OnDestroy {
       throw new Error('Resposta da análise inválida.');
     if (!this.disposed) {
       const incoming = value as AnalysisView;
+      if (
+        (incoming.report && !isReport(incoming.report)) ||
+        (incoming.study && !isStudyContext(incoming.study)) ||
+        (incoming.study &&
+          incoming.report &&
+          incoming.study.notes.length !== incoming.report.expectedCount)
+      )
+        throw new Error('Resultado da análise inválido.');
       const previous = this.state();
       const sameScore =
         previous?.sha256 === incoming.sha256 &&
@@ -375,6 +348,7 @@ export class AnalysisPanel implements OnInit, AfterViewInit, OnDestroy {
         expected: incoming.expected ?? (sameScore ? (previous?.expected ?? null) : null),
         expectedTicks:
           incoming.expectedTicks ?? (sameScore ? (previous?.expectedTicks ?? null) : null),
+        study: incoming.study ?? (sameScore ? (previous?.study ?? null) : null),
       });
       if (
         this.state()?.mode === 'FOLLOW' &&
@@ -397,6 +371,7 @@ export class AnalysisPanel implements OnInit, AfterViewInit, OnDestroy {
       method,
       headers: {
         'X-Arpeon-Session': this.token,
+        'X-Arpeon-Capture-Owner': this.captureOwner,
         ...(body ? { 'Content-Type': 'application/json' } : {}),
       },
       body: body ? JSON.stringify(body) : undefined,
@@ -430,9 +405,60 @@ export class AnalysisPanel implements OnInit, AfterViewInit, OnDestroy {
       const value = await this.request(`/api/analysis/history/${encodeURIComponent(id)}`);
       if (!isSavedReport(value)) throw new Error('Relatório salvo inválido.');
       this.savedReport.set(value);
+      setTimeout(() => {
+        if (!this.disposed) this.reportDetail?.nativeElement.scrollIntoView({ block: 'start' });
+      }, 0);
     } catch (failure) {
       this.fail(failure);
     }
+  }
+
+  async prepareStudy(request: StudyRequest, saved = false): Promise<void> {
+    const source = saved ? this.savedReport() : this.state();
+    if (
+      this.busy() ||
+      this.active() ||
+      !source?.study ||
+      !source.sha256 ||
+      source.revision === null ||
+      !source.partId
+    )
+      return;
+    this.busy.set(true);
+    this.error.set('');
+    try {
+      const prepared = await this.score.prepareStudy({
+        sha256: source.sha256,
+        revision: source.revision,
+        partId: source.partId,
+        soundingSemitones: source.study.soundingSemitones,
+        scoreXmlSha256: source.study.scoreXmlSha256,
+        ...request,
+      });
+      if (!prepared) {
+        this.error.set(this.score.error());
+        return;
+      }
+      this.layout.setMode('study');
+      this.requestedScore.emit();
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  compatible(source: AnalysisView | SavedReport | null): boolean {
+    const score = this.score.score();
+    const transport = this.score.transport();
+    const part = transport?.parts.find((p) => p.id === source?.partId);
+    const instrument = score?.instruments.find((i) => i.id === part?.instrumentId);
+    return (
+      !!source?.study &&
+      !!score &&
+      source.sha256 === score.sha256 &&
+      source.revision === score.revision &&
+      !!part &&
+      instrument?.soundingSemitones === source.study.soundingSemitones
+    );
   }
 
   async deleteSavedReport(id: string): Promise<void> {
@@ -456,100 +482,4 @@ export class AnalysisPanel implements OnInit, AfterViewInit, OnDestroy {
     this.renderer?.clear();
     if (this.active()) void this.request('/api/analysis/stop', {}).catch(() => {});
   }
-}
-
-function isHistorySummary(value: unknown): value is HistorySummary {
-  return (
-    isRecord(value) &&
-    'id' in value &&
-    typeof value['id'] === 'string' &&
-    'projectId' in value &&
-    (value['projectId'] === null || typeof value['projectId'] === 'string') &&
-    'sha256' in value &&
-    typeof value['sha256'] === 'string' &&
-    'revision' in value &&
-    typeof value['revision'] === 'number' &&
-    typeof value['title'] === 'string' &&
-    typeof value['filename'] === 'string' &&
-    typeof value['partName'] === 'string' &&
-    typeof value['mode'] === 'string' &&
-    typeof value['completedAt'] === 'string' &&
-    'reportStatus' in value &&
-    typeof value['reportStatus'] === 'string' &&
-    typeof value['expectedCount'] === 'number' &&
-    typeof value['matchedCount'] === 'number' &&
-    nullableNumber(value['missedCount']) &&
-    nullableNumber(value['extraCount']) &&
-    nullableNumber(value['pitchAccuracyPercent']) &&
-    nullableNumber(value['timingAccuracyPercent']) &&
-    nullableNumber(value['durationAccuracyPercent']) &&
-    nullableNumber(value['interOnsetAccuracyPercent'])
-  );
-}
-
-function isSavedReport(value: unknown): value is SavedReport {
-  return (
-    isRecord(value) &&
-    typeof value['id'] === 'string' &&
-    (value['projectId'] === null || typeof value['projectId'] === 'string') &&
-    typeof value['sha256'] === 'string' &&
-    typeof value['revision'] === 'number' &&
-    typeof value['title'] === 'string' &&
-    typeof value['filename'] === 'string' &&
-    typeof value['partId'] === 'string' &&
-    typeof value['partName'] === 'string' &&
-    typeof value['mode'] === 'string' &&
-    typeof value['completedAt'] === 'string' &&
-    isReport(value['report'])
-  );
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function isReport(value: unknown): value is Report {
-  return (
-    isRecord(value) &&
-    typeof value['status'] === 'string' &&
-    typeof value['expectedCount'] === 'number' &&
-    typeof value['observedCount'] === 'number' &&
-    typeof value['matchedCount'] === 'number' &&
-    nullableNumber(value['missedCount']) &&
-    nullableNumber(value['extraCount']) &&
-    nullableNumber(value['earlyCount']) &&
-    nullableNumber(value['lateCount']) &&
-    nullableNumber(value['pitchAccuracyPercent']) &&
-    nullableNumber(value['timingAccuracyPercent']) &&
-    nullableNumber(value['durationAccuracyPercent']) &&
-    nullableNumber(value['interOnsetAccuracyPercent']) &&
-    nullableNumber(value['meanAbsoluteTimingErrorMs']) &&
-    nullableNumber(value['meanAbsoluteIntonationCents']) &&
-    nullableNumber(value['meanMatchedConfidence']) &&
-    Array.isArray(value['matches']) &&
-    value['matches'].every(isMatch) &&
-    Array.isArray(value['missedIndices']) &&
-    value['missedIndices'].every(Number.isInteger) &&
-    Array.isArray(value['extraIndices']) &&
-    value['extraIndices'].every(Number.isInteger)
-  );
-}
-
-function nullableNumber(value: unknown): value is number | null {
-  return value === null || (typeof value === 'number' && Number.isFinite(value));
-}
-
-function isMatch(value: unknown): value is Match {
-  return (
-    isRecord(value) &&
-    ['expectedIndex', 'observedIndex', 'expectedMidi', 'observedMidi'].every((field) =>
-      Number.isInteger(value[field]),
-    ) &&
-    ['onsetErrorMs', 'durationErrorPercent', 'centsError', 'confidence'].every(
-      (field) => typeof value[field] === 'number' && Number.isFinite(value[field]),
-    ) &&
-    ['pitchWithinTolerance', 'timingWithinTolerance', 'durationWithinTolerance'].every(
-      (field) => typeof value[field] === 'boolean',
-    )
-  );
 }

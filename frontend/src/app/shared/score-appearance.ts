@@ -7,6 +7,13 @@ export function scoreAppearance(dark = false): IOSMDOptions {
     darkMode: dark,
     pageBackgroundColor: token(dark ? '--color-score-dark-paper' : '--color-score-paper'),
     defaultColorMusic: token(dark ? '--color-score-dark-ink' : '--color-score-ink'),
-    cursorsOptions: [{ type: 1, color: token('--color-score-cursor'), alpha: 0.45, follow: true }],
+    cursorsOptions: [
+      {
+        type: 1,
+        color: token(dark ? '--color-score-dark-cursor' : '--color-score-cursor'),
+        alpha: 1,
+        follow: true,
+      },
+    ],
   };
 }

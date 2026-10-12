@@ -51,8 +51,16 @@ public final class DesktopServer implements AutoCloseable {
   private final PracticeWorkspace practice = new PracticeWorkspace();
   private final PracticeHistory practiceHistory;
   private final ProjectStore projects;
+  private final PreferencesStore preferences;
+  private final AudioPreferencesStore audioPreferences;
+  private final Object audioControl = new Object();
+  private final java.util.concurrent.Semaphore pdfPreviewSlots =
+      new java.util.concurrent.Semaphore(1);
+  private String tunerOwner;
+  private String analysisOwner;
   private final HttpServer server;
-  private final ExecutorService requests = Executors.newFixedThreadPool(4);
+  private final ExecutorService requests =
+      new ThreadPoolExecutor(4, 4, 0, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(32));
   private final ScheduledExecutorService watchdog = Executors.newSingleThreadScheduledExecutor();
   private final ThreadPoolExecutor autosaveWriter =
       new ThreadPoolExecutor(
@@ -74,6 +82,8 @@ public final class DesktopServer implements AutoCloseable {
   private volatile long lastTransportPollNanos;
   private volatile long lastPracticePollNanos;
   private volatile String currentProjectId;
+  private volatile int savedProjectRevision = -1;
+  private volatile WindowsUpdater updater;
   private volatile String analysisProjectId;
   private volatile long lastPersistedAnalysisStart = Long.MIN_VALUE;
   private volatile Runnable shutdownCallback = () -> {};
@@ -125,12 +135,44 @@ public final class DesktopServer implements AutoCloseable {
       OmrWorkspace omr,
       ProjectStore projects)
       throws IOException {
+    this(tuner, practiceHistory, imports, omr, projects, PreferencesStore.defaultStore());
+  }
+
+  DesktopServer(
+      TunerService tuner,
+      PracticeHistory practiceHistory,
+      ImportWorkspace imports,
+      OmrWorkspace omr,
+      ProjectStore projects,
+      PreferencesStore preferences)
+      throws IOException {
+    this(
+        tuner,
+        practiceHistory,
+        imports,
+        omr,
+        projects,
+        preferences,
+        AudioPreferencesStore.defaultStore());
+  }
+
+  DesktopServer(
+      TunerService tuner,
+      PracticeHistory practiceHistory,
+      ImportWorkspace imports,
+      OmrWorkspace omr,
+      ProjectStore projects,
+      PreferencesStore preferences,
+      AudioPreferencesStore audioPreferences)
+      throws IOException {
     this.tuner = tuner;
     this.analysis = new AnalysisWorkspace(workspace, tuner);
     this.practiceHistory = practiceHistory;
     this.imports = imports;
     this.omr = omr;
     this.projects = projects;
+    this.preferences = preferences;
+    this.audioPreferences = audioPreferences;
     server = HttpServer.create(new InetSocketAddress(InetAddress.getByName("127.0.0.1"), 0), 16);
     origin = "http://127.0.0.1:" + server.getAddress().getPort();
     byte[] secret = new byte[32];
@@ -148,29 +190,29 @@ public final class DesktopServer implements AutoCloseable {
     shutdownCallback = callback;
   }
 
+  void attachUpdater(WindowsUpdater value) {
+    updater = value;
+  }
+
+  boolean canUpdate() {
+    synchronized (audioControl) {
+      if (omr.status().recognizing()
+          || analysis.active()
+          || practice.activeAttempt()
+          || captureActive()) return false;
+      synchronized (workspace) {
+        if (!workspace.isOpen()) return true;
+        return currentProjectId != null && workspace.revision() == savedProjectRevision;
+      }
+    }
+  }
+
   public void start() {
     server.start();
     watchdog.scheduleWithFixedDelay(
         () -> {
           try {
-            synchronized (tuner) {
-              if (lastPollNanos != 0
-                  && System.nanoTime() - lastPollNanos > TimeUnit.SECONDS.toNanos(5)) {
-                tuner.stop();
-                lastPollNanos = 0;
-              }
-              tuner.checkCaptureHealth();
-              if (lastTransportPollNanos != 0
-                  && System.nanoTime() - lastTransportPollNanos > TimeUnit.SECONDS.toNanos(5)) {
-                workspace.stopIfPlaying();
-                lastTransportPollNanos = 0;
-              }
-              if (lastPracticePollNanos != 0
-                  && System.nanoTime() - lastPracticePollNanos > TimeUnit.SECONDS.toNanos(5)) {
-                practice.stopIfPlaying();
-                lastPracticePollNanos = 0;
-              }
-            }
+            expireAudioLeases(System.nanoTime());
           } catch (RuntimeException failure) {
             System.getLogger(DesktopServer.class.getName())
                 .log(System.Logger.Level.ERROR, "Audio lifecycle watchdog failed");
@@ -179,6 +221,32 @@ public final class DesktopServer implements AutoCloseable {
         1,
         1,
         TimeUnit.SECONDS);
+  }
+
+  void expireAudioLeases(long now) {
+    synchronized (audioControl) {
+      synchronized (tuner) {
+        if (lastPollNanos != 0 && now - lastPollNanos > TimeUnit.SECONDS.toNanos(5)) {
+          if (analysis.active()) analysis.stop();
+          else tuner.stop();
+          tunerOwner = null;
+          analysisOwner = null;
+          lastPollNanos = 0;
+        }
+        tuner.checkCaptureHealth();
+        if (analysis.active() && !captureActive()) analysis.observe();
+        if (lastTransportPollNanos != 0
+            && now - lastTransportPollNanos > TimeUnit.SECONDS.toNanos(5)) {
+          workspace.stopIfPlaying();
+          lastTransportPollNanos = 0;
+        }
+        if (lastPracticePollNanos != 0
+            && now - lastPracticePollNanos > TimeUnit.SECONDS.toNanos(5)) {
+          practice.stopIfPlaying();
+          lastPracticePollNanos = 0;
+        }
+      }
+    }
   }
 
   private void handle(HttpExchange exchange) throws IOException {
@@ -190,8 +258,8 @@ public final class DesktopServer implements AutoCloseable {
       headers.set(
           "Content-Security-Policy",
           "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src"
-              + " 'self'; img-src 'self' data: blob:; font-src 'self'; object-src 'none'; base-uri"
-              + " 'self'; frame-ancestors 'none'");
+              + " 'self'; img-src 'self' data: blob:; font-src 'self'; object-src"
+              + " 'none'; base-uri 'self'; frame-ancestors 'none'");
       headers.set("Permissions-Policy", "microphone=(), camera=(), geolocation=()");
       String host = exchange.getRequestHeaders().getFirst("Host");
       String requestOrigin = exchange.getRequestHeaders().getFirst("Origin");
@@ -228,9 +296,138 @@ public final class DesktopServer implements AutoCloseable {
   }
 
   private void api(HttpExchange exchange, String path) throws IOException {
+    if (path.startsWith("/api/transport")
+        || path.startsWith("/api/tuner")
+        || path.startsWith("/api/practice")
+        || path.startsWith("/api/analysis")) {
+      synchronized (audioControl) {
+        apiRequest(exchange, path);
+      }
+    } else apiRequest(exchange, path);
+  }
+
+  private void pdfPage(HttpExchange exchange) throws IOException {
+    if (!"application/octet-stream".equals(exchange.getRequestHeaders().getFirst("Content-Type"))) {
+      sendJson(exchange, 415, Map.of("error", "Expected application/octet-stream"));
+      return;
+    }
+    String encoded = exchange.getRequestHeaders().getFirst("X-Arpeon-Filename");
+    String page = exchange.getRequestHeaders().getFirst("X-Arpeon-Page");
+    if (encoded == null || encoded.length() > 1500 || page == null || !page.matches("[0-9]{1,2}"))
+      throw new IllegalArgumentException("Invalid PDF page request");
+    if (!pdfPreviewSlots.tryAcquire()) {
+      sendJson(exchange, 409, Map.of("error", "Aguarde a preparação da página anterior."));
+      return;
+    }
+    try {
+      byte[] content = exchange.getRequestBody().readNBytes(OmrInputValidator.MAX_PDF_BYTES + 1);
+      if (content.length > OmrInputValidator.MAX_PDF_BYTES) {
+        sendJson(exchange, 413, Map.of("error", "PDF exceeds 64 MiB"));
+        return;
+      }
+      try {
+        byte[] png =
+            org.arpeon.omr.OmrPdfPreview.render(
+                new org.arpeon.omr.OmrInput(
+                    content, URLDecoder.decode(encoded, StandardCharsets.UTF_8)),
+                Integer.parseInt(page));
+        exchange.getResponseHeaders().set("Content-Type", "image/png");
+        exchange.sendResponseHeaders(200, png.length);
+        try (var output = exchange.getResponseBody()) {
+          output.write(png);
+        }
+      } catch (IOException failure) {
+        sendJson(exchange, 422, Map.of("error", failure.getMessage()));
+      }
+    } finally {
+      pdfPreviewSlots.release();
+    }
+  }
+
+  private void apiRequest(HttpExchange exchange, String path) throws IOException {
     String method = exchange.getRequestMethod();
     try {
-      if (path.equals("/api/projects") && method.equals("GET")) {
+      if (path.equals("/api/updates") && method.equals("GET")) {
+        sendJson(
+            exchange,
+            200,
+            updater == null
+                ? new WindowsUpdater.Status(
+                    false,
+                    "stable",
+                    AppInstallation.version(),
+                    "Atualizações disponíveis após a publicação oficial.",
+                    false,
+                    "idle",
+                    "")
+                : updater.status());
+      } else if (path.equals("/api/updates/preferences") && method.equals("PUT")) {
+        JsonObject request = smallJson(exchange);
+        if (!request.keySet().equals(Set.of("automaticChecking"))
+            || !request.get("automaticChecking").isJsonPrimitive()
+            || !request.get("automaticChecking").getAsJsonPrimitive().isBoolean()) {
+          sendJson(exchange, 400, Map.of("error", "Preferência de atualização inválida."));
+        } else if (updater == null || !updater.status().enabled()) {
+          sendJson(exchange, 409, Map.of("error", "Atualizações indisponíveis neste pacote."));
+        } else {
+          updater.automaticChecking(request.get("automaticChecking").getAsBoolean());
+          sendJson(exchange, 200, updater.status());
+        }
+      } else if (path.equals("/api/updates/check") && method.equals("POST")) {
+        emptyJson(exchange);
+        if (updater == null || !updater.status().enabled()) {
+          sendJson(
+              exchange,
+              409,
+              Map.of(
+                  "error",
+                  updater == null
+                      ? "Atualizações disponíveis após a publicação oficial."
+                      : updater.status().message()));
+        } else {
+          updater.check();
+          sendJson(exchange, 200, updater.status());
+        }
+      } else if (path.equals("/api/preferences") && Set.of("GET", "PUT").contains(method)) {
+        try {
+          sendJson(
+              exchange,
+              200,
+              method.equals("GET") ? preferences.load() : preferences.save(smallJson(exchange)));
+        } catch (IOException failure) {
+          System.getLogger(DesktopServer.class.getName())
+              .log(System.Logger.Level.WARNING, "Local preferences operation failed", failure);
+          sendJson(
+              exchange,
+              500,
+              Map.of("error", "Não foi possível guardar as preferências neste computador."));
+        }
+      } else if (path.equals("/api/audio/preferences") && Set.of("GET", "PUT").contains(method)) {
+        try {
+          sendJson(
+              exchange,
+              200,
+              method.equals("GET")
+                  ? audioPreferences.load()
+                  : audioPreferences.save(smallJson(exchange)));
+        } catch (IOException failure) {
+          sendJson(
+              exchange,
+              500,
+              Map.of(
+                  "error",
+                  method.equals("GET")
+                      ? "Não foi possível ler os ajustes de áudio. Escolha a entrada e guarde os"
+                          + " ajustes novamente."
+                      : "Não foi possível guardar os ajustes de áudio. Verifique o acesso à pasta"
+                          + " do usuário e tente novamente."));
+        }
+      } else if (path.equals("/api/score/study") && method.equals("POST")) {
+        if (analysis.active())
+          throw new IllegalStateException(
+              "Conclua ou cancele a tentativa antes de preparar um trecho.");
+        sendJson(exchange, 200, workspace.prepareStudy(smallJson(exchange)));
+      } else if (path.equals("/api/projects") && method.equals("GET")) {
         sendJson(exchange, 200, projects.list());
       } else if (path.equals("/api/projects") && method.equals("POST")) {
         JsonObject request = smallJson(exchange);
@@ -245,17 +442,57 @@ public final class DesktopServer implements AutoCloseable {
           throw new IllegalArgumentException("Invalid project save request");
         String id = request.has("id") ? practiceString(request, "id") : null;
         boolean autosave = request.has("autosave") && practiceBoolean(request, "autosave");
-        var data = workspace.projectData();
+        ProjectStore.Data data;
+        int revision;
+        synchronized (workspace) {
+          data = workspace.projectData();
+          revision = workspace.revision();
+        }
         try {
           ProjectStore.Saved saved = saveProject(id, data, autosave);
           currentProjectId = saved.id();
+          savedProjectRevision = revision;
           sendJson(exchange, 200, saved);
         } catch (RejectedExecutionException saturated) {
-          sendJson(exchange, 503, Map.of("error", "Local autosave queue is full; retry shortly"));
+          sendJson(
+              exchange,
+              503,
+              Map.of(
+                  "error",
+                  "O salvamento local está ocupado. Aguarde um instante e tente novamente."));
         } catch (IOException failure) {
           System.getLogger(DesktopServer.class.getName())
               .log(System.Logger.Level.ERROR, "Local project save failed", failure);
-          sendJson(exchange, 500, Map.of("error", "Could not save the local project"));
+          sendJson(
+              exchange,
+              500,
+              Map.of("error", "Não foi possível salvar o projeto neste computador."));
+        }
+      } else if (path.matches("/api/projects/[0-9a-f-]{36}/(rename|duplicate)")
+          && method.equals("POST")) {
+        JsonObject request = smallJson(exchange);
+        if (request == null || !request.keySet().equals(Set.of("name")))
+          throw new IllegalArgumentException("Informe apenas o nome do projeto.");
+        if (!request.get("name").isJsonPrimitive()
+            || !request.get("name").getAsJsonPrimitive().isString())
+          throw new IllegalArgumentException("Informe o nome do projeto como texto.");
+        String name = request.get("name").getAsString();
+        String operation = path.substring(path.lastIndexOf('/') + 1);
+        String id = path.substring("/api/projects/".length(), path.lastIndexOf('/'));
+        try {
+          var saved =
+              operation.equals("rename") ? projects.rename(id, name) : projects.duplicate(id, name);
+          sendJson(exchange, 200, saved);
+        } catch (IOException failure) {
+          System.getLogger(DesktopServer.class.getName())
+              .log(System.Logger.Level.ERROR, "Local project library operation failed", failure);
+          sendJson(
+              exchange,
+              500,
+              Map.of(
+                  "error",
+                  "Não foi possível atualizar a biblioteca. O projeto original foi preservado."
+                      + " Tente novamente."));
         }
       } else if (path.matches("/api/projects/[0-9a-f-]{36}") && method.equals("DELETE")) {
         String id = path.substring("/api/projects/".length());
@@ -275,6 +512,7 @@ public final class DesktopServer implements AutoCloseable {
         ProjectStore.Project project = projects.load(id);
         ScoreWorkspace.View view = workspace.openProject(project.data());
         currentProjectId = id;
+        savedProjectRevision = view.score().revision();
         lastTransportPollNanos = 0;
         sendJson(exchange, 200, Map.of("id", id, "view", view));
       } else if (path.equals("/api/session") && method.equals("GET")) {
@@ -312,20 +550,16 @@ public final class DesktopServer implements AutoCloseable {
         sendJson(exchange, 200, SourceRegistry.all());
       } else if (path.equals("/api/omr/status") && method.equals("GET")) {
         sendJson(exchange, 200, omr.status());
-      } else if (path.equals("/api/omr/install") && method.equals("POST")) {
-        try {
-          boolean available = omr.install();
-          sendJson(exchange, available ? 200 : 422, omr.status());
-        } catch (IOException failure) {
-          sendJson(
-              exchange,
-              422,
-              Map.of(
-                  "error",
-                  failure.getMessage() == null
-                      ? "Audiveris could not be configured"
-                      : failure.getMessage()));
-        }
+      } else if (path.equals("/api/omr/cancel") && method.equals("POST")) {
+        JsonObject request = smallJson(exchange);
+        if (request == null || !request.keySet().equals(Set.of("jobId")))
+          throw new IllegalArgumentException("Expected recognition jobId");
+        String jobId = practiceString(request, "jobId");
+        if (!jobId.matches("[a-fA-F0-9-]{36}"))
+          throw new IllegalArgumentException("Invalid recognition jobId");
+        sendJson(exchange, 200, Map.of("cancelled", omr.cancel(jobId)));
+      } else if (path.equals("/api/omr/pdf-page") && method.equals("POST")) {
+        pdfPage(exchange);
       } else if (path.equals("/api/omr/preview") && method.equals("POST")) {
         if (!"application/octet-stream"
             .equals(exchange.getRequestHeaders().getFirst("Content-Type"))) {
@@ -333,9 +567,13 @@ public final class DesktopServer implements AutoCloseable {
           return;
         }
         String encoded = exchange.getRequestHeaders().getFirst("X-Arpeon-Filename");
-        if (encoded == null || encoded.length() > 400)
+        if (encoded == null || encoded.length() > 1500)
           throw new IllegalArgumentException("Invalid OMR filename");
         String filename = URLDecoder.decode(encoded, StandardCharsets.UTF_8);
+        String jobId = exchange.getRequestHeaders().getFirst("X-Arpeon-Job");
+        if (jobId == null) jobId = java.util.UUID.randomUUID().toString();
+        if (!jobId.matches("[a-fA-F0-9-]{36}"))
+          throw new IllegalArgumentException("Invalid recognition jobId");
         byte[] content = exchange.getRequestBody().readNBytes(OmrInputValidator.MAX_PDF_BYTES + 1);
         if (content.length > OmrInputValidator.MAX_PDF_BYTES) {
           sendJson(exchange, 413, Map.of("error", "OMR input exceeds 64 MiB"));
@@ -345,12 +583,15 @@ public final class DesktopServer implements AutoCloseable {
           sendJson(
               exchange,
               503,
-              Map.of("error", "Configure ARPEON_AUDIVERIS_EXECUTABLE before using OMR"));
+              Map.of("error", "Reinstale o pacote completo do ARPEON para reconhecer partituras."));
           return;
         }
         try {
-          sendJson(exchange, 200, omr.preview(content, filename));
+          sendJson(exchange, 200, omr.preview(content, filename, jobId));
         } catch (IOException failure) {
+          // Native cancellation preserves interruption; the HTTP worker must clear it
+          // before writing the terminal response through an interruptible socket.
+          Thread.interrupted();
           sendJson(exchange, 422, Map.of("error", failure.getMessage()));
         }
       } else if (path.equals("/api/omr/accept") && method.equals("POST")) {
@@ -410,6 +651,20 @@ public final class DesktopServer implements AutoCloseable {
         } catch (IOException failure) {
           sendJson(exchange, 400, Map.of("error", failure.getMessage()));
         }
+      } else if (path.equals("/api/import/notation") && method.equals("POST")) {
+        JsonObject request = smallJson(exchange);
+        if (request == null
+            || !request.keySet().equals(Set.of("token", "fallbackOctave", "equalNoteTicks")))
+          throw new IllegalArgumentException("Expected draft token, octave and duration");
+        sendJson(
+            exchange,
+            200,
+            Map.of(
+                "xml",
+                imports.notation(
+                    practiceString(request, "token"),
+                    practiceInt(request, "fallbackOctave"),
+                    practiceInt(request, "equalNoteTicks"))));
       } else if (path.equals("/api/import/accept") && method.equals("POST")) {
         JsonObject request = smallJson(exchange);
         if (request == null
@@ -556,10 +811,29 @@ public final class DesktopServer implements AutoCloseable {
         sendJson(exchange, 200, practice.snapshot());
       } else if (path.equals("/api/practice/start") && method.equals("POST")) {
         emptyJson(exchange);
+        requireNoAnalysis();
+        if (captureActive() && !captureOwner(exchange).equals(tunerOwner))
+          throw new IllegalStateException(
+              "Desligue a captura da outra área antes de iniciar a prática.");
         workspace.stopIfPlaying();
         sendJson(exchange, 200, practice.start());
       } else if (path.equals("/api/practice/observe") && method.equals("GET")) {
         synchronized (tuner) {
+          if (analysis.active()
+              || (captureActive() && !captureOwner(exchange).equals(tunerOwner))) {
+            sendJson(
+                exchange,
+                200,
+                Map.of(
+                    "practice",
+                    practice.snapshot(),
+                    "observation",
+                    org.arpeon.tuner.TunerObservation.inactive(
+                        org.arpeon.tuner.TunerObservation.State.IDLE,
+                        440,
+                        "Captura em outra área")));
+            return;
+          }
           lastPollNanos = System.nanoTime();
           lastPracticePollNanos = lastPollNanos;
           sendJson(
@@ -575,20 +849,23 @@ public final class DesktopServer implements AutoCloseable {
         emptyJson(exchange);
         sendJson(exchange, 200, practice.tap());
       } else if (path.equals("/api/practice/history") && method.equals("GET")) {
-        sendJson(exchange, 200, history());
+        sendJson(exchange, 200, history(exchange.getRequestURI()));
       } else if (path.equals("/api/practice/finish") && method.equals("POST")) {
         emptyJson(exchange);
         var summary = practice.finish();
         try {
-          var saved = practiceHistory.add(summary);
+          practiceHistory.add(summary);
           practice.markSaved();
-          sendJson(exchange, 200, Map.of("summary", summary, "history", saved));
+          sendJson(exchange, 200, Map.of("summary", summary));
         } catch (IOException failure) {
           throw new IllegalStateException("Could not save practice history", failure);
         }
       } else if (path.startsWith("/api/practice/playback/") && method.equals("POST")) {
         emptyJson(exchange);
-        if (path.endsWith("/play")) workspace.stopIfPlaying();
+        if (path.endsWith("/play")) {
+          requirePlaybackAvailable();
+          workspace.stopIfPlaying();
+        }
         lastPracticePollNanos = System.nanoTime();
         sendJson(
             exchange, 200, practice.playback(path.substring("/api/practice/playback/".length())));
@@ -606,7 +883,14 @@ public final class DesktopServer implements AutoCloseable {
           return;
         }
         var request = json.fromJson(new String(body, StandardCharsets.UTF_8), JsonObject.class);
-        if (path.equals("/api/transport/play")) practice.stopIfPlaying();
+        if (path.equals("/api/transport/play")) {
+          if (request == null || !request.keySet().isEmpty())
+            throw new IllegalArgumentException("Unexpected playback parameters");
+          if (!workspace.isOpen())
+            throw new IllegalStateException("Abra uma partitura antes de reproduzir.");
+          requirePlaybackAvailable();
+          practice.stopIfPlaying();
+        }
         var result = workspace.command(path.substring("/api/transport/".length()), request);
         lastTransportPollNanos = System.nanoTime();
         sendJson(exchange, 200, result.transport());
@@ -660,9 +944,17 @@ public final class DesktopServer implements AutoCloseable {
                 practiceInt(request, "pitchToleranceCents"),
                 practiceInt(request, "rhythmTolerancePercent"),
                 practiceInt(request, "latencyCompensationMs"));
-        workspace.stopIfPlaying();
-        practice.stopIfPlaying();
+        requireNoAnalysis();
+        if (practice.activeAttempt())
+          throw new IllegalStateException(
+              "Conclua a tentativa de prática antes de iniciar a análise.");
+        String owner = captureOwner(exchange);
         synchronized (tuner) {
+          requireCaptureAvailable(owner);
+          if (!practiceBoolean(request, "consent"))
+            throw new IllegalArgumentException("É necessário autorizar o microfone.");
+          workspace.pauseIfPlaying();
+          practice.pauseIfPlaying();
           var result =
               analysis.start(
                   practiceString(request, "partId"),
@@ -671,6 +963,8 @@ public final class DesktopServer implements AutoCloseable {
                   practiceBoolean(request, "consent"),
                   selected,
                   mode.equals("FOLLOW"));
+          analysisOwner = owner;
+          tunerOwner = null;
           analysisProjectId = currentProjectId;
           lastPersistedAnalysisStart = Long.MIN_VALUE;
           lastPollNanos = System.nanoTime();
@@ -678,6 +972,8 @@ public final class DesktopServer implements AutoCloseable {
         }
       } else if (path.equals("/api/analysis/observe") && method.equals("GET")) {
         synchronized (tuner) {
+          if (analysis.active() && !captureOwner(exchange).equals(analysisOwner))
+            throw new IllegalStateException("A captura pertence a outra janela de análise.");
           lastPollNanos = System.nanoTime();
           var result = persistAnalysisReport(analysis.observe());
           sendJson(exchange, 200, result);
@@ -685,6 +981,8 @@ public final class DesktopServer implements AutoCloseable {
       } else if (path.equals("/api/analysis/finish") && method.equals("POST")) {
         emptyJson(exchange);
         synchronized (tuner) {
+          if (!captureOwner(exchange).equals(analysisOwner))
+            throw new IllegalStateException("A captura pertence a outra janela de análise.");
           var result = persistAnalysisReport(analysis.finish());
           lastPollNanos = 0;
           sendJson(exchange, 200, result);
@@ -692,20 +990,29 @@ public final class DesktopServer implements AutoCloseable {
       } else if (path.equals("/api/analysis/stop") && method.equals("POST")) {
         emptyJson(exchange);
         synchronized (tuner) {
+          if (!captureOwner(exchange).equals(analysisOwner)) {
+            sendJson(exchange, 200, analysis.view());
+            return;
+          }
           var result = analysis.stop();
           lastPollNanos = 0;
           sendJson(exchange, 200, result);
         }
       } else if (path.equals("/api/tuner") && method.equals("GET")) {
         synchronized (tuner) {
+          if (analysis.active() || (captureActive() && !captureOwner(exchange).equals(tunerOwner)))
+            throw new IllegalStateException(
+                "O microfone está em uso por outra captura. Encerre-a antes de continuar.");
           lastPollNanos = System.nanoTime();
         }
         sendJson(exchange, 200, tuner.observation());
       } else if (path.equals("/api/tuner/stop") && method.equals("POST")) {
         synchronized (tuner) {
-          analysis.stop();
-          tuner.stop();
-          lastPollNanos = 0;
+          if (!analysis.active() && captureOwner(exchange).equals(tunerOwner)) {
+            tuner.stop();
+            tunerOwner = null;
+            lastPollNanos = 0;
+          }
         }
         sendJson(exchange, 200, tuner.observation());
       } else if (path.equals("/api/tuner/start") && method.equals("POST")) {
@@ -732,10 +1039,14 @@ public final class DesktopServer implements AutoCloseable {
           throw new IllegalArgumentException(
               "Input, reference and explicit microphone consent are required");
         synchronized (tuner) {
-          analysis.stop();
-          tuner.start(
-              request.get("deviceId").getAsString(),
-              new TuningReference(request.get("referenceHz").getAsDouble()));
+          requireNoAnalysis();
+          String owner = captureOwner(exchange);
+          requireCaptureAvailable(owner);
+          var tuning = new TuningReference(request.get("referenceHz").getAsDouble());
+          workspace.pauseIfPlaying();
+          practice.pauseIfPlaying();
+          tuner.start(request.get("deviceId").getAsString(), tuning);
+          tunerOwner = owner;
           lastPollNanos = System.nanoTime();
         }
         sendJson(exchange, 200, tuner.observation());
@@ -747,6 +1058,16 @@ public final class DesktopServer implements AutoCloseable {
           Map.of("error", "Invalid or unsupported request: " + failure.getMessage()));
     } catch (IllegalStateException | SecurityException failure) {
       sendJson(exchange, 409, Map.of("error", failure.getMessage()));
+    } catch (IOException failure) {
+      System.getLogger(DesktopServer.class.getName())
+          .log(System.Logger.Level.ERROR, "Local data operation failed: " + path, failure);
+      sendJson(
+          exchange,
+          500,
+          Map.of(
+              "error",
+              "Não foi possível acessar os dados locais. Confira o espaço livre e as permissões da"
+                  + " pasta do usuário e tente novamente."));
     } catch (RuntimeException failure) {
       System.getLogger(DesktopServer.class.getName())
           .log(System.Logger.Level.ERROR, "Unexpected local API failure", failure);
@@ -759,6 +1080,42 @@ public final class DesktopServer implements AutoCloseable {
                   ? "Falha inesperada no reconhecimento. Consulte a janela do ARPEON."
                   : "Falha inesperada no aplicativo local. Consulte a janela do ARPEON."));
     }
+  }
+
+  private static String captureOwner(HttpExchange exchange) {
+    String owner = exchange.getRequestHeaders().getFirst("X-Arpeon-Capture-Owner");
+    if (owner == null) return "legacy";
+    if (!owner.matches("[a-zA-Z0-9-]{1,64}"))
+      throw new IllegalArgumentException("Identificador de captura inválido.");
+    return owner;
+  }
+
+  private boolean captureActive() {
+    var state = tuner.observation().state();
+    return state != org.arpeon.tuner.TunerObservation.State.IDLE
+        && state != org.arpeon.tuner.TunerObservation.State.ERROR;
+  }
+
+  private void requireNoAnalysis() {
+    if (analysis.active())
+      throw new IllegalStateException("Conclua ou cancele a análise antes de mudar o áudio.");
+  }
+
+  private void requirePlaybackAvailable() {
+    requireNoAnalysis();
+    if (practice.activeAttempt())
+      throw new IllegalStateException(
+          "Conclua a tentativa de prática antes de reproduzir a referência.");
+    if (captureActive())
+      throw new IllegalStateException(
+          "Desligue o microfone antes de reproduzir para evitar que a referência seja capturada.");
+  }
+
+  private void requireCaptureAvailable(String owner) {
+    if (captureActive() && !owner.equals(tunerOwner))
+      throw new IllegalStateException(
+          "O microfone está em uso em outra área. Desligue a captura atual antes de iniciar"
+              + " outra.");
   }
 
   private static Map<String, String> parseQuery(URI uri) {
@@ -810,7 +1167,8 @@ public final class DesktopServer implements AutoCloseable {
               view.partName(),
               view.mode(),
               Instant.now().toString(),
-              view.report()));
+              view.report(),
+              view.study()));
       lastPersistedAnalysisStart = view.startsAtEpochMs();
       return view;
     } catch (IOException failure) {
@@ -838,16 +1196,28 @@ public final class DesktopServer implements AutoCloseable {
           view.follow(),
           view.config(),
           view.report(),
-          view.message()
-              + " O relatório está disponível apenas nesta sessão porque não foi salvo.");
+          view.message() + " O relatório está disponível apenas nesta sessão porque não foi salvo.",
+          view.study());
     }
   }
 
-  private java.util.List<PracticeWorkspace.Summary> history() {
+  private PracticeHistory.Page history(URI uri) {
+    var query = parseQuery(uri);
+    if (!Set.of("page", "pageSize", "kind", "outcome", "from", "until").containsAll(query.keySet()))
+      throw new IllegalArgumentException("Filtro de histórico desconhecido.");
     try {
-      return practiceHistory.list();
+      return practiceHistory.page(
+          Integer.parseInt(query.getOrDefault("page", "0")),
+          Integer.parseInt(query.getOrDefault("pageSize", "20")),
+          query.getOrDefault("kind", ""),
+          query.getOrDefault("outcome", ""),
+          query.containsKey("from") ? java.time.Instant.parse(query.get("from")) : null,
+          query.containsKey("until") ? java.time.Instant.parse(query.get("until")) : null);
+    } catch (NumberFormatException | java.time.format.DateTimeParseException failure) {
+      throw new IllegalArgumentException("Página ou período do histórico inválido.");
     } catch (IOException failure) {
-      throw new IllegalStateException("Could not read practice history", failure);
+      throw new IllegalStateException(
+          "Não foi possível ler o histórico local. Tente novamente.", failure);
     }
   }
 
@@ -902,6 +1272,9 @@ public final class DesktopServer implements AutoCloseable {
     else if (path.endsWith(".css")) type = "text/css; charset=utf-8";
     else if (path.endsWith(".woff2")) type = "font/woff2";
     else if (path.endsWith(".jpg")) type = "image/jpeg";
+    else if (path.endsWith(".svg")) type = "image/svg+xml";
+    else if (path.endsWith(".png")) type = "image/png";
+    else if (path.endsWith(".ico")) type = "image/x-icon";
     else if (path.endsWith(".zip")) type = "application/zip";
     else if (path.endsWith(".txt")) type = "text/plain; charset=utf-8";
     else {
@@ -930,6 +1303,7 @@ public final class DesktopServer implements AutoCloseable {
   @Override
   public void close() {
     if (!closed.compareAndSet(false, true)) return;
+    omr.close();
     watchdog.shutdownNow();
     server.stop(0);
     requests.shutdownNow();

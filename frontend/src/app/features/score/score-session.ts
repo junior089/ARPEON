@@ -9,6 +9,8 @@ import {
   TransportState,
   WorkspaceView,
 } from '../../core/score-contract';
+import { isStudyLocation, StudyLocation } from '../analysis/analysis-contract';
+import type { StudyRequest } from '../analysis/study-report';
 
 export interface ProjectInfo {
   id: string;
@@ -32,7 +34,8 @@ function isProjectInfo(value: unknown): value is ProjectInfo {
     isProjectId(value['id']) &&
     typeof value['title'] === 'string' &&
     typeof value['filename'] === 'string' &&
-    typeof value['updatedAt'] === 'string'
+    typeof value['updatedAt'] === 'string' &&
+    Number.isFinite(Date.parse(value['updatedAt']))
   );
 }
 
@@ -41,7 +44,8 @@ function isSavedProject(value: unknown): value is { id: string; updatedAt: strin
     isRecord(value) &&
     typeof value['id'] === 'string' &&
     isProjectId(value['id']) &&
-    typeof value['updatedAt'] === 'string'
+    typeof value['updatedAt'] === 'string' &&
+    Number.isFinite(Date.parse(value['updatedAt']))
   );
 }
 
@@ -74,10 +78,12 @@ export class ScoreSession implements OnDestroy {
   readonly busy = signal(false);
   readonly opening = signal(false);
   readonly savingProject = signal(false);
+  readonly projectSaveError = signal('');
   readonly error = signal('');
   readonly projects = signal<ProjectInfo[]>([]);
   readonly projectId = signal<string | null>(null);
   readonly savedRevision = signal<number | null>(null);
+  readonly studySelection = signal<StudyLocation | null>(null);
   readonly projectDirty = computed(
     () =>
       !!this.score() &&
@@ -110,6 +116,7 @@ export class ScoreSession implements OnDestroy {
       this.preview.set(result.preview);
       this.projectId.set(state.projectId || null);
       this.savedRevision.set(state.projectId ? result.score.revision : null);
+      this.projectSaveError.set('');
       if (result.transport.status === 'PLAYING') this.schedulePoll(generation);
       return true;
     } catch (failure: unknown) {
@@ -145,6 +152,7 @@ export class ScoreSession implements OnDestroy {
       this.preview.set(result.preview);
       this.projectId.set(null);
       this.savedRevision.set(null);
+      this.projectSaveError.set('');
       return true;
     } catch (failure: unknown) {
       this.showError(failure);
@@ -176,6 +184,7 @@ export class ScoreSession implements OnDestroy {
       this.preview.set(result.preview);
       this.projectId.set(null);
       this.savedRevision.set(null);
+      this.projectSaveError.set('');
       return true;
     } catch (failure: unknown) {
       this.showError(failure);
@@ -253,6 +262,7 @@ export class ScoreSession implements OnDestroy {
       this.preview.set(result.preview);
       this.projectId.set(null);
       this.savedRevision.set(null);
+      this.projectSaveError.set('');
       return true;
     } catch (failure: unknown) {
       this.showError(failure);
@@ -349,14 +359,14 @@ export class ScoreSession implements OnDestroy {
     }
   }
 
-  async saveProject(autosave = false): Promise<boolean> {
+  async saveProject(autosave = false, asNew = false): Promise<boolean> {
     if (!this.score() || this.busy()) return false;
     this.cancelProjectSave();
     this.busy.set(true);
     this.savingProject.set(true);
     this.error.set('');
     try {
-      const id = this.projectId();
+      const id = asNew ? null : this.projectId();
       const result = await this.request('/api/projects', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -365,10 +375,16 @@ export class ScoreSession implements OnDestroy {
       if (!isSavedProject(result)) throw new Error('Resposta ao salvar projeto inválida.');
       this.projectId.set(result.id);
       this.savedRevision.set(this.score()?.revision ?? null);
+      this.projectSaveError.set('');
       await this.refreshProjects();
       return true;
     } catch (failure: unknown) {
-      this.showError(failure);
+      const detail =
+        failure instanceof Error && failure.message.startsWith('Sessão expirada')
+          ? failure.message
+          : 'Não foi possível salvar o projeto. Suas alterações continuam abertas. Tente novamente ou exporte uma cópia.';
+      this.projectSaveError.set(detail);
+      this.error.set(detail);
       return false;
     } finally {
       this.busy.set(false);
@@ -398,10 +414,38 @@ export class ScoreSession implements OnDestroy {
       this.preview.set(null);
       this.projectId.set(id);
       this.savedRevision.set(result.view.score.revision);
+      this.projectSaveError.set('');
       return true;
     } catch (failure: unknown) {
       this.showError(failure);
       return false;
+    } finally {
+      this.busy.set(false);
+      this.scheduleProjectSave();
+    }
+  }
+
+  async manageProject(
+    id: string,
+    operation: 'rename' | 'duplicate',
+    name: string,
+  ): Promise<string | null> {
+    if (this.busy() || !isProjectId(id)) return null;
+    this.busy.set(true);
+    this.error.set('');
+    try {
+      const result = await this.request(`/api/projects/${id}/${operation}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name.trim() }),
+      });
+      if (!isSavedProject(result) || (operation === 'rename' && result.id !== id))
+        throw new Error('Resposta da biblioteca inválida.');
+      await this.refreshProjects();
+      return result.id;
+    } catch (failure: unknown) {
+      this.showError(failure);
+      return null;
     } finally {
       this.busy.set(false);
       this.scheduleProjectSave();
@@ -463,7 +507,12 @@ export class ScoreSession implements OnDestroy {
                     ...scorePart,
                     measures: scorePart.measures.map((scoreMeasure) =>
                       scoreMeasure.index === measureIndex
-                        ? { ...scoreMeasure, events: page.events }
+                        ? {
+                            ...scoreMeasure,
+                            events: page.events,
+                            durationNumerator: page.durationNumerator,
+                            durationDenominator: page.durationDenominator,
+                          }
                         : scoreMeasure,
                     ),
                   },
@@ -514,12 +563,65 @@ export class ScoreSession implements OnDestroy {
     }
   }
 
+  async prepareStudy(
+    request: StudyRequest & {
+      sha256: string;
+      revision: number;
+      partId: string;
+      soundingSemitones: number;
+      scoreXmlSha256: string;
+    },
+  ): Promise<boolean> {
+    const current = this.score();
+    if (!current || this.busy()) return false;
+    if (current.sha256 !== request.sha256 || current.revision !== request.revision) {
+      this.error.set('A partitura mudou. Analise esta revisão antes de preparar o trecho.');
+      return false;
+    }
+    this.busy.set(true);
+    this.error.set('');
+    const generation = ++this.generation;
+    clearTimeout(this.timer);
+    try {
+      const result = await this.request('/api/score/study', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request),
+      });
+      if (
+        !isRecord(result) ||
+        !isTransport(result['transport']) ||
+        !isStudyLocation(result['location']) ||
+        result['transport'].status === 'PLAYING' ||
+        result['transport'].activePartId !== request.partId ||
+        result['location'].index !== request.expectedIndex
+      )
+        throw new Error('Resposta de preparação do estudo inválida.');
+      if (this.disposed || generation !== this.generation) return false;
+      this.transport.set(result['transport']);
+      this.studySelection.set(result['location']);
+      return true;
+    } catch (failure) {
+      this.showError(failure);
+      return false;
+    } finally {
+      this.busy.set(false);
+      if (
+        !this.disposed &&
+        generation === this.generation &&
+        this.transport()?.status === 'PLAYING'
+      )
+        this.schedulePoll(generation);
+    }
+  }
+
   private schedulePoll(generation: number): void {
     clearTimeout(this.timer);
     this.timer = setTimeout(() => void this.poll(generation), 80);
   }
 
   private installScore(score: ScoreView): void {
+    this.studySelection.set(null);
     this.score.set(score);
     this.loadedMeasureEvents.clear();
     this.measureEventRequests.clear();
@@ -558,6 +660,24 @@ export class ScoreSession implements OnDestroy {
     }
   }
 
+  async refreshTransport(): Promise<void> {
+    if (!this.score() || this.busy()) return;
+    this.busy.set(true);
+    this.error.set('');
+    const generation = this.generation;
+    try {
+      const result = await this.request('/api/transport');
+      if (this.disposed || generation !== this.generation) return;
+      if (!isTransport(result)) throw new Error('Posição de reprodução inválida.');
+      this.transport.set(result);
+      if (result.status === 'PLAYING') this.schedulePoll(generation);
+    } catch (failure: unknown) {
+      this.showError(failure);
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
   private async request(path: string, options: RequestInit = {}): Promise<unknown> {
     if (!this.token) throw new Error('Abra esta janela pelo aplicativo ARPEON.');
     let response: Response;
@@ -575,7 +695,9 @@ export class ScoreSession implements OnDestroy {
       });
     } catch {
       if (options.signal?.aborted) throw new Error('Importação cancelada.');
-      throw new Error('A conexão local foi interrompida. Reinicie o ARPEON.');
+      throw new Error(
+        'A conexão local foi interrompida. Verifique se o ARPEON está aberto e tente novamente.',
+      );
     }
     const result: unknown = await response.json();
     if (!response.ok) {

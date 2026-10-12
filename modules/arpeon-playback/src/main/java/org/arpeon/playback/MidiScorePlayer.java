@@ -13,12 +13,19 @@ import org.arpeon.transport.ScoreTimeline;
 
 /** Owns the canonical MIDI clock and local synthesizer; HTTP polling only reads its position. */
 public final class MidiScorePlayer implements AutoCloseable {
+  /** End tick is exclusive; indexes refer to performed measure occurrences. */
+  public record LoopRange(
+      long startTick, long endTick, int startMeasureIndex, int endMeasureIndex) {}
+
   public record PartState(
       String id, String name, boolean mute, boolean solo, String instrumentId) {}
 
   public record State(
       String status,
       long tick,
+      long audibleTick,
+      double audibleBpm,
+      double audioLatencyMs,
       long totalTicks,
       int measureIndex,
       String measureNumber,
@@ -28,11 +35,12 @@ public final class MidiScorePlayer implements AutoCloseable {
       boolean countIn,
       int countInBeatsLeft,
       String activePartId,
-      List<PartState> parts) {}
+      List<PartState> parts,
+      LoopRange loop) {}
 
   private final ScoreTimeline timeline;
   private final Map<String, InstrumentProfile> profiles;
-  private final Sequence sequence;
+  private Sequence sequence;
   private final boolean[] muted;
   private final boolean[] solo;
   private final long offset;
@@ -44,6 +52,8 @@ public final class MidiScorePlayer implements AutoCloseable {
   private boolean metronome;
   private boolean countIn;
   private int activePart;
+  private LoopRange loop;
+  private boolean loopHasWrapped;
 
   public MidiScorePlayer(ScoreTimeline timeline) {
     this(timeline, Map.of());
@@ -59,9 +69,24 @@ public final class MidiScorePlayer implements AutoCloseable {
     this.firstBpm = timeline.firstBpm();
   }
 
+  /** Test seam: an already-open software sequencer without a synthesizer or audio output. */
+  MidiScorePlayer(
+      ScoreTimeline timeline, Map<String, InstrumentProfile> profiles, Sequencer clock) {
+    this(timeline, profiles);
+    try {
+      clock.setSequence(sequence);
+      sequencer = clock;
+      applyTrackMute();
+    } catch (javax.sound.midi.InvalidMidiDataException invalid) {
+      throw new IllegalArgumentException("Invalid playback sequence", invalid);
+    }
+  }
+
   public synchronized void play() {
     try {
       openIfNeeded();
+      if (loop != null && (position < loop.startTick() || position >= loop.endTick()))
+        position = loop.startTick();
       if ("STOPPED".equals(status) && position >= timeline.totalTicks()) position = 0;
       if ("STOPPED".equals(status) && position == 0)
         sequencer.setTickPosition(countIn ? 0 : offset);
@@ -87,15 +112,22 @@ public final class MidiScorePlayer implements AutoCloseable {
   public synchronized void stop() {
     if (sequencer != null) {
       sequencer.stop();
-      sequencer.setTickPosition(offset);
+      sequencer.setTickPosition(offset + (loop == null ? 0 : loop.startTick()));
     }
-    position = 0;
+    silence();
+    position = loop == null ? 0 : loop.startTick();
+    loopHasWrapped = false;
     status = "STOPPED";
   }
 
   public synchronized void seek(long tick) {
     if (tick < 0 || tick > timeline.totalTicks())
       throw new IllegalArgumentException("Seek outside score");
+    if (loop != null && (tick < loop.startTick() || tick >= loop.endTick()))
+      throw new IllegalArgumentException(
+          "A posição está fora do trecho A–B. Desative a repetição para navegar fora dele.");
+    silence();
+    loopHasWrapped = false;
     position = tick;
     if (sequencer != null) sequencer.setTickPosition(offset + tick);
   }
@@ -114,6 +146,63 @@ public final class MidiScorePlayer implements AutoCloseable {
 
   public synchronized void setCountIn(boolean enabled) {
     countIn = enabled;
+  }
+
+  public synchronized void setLoop(int startMeasureIndex, int endMeasureIndex, boolean enabled) {
+    if (startMeasureIndex < 0
+        || endMeasureIndex < startMeasureIndex
+        || endMeasureIndex >= timeline.measures().size())
+      throw new IllegalArgumentException("Escolha A e B na ordem da execução da partitura.");
+    var first = timeline.measures().get(startMeasureIndex);
+    var last = timeline.measures().get(endMeasureIndex);
+    LoopRange selected =
+        enabled
+            ? new LoopRange(
+                first.startTick(),
+                last.startTick() + last.durationTicks(),
+                startMeasureIndex,
+                endMeasureIndex)
+            : null;
+    Sequence next = MidiScoreSequence.build(timeline, profiles, selected);
+    updatePosition();
+    boolean playing = status.equals("PLAYING");
+    if (sequencer != null) sequencer.stop();
+    silence();
+    loop = selected;
+    loopHasWrapped = false;
+    sequence = next;
+    if (loop != null && (position < loop.startTick() || position >= loop.endTick()))
+      position = loop.startTick();
+    if (sequencer != null) {
+      try {
+        sequencer.setSequence(sequence);
+      } catch (javax.sound.midi.InvalidMidiDataException invalid) {
+        status = "STOPPED";
+        throw new IllegalStateException("Não foi possível configurar a repetição A–B.", invalid);
+      }
+      sequencer.setTempoFactor((float) (firstBpm / timeline.firstBpm()));
+      applyLoop();
+      applyTrackMute();
+      sequencer.setTickPosition(offset + position);
+      if (playing) sequencer.start();
+    }
+  }
+
+  private void applyLoop() {
+    if (sequencer == null) return;
+    sequencer.setLoopCount(0);
+    sequencer.setLoopStartPoint(0);
+    sequencer.setLoopEndPoint(-1);
+    if (loop != null) {
+      sequencer.setLoopStartPoint(offset + loop.startTick());
+      sequencer.setLoopEndPoint(offset + loop.endTick() - 1);
+      sequencer.setLoopCount(Sequencer.LOOP_CONTINUOUSLY);
+    }
+  }
+
+  private void silence() {
+    if (synthesizer != null)
+      for (var channel : synthesizer.getChannels()) if (channel != null) channel.allNotesOff();
   }
 
   public synchronized void selectPart(String id) {
@@ -157,9 +246,31 @@ public final class MidiScorePlayer implements AutoCloseable {
           4L * ScoreTimeline.TICKS_PER_QUARTER / timeline.measures().getFirst().meter().beatUnit();
       remaining = (int) ((offset - sequencer.getTickPosition() + beatTicks - 1) / beatTicks);
     }
+    long latencyMicros = synthesizer == null ? 0 : Math.max(0, synthesizer.getLatency());
+    long audible =
+        "PLAYING".equals(status)
+            ? audibleTick(timeline, position, latencyMicros, firstBpm / timeline.firstBpm())
+            : position;
+    if (loop != null && status.equals("PLAYING") && remaining == 0) {
+      double startSeconds = timeline.secondsAt(loop.startTick());
+      double endSeconds = timeline.secondsAt(loop.endTick());
+      double delayed =
+          timeline.secondsAt(position)
+              - latencyMicros / 1_000_000.0 * firstBpm / timeline.firstBpm();
+      if (loopHasWrapped && delayed < startSeconds)
+        delayed = endSeconds - ((startSeconds - delayed) % (endSeconds - startSeconds));
+      audible =
+          Math.max(
+              loop.startTick(),
+              Math.min(
+                  loop.endTick() - 1, timeline.tickAtSeconds(Math.max(startSeconds, delayed))));
+    }
     return new State(
         status,
         position,
+        audible,
+        timeline.bpmAt(audible) * firstBpm / timeline.firstBpm(),
+        latencyMicros / 1000.0,
         timeline.totalTicks(),
         measureIndex,
         timeline.measures().get(measureIndex).number(),
@@ -169,12 +280,23 @@ public final class MidiScorePlayer implements AutoCloseable {
         countIn,
         remaining,
         timeline.score().parts().get(activePart).id(),
-        List.copyOf(parts));
+        List.copyOf(parts),
+        loop);
+  }
+
+  static long audibleTick(
+      ScoreTimeline timeline, long tick, long latencyMicros, double tempoFactor) {
+    double scoreSeconds =
+        timeline.secondsAt(tick) - Math.max(0, latencyMicros) / 1_000_000.0 * tempoFactor;
+    return timeline.tickAtSeconds(Math.max(0, scoreSeconds));
   }
 
   private void updatePosition() {
     if (sequencer == null || !"PLAYING".equals(status)) return;
-    position = Math.max(0, Math.min(timeline.totalTicks(), sequencer.getTickPosition() - offset));
+    long nextPosition =
+        Math.max(0, Math.min(timeline.totalTicks(), sequencer.getTickPosition() - offset));
+    if (loop != null && nextPosition < position) loopHasWrapped = true;
+    position = nextPosition;
     if (!sequencer.isRunning() || position >= timeline.totalTicks()) {
       status = "STOPPED";
       position = timeline.totalTicks();
@@ -194,6 +316,7 @@ public final class MidiScorePlayer implements AutoCloseable {
       seq.setTempoFactor((float) (firstBpm / timeline.firstBpm()));
       synthesizer = synth;
       sequencer = seq;
+      applyLoop();
       applyTrackMute();
     } catch (MidiUnavailableException
         | javax.sound.midi.InvalidMidiDataException

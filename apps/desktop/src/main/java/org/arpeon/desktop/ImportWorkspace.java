@@ -68,6 +68,14 @@ final class ImportWorkspace {
     return pending;
   }
 
+  synchronized String notation(String token, int fallbackOctave, int equalNoteTicks) {
+    var preview = accept(token);
+    var score =
+        org.arpeon.importer.DraftScoreBuilder.build(
+            preview.draft(), fallbackOctave, equalNoteTicks);
+    return new org.arpeon.musicxml.MusicXmlExporter().write(score);
+  }
+
   synchronized void clear() {
     pending = null;
   }

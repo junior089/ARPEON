@@ -1,11 +1,8 @@
 import { computed, inject, Injectable, OnDestroy, signal } from '@angular/core';
-import {
-  AudioInputDevice,
-  isDevices,
-  isObservation,
-  TunerObservation,
-} from '../../core/tuner-contract';
+import { isObservation, TunerObservation } from '../../core/tuner-contract';
 import { LOCAL_FETCH, SESSION_TOKEN } from '../../core/local-session';
+import { CAPTURE_OWNER } from '../../core/capture-owner';
+import { AudioSettings } from '../../core/audio-settings';
 
 export { LOCAL_FETCH, SESSION_TOKEN } from '../../core/local-session';
 
@@ -13,21 +10,16 @@ export { LOCAL_FETCH, SESSION_TOKEN } from '../../core/local-session';
 export class TunerSession implements OnDestroy {
   private readonly fetch = inject(LOCAL_FETCH);
   private readonly token = inject(SESSION_TOKEN);
-  readonly devices = signal<AudioInputDevice[]>([]);
-  readonly selectedDevice = signal('');
-  readonly referenceHz = signal(440);
+  private readonly captureOwner = inject(CAPTURE_OWNER);
+  private readonly audio = inject(AudioSettings);
+  readonly devices = this.audio.devices;
+  readonly selectedDevice = this.audio.selectedDevice;
+  readonly referenceHz = this.audio.referenceHz;
   readonly observation = signal<TunerObservation | null>(null);
   readonly active = signal(false);
   readonly busy = signal(false);
   readonly error = signal('');
-  readonly ready = computed(
-    () =>
-      !this.busy() &&
-      this.selectedDevice() !== '' &&
-      Number.isFinite(this.referenceHz()) &&
-      this.referenceHz() >= 400 &&
-      this.referenceHz() <= 480,
-  );
+  readonly ready = computed(() => !this.busy() && this.audio.ready());
   private pollTimer: ReturnType<typeof setTimeout> | undefined;
   private disposed = false;
   private generation = 0;
@@ -36,13 +28,7 @@ export class TunerSession implements OnDestroy {
     this.busy.set(true);
     this.error.set('');
     try {
-      const devices: unknown = await this.request('/api/devices');
-      if (!isDevices(devices))
-        throw new Error('Resposta de dispositivos inválida. Reinicie o aplicativo.');
-      if (this.disposed) return;
-      this.devices.set(devices);
-      if (!devices.some((d) => d.id === this.selectedDevice()))
-        this.selectedDevice.set(devices[0]?.id ?? '');
+      await this.audio.refresh();
     } catch (failure: unknown) {
       this.showError(failure);
     } finally {
@@ -132,6 +118,7 @@ export class TunerSession implements OnDestroy {
         method: body ? 'POST' : 'GET',
         headers: {
           'X-Arpeon-Session': this.token,
+          'X-Arpeon-Capture-Owner': this.captureOwner,
           ...(body ? { 'Content-Type': 'application/json' } : {}),
         },
         body: body ? JSON.stringify(body) : undefined,
@@ -147,6 +134,14 @@ export class TunerSession implements OnDestroy {
     if (!response.ok) {
       if (response.status === 401 || response.status === 403)
         throw new Error('Sessão expirada. Feche esta aba e abra o ARPEON novamente.');
+      const failure: unknown = await response.json().catch(() => null);
+      if (
+        typeof failure === 'object' &&
+        failure !== null &&
+        'error' in failure &&
+        typeof failure.error === 'string'
+      )
+        throw new Error(failure.error);
       throw new Error(
         'Não foi possível acessar a entrada. Verifique a permissão do microfone, feche outros aplicativos de áudio e atualize as entradas.',
       );

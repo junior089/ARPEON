@@ -168,6 +168,28 @@ public final class OmrMusicXml {
               }
               case "note" -> {
                 retainAttributes(item, Set.of());
+                var tupletTiming = optional(item, "time-modification");
+                if (tupletTiming != null) {
+                  for (Element timing : children(tupletTiming))
+                    if (!Set.of("actual-notes", "normal-notes", "normal-type", "normal-dot")
+                        .contains(timing.getTagName())) fail(timing);
+                  int actual =
+                      Integer.parseInt(first(tupletTiming, "actual-notes").getTextContent().trim());
+                  int normal =
+                      Integer.parseInt(first(tupletTiming, "normal-notes").getTextContent().trim());
+                  if (actual < 1 || actual > 128 || normal < 1 || normal > 128)
+                    throw new IOException("Proporção de quiáltera inválida no reconhecimento.");
+                  // The domain keeps exact durations; tuplets' visual grouping is not represented.
+                  item.removeChild(tupletTiming);
+                  for (Element visual : children(item))
+                    if (Set.of("type", "dot").contains(visual.getTagName()))
+                      item.removeChild(visual);
+                  unsupported.add("tuplet");
+                  warnings.add(
+                      "Quiálteras: durações reconhecidas preservadas em frações; números e"
+                          + " colchetes de agrupamento não são preservados. Confira esses trechos"
+                          + " no original.");
+                }
                 for (Element noteChild : children(item)) {
                   switch (noteChild.getTagName()) {
                     case "chord", "pitch", "rest", "duration", "voice", "type", "dot" -> {
@@ -193,8 +215,8 @@ public final class OmrMusicXml {
                       for (Element symbol : children(noteChild)) {
                         if (symbol.getTagName().equals("tied"))
                           retainAttributes(symbol, Set.of("type"));
-                        else if (Set.of("tuplet", "glissando", "slide")
-                            .contains(symbol.getTagName())) fail(symbol);
+                        else if (Set.of("glissando", "slide").contains(symbol.getTagName()))
+                          fail(symbol);
                         else {
                           unsupported.add(symbol.getTagName());
                           noteChild.removeChild(symbol);
@@ -212,6 +234,7 @@ public final class OmrMusicXml {
           }
         }
       }
+      OmrRhythmDraft.prepare(root, warnings);
       stripPresentationAttributes(root);
       var transformer = TransformerFactory.newInstance();
       transformer.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);

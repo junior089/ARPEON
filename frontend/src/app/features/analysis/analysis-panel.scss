@@ -188,3 +188,34 @@ th {
     grid-template-columns: 1fr;
   }
 }
+
+.setup-advanced {
+  margin-top: var(--space-5);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+.setup-advanced summary {
+  width: fit-content;
+  max-width: 100%;
+  min-height: 32px;
+  color: var(--secondary);
+  cursor: pointer;
+  line-height: 1.5;
+}
+.setup-advanced[open] summary {
+  margin-bottom: var(--space-4);
+}
+.setup-errors {
+  padding-left: var(--space-4);
+  margin: var(--space-3) 0;
+  color: var(--danger);
+  font-size: var(--text-control);
+  line-height: 1.5;
+}
+.setup-summary {
+  font-size: var(--text-small);
+}
+
+.mode-help {
+  margin: var(--space-3) 0 var(--space-5);
+}

@@ -32,7 +32,8 @@ final class AnalysisWorkspace {
       ScoreFollower.Position follow,
       AnalysisConfig config,
       PerformanceAnalyzer.Report report,
-      String message) {}
+      String message,
+      AnalysisStudy.Context study) {}
 
   private final ScoreWorkspace scores;
   private final TunerService tuner;
@@ -188,7 +189,7 @@ final class AnalysisWorkspace {
     if (source == null)
       return new View(
           status, mode, null, null, null, null, null, null, null, null, null, null, null, null, 0,
-          null, null, null, null, null, message);
+          null, null, null, null, null, message, null);
     return new View(
         status,
         mode,
@@ -212,10 +213,18 @@ final class AnalysisWorkspace {
         follower == null ? null : follower.position(),
         config,
         report,
-        message);
+        message,
+        includeScore
+            ? new AnalysisStudy.Context(
+                source.scoreXmlSha256(),
+                source.initialBpm(),
+                source.soundingSemitones(),
+                config,
+                source.locations())
+            : null);
   }
 
-  private boolean active() {
+  synchronized boolean active() {
     return status.equals("COUNT_IN") || status.equals("RECORDING");
   }
 }

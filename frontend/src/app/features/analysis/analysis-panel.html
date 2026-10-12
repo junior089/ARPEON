@@ -1,11 +1,11 @@
 <section class="analysis">
   <header>
     <h1>Análise de execução</h1>
-    <p>Acompanhe uma parte monofônica ao vivo ou compare sua execução com o andamento escrito.</p>
   </header>
 
   @if (!score.score()) {
   <p class="notice">Abra uma partitura na área Partitura ou Importar antes de iniciar.</p>
+  <app-audio-preparation [captureActive]="active()" [busy]="busy()" />
   } @else {
   <div class="grid">
     <section class="card" aria-label="Preparar análise">
@@ -16,7 +16,7 @@
           >Modo
           <select
             [value]="mode()"
-            [disabled]="active()"
+            [disabled]="active() || busy()"
             (change)="mode.set($any($event.target).value)"
           >
             <option value="FOLLOW">Acompanhar ao vivo</option>
@@ -27,7 +27,7 @@
           >Parte
           <select
             [value]="partId()"
-            [disabled]="active()"
+            [disabled]="active() || busy()"
             (change)="partId.set($any($event.target).value)"
           >
             @for (part of score.score()?.parts; track part.id) {
@@ -35,99 +35,26 @@
             }
           </select>
         </label>
-        <label
-          >Entrada de áudio
-          <select
-            [value]="deviceId()"
-            [disabled]="active()"
-            (change)="deviceId.set($any($event.target).value)"
-          >
-            @for (device of devices(); track device.id) {
-            <option [value]="device.id">{{ device.name }}</option>
-            }
-          </select>
-        </label>
-        <label
-          >Lá de referência (Hz)
-          <input
-            type="number"
-            min="400"
-            max="480"
-            step="1"
-            [value]="referenceHz()"
-            [disabled]="active()"
-            (change)="referenceHz.set(+$any($event.target).value)"
-          />
-        </label>
-        @if (mode() === 'ANALYSIS') {
-        <label
-          >Janela de alinhamento (ms)
-          <input
-            type="number"
-            min="150"
-            max="1000"
-            [value]="alignmentWindowMs()"
-            [disabled]="active()"
-            (change)="alignmentWindowMs.set(+$any($event.target).value)"
-          />
-        </label>
-        <label
-          >Tolerância de entrada (ms)
-          <input
-            type="number"
-            min="20"
-            [max]="alignmentWindowMs()"
-            [value]="timingToleranceMs()"
-            [disabled]="active()"
-            (change)="timingToleranceMs.set(+$any($event.target).value)"
-          />
-        </label>
-        <label
-          >Tolerância de altura (cents)
-          <input
-            type="number"
-            min="10"
-            max="100"
-            [value]="pitchToleranceCents()"
-            [disabled]="active()"
-            (change)="pitchToleranceCents.set(+$any($event.target).value)"
-          />
-        </label>
-        <label
-          >Tolerância de ritmo/duração (%)
-          <input
-            type="number"
-            min="5"
-            max="60"
-            [value]="rhythmTolerancePercent()"
-            [disabled]="active()"
-            (change)="rhythmTolerancePercent.set(+$any($event.target).value)"
-          />
-        </label>
-        }
-        <label
-          >Compensação de latência (ms)
-          <input
-            type="number"
-            min="0"
-            max="500"
-            [value]="latencyCompensationMs()"
-            [disabled]="active()"
-            (change)="latencyCompensationMs.set(+$any($event.target).value)"
-          />
-        </label>
       </div>
+      <p class="hint mode-help">
+        {{ mode() === 'FOLLOW' ? 'Acompanhar ao vivo segue suas notas e espera nas pausas.' :
+        'Analisar tentativa compara a parte inteira com o andamento escrito e guarda o relatório
+        local.' }}
+      </p>
+      <app-audio-preparation [captureActive]="active()" [busy]="busy()" />
       <p class="hint">
         Ao iniciar, você autoriza o microfone local. Há dois segundos de preparação. O
         acompanhamento espera durante pausas e pode durar até vinte minutos.
       </p>
+      @if (setupMessages().length) {
+      <ul id="analysis-setup-errors" class="setup-errors" role="alert">
+        @for (message of setupMessages(); track message) {
+        <li>{{ message }}</li>
+        }
+      </ul>
+      } @else { <span id="analysis-setup-errors" hidden>Ajustes válidos.</span> }
       <div class="actions">
-        <button
-          class="primary"
-          type="button"
-          [disabled]="active() || busy() || !deviceId()"
-          (click)="start()"
-        >
+        <button class="primary" type="button" [disabled]="!canStart()" (click)="start()">
           {{ mode() === 'FOLLOW' ? 'Acompanhar e autorizar microfone' : 'Iniciar e autorizar
           microfone' }}
         </button>
@@ -136,11 +63,91 @@
         </button>
         <button type="button" [disabled]="!active() || busy()" (click)="stop()">Cancelar</button>
       </div>
+      <details class="setup-advanced">
+        <summary>Ajustes avançados da análise</summary>
+        <p id="analysis-criteria-help" class="hint">
+          As tolerâncias abaixo são critérios da análise por andamento escrito, não uma
+          classificação de habilidade. A compensação de latência também vale no acompanhamento; 0 ms
+          significa sem compensação, não latência calibrada.
+        </p>
+        <div class="fields">
+          <label
+            >Janela de alinhamento (ms)<input
+              type="number"
+              min="150"
+              max="1000"
+              step="1"
+              [value]="alignmentWindowMs()"
+              (input)="alignmentWindowMs.set(inputNumber($event))"
+              [disabled]="active() || busy()"
+              [attr.aria-invalid]="!!setupErrors().alignmentWindowMs"
+              aria-describedby="analysis-setup-errors analysis-criteria-help"
+          /></label>
+          <label
+            >Tolerância de entrada (ms)<input
+              type="number"
+              min="20"
+              [max]="alignmentWindowMs()"
+              step="1"
+              [value]="timingToleranceMs()"
+              (input)="timingToleranceMs.set(inputNumber($event))"
+              [disabled]="active() || busy()"
+              [attr.aria-invalid]="!!setupErrors().timingToleranceMs"
+              aria-describedby="analysis-setup-errors analysis-criteria-help"
+          /></label>
+          <label
+            >Tolerância de altura (cents)<input
+              type="number"
+              min="10"
+              max="100"
+              step="1"
+              [value]="pitchToleranceCents()"
+              (input)="pitchToleranceCents.set(inputNumber($event))"
+              [disabled]="active() || busy()"
+              [attr.aria-invalid]="!!setupErrors().pitchToleranceCents"
+              aria-describedby="analysis-setup-errors analysis-criteria-help"
+          /></label>
+          <label
+            >Tolerância de ritmo/duração (%)<input
+              type="number"
+              min="5"
+              max="60"
+              step="1"
+              [value]="rhythmTolerancePercent()"
+              (input)="rhythmTolerancePercent.set(inputNumber($event))"
+              [disabled]="active() || busy()"
+              [attr.aria-invalid]="!!setupErrors().rhythmTolerancePercent"
+              aria-describedby="analysis-setup-errors analysis-criteria-help"
+          /></label>
+          <label
+            >Compensação de latência (ms)<input
+              type="number"
+              min="0"
+              max="500"
+              step="1"
+              [value]="latencyCompensationMs()"
+              (input)="latencyCompensationMs.set(inputNumber($event))"
+              [disabled]="active() || busy()"
+              [attr.aria-invalid]="!!setupErrors().latencyCompensationMs"
+              aria-describedby="analysis-setup-errors analysis-criteria-help"
+          /></label>
+        </div>
+        <button type="button" (click)="resetAnalysisSettings()" [disabled]="active() || busy()">
+          Restaurar ajustes da análise
+        </button>
+        <p class="hint">
+          Restaurar usa 450 ms de janela, 120 ms de entrada, 50 cents de altura, 20% de ritmo e 0 ms
+          de compensação. Parte, microfone e Lá são mantidos.
+        </p>
+      </details>
     </section>
     <section class="card" aria-live="polite">
       <h2>Execução</h2>
       <p class="status">{{ statusLabel(state()?.status) }}</p>
-      <p>{{ state()?.message ?? 'Prepare uma tentativa.' }}</p>
+      <p>
+        {{ !state() || state()?.status === 'IDLE' ? 'Escolha o modo e a entrada de áudio para
+        iniciar.' : state()?.message }}
+      </p>
       @if (state()?.status === 'COUNT_IN') {
       <p>Primeira batida em {{ countdownSeconds() }} s.</p>
       } @if (active()) { @if (state()?.mode === 'ANALYSIS') {
@@ -205,83 +212,15 @@
   } } @if (state()?.report; as report) {
   <section class="card results" aria-label="Resultado da análise">
     <h2>Resultado · {{ state()?.partName }}</h2>
-    <p>
-      {{ state()?.filename }} · revisão {{ state()?.revision }} · {{ state()?.initialBpm }} BPM
-      inicial · transposição sonora {{ state()?.soundingSemitones }} semitons
-    </p>
-    @if (report.status === 'INSUFFICIENT_DATA') {
-    <p>Dados insuficientes para calcular métricas. Nenhuma nota estável foi capturada.</p>
-    } @else {
-    <div class="metrics">
-      <div>
-        <strong>{{ report.pitchAccuracyPercent | number:'1.0-1' }}%</strong
-        ><span>Altura dentro da tolerância</span>
-      </div>
-      <div>
-        <strong>{{ report.timingAccuracyPercent | number:'1.0-1' }}%</strong
-        ><span>Entradas no tempo</span>
-      </div>
-      <div>
-        <strong>{{ report.durationAccuracyPercent | number:'1.0-1' }}%</strong
-        ><span>Duração dentro da tolerância</span>
-      </div>
-      <div>
-        <strong
-          >{{ report.interOnsetAccuracyPercent === null ? '—' : (report.interOnsetAccuracyPercent |
-          number:'1.0-1') + '%' }}</strong
-        ><span>Intervalos rítmicos</span>
-      </div>
-    </div>
-    <p>
-      Correspondências {{ report.matchedCount }} / {{ report.expectedCount }} esperadas · perdidas
-      {{ report.missedCount }} · extras {{ report.extraCount }} · antecipadas {{ report.earlyCount
-      }} · atrasadas {{ report.lateCount }}
-    </p>
-    <p>
-      Erro médio absoluto de entrada: {{ report.meanAbsoluteTimingErrorMs === null ? '—' :
-      (report.meanAbsoluteTimingErrorMs | number:'1.0-1') + ' ms' }} · desvio médio absoluto de
-      afinação (mesma nota): {{ report.meanAbsoluteIntonationCents === null ? '—' :
-      (report.meanAbsoluteIntonationCents | number:'1.0-1') + ' cents' }} · confiança média: {{
-      report.meanMatchedConfidence === null ? '—' : (report.meanMatchedConfidence | number:'1.2-2')
-      }}
-    </p>
-    <div class="table-scroll">
-      <table>
-        <thead>
-          <tr>
-            <th>Nota esperada</th>
-            <th>MIDI esperado</th>
-            <th>MIDI tocado</th>
-            <th>Entrada (ms)</th>
-            <th>Duração (%)</th>
-            <th>Afinação (cents)</th>
-            <th>Confiança</th>
-          </tr>
-        </thead>
-        <tbody>
-          @for (match of report.matches; track match.expectedIndex) {
-          <tr>
-            <td>{{ match.expectedIndex + 1 }}</td>
-            <td>{{ match.expectedMidi }}</td>
-            <td>{{ match.observedMidi }}</td>
-            <td>{{ match.onsetErrorMs | number:'1.0-0' }}</td>
-            <td>{{ match.durationErrorPercent | number:'1.0-0' }}</td>
-            <td>{{ match.centsError | number:'1.0-0' }}</td>
-            <td>{{ match.confidence | number:'1.2-2' }}</td>
-          </tr>
-          }
-        </tbody>
-      </table>
-    </div>
-    <p>
-      Índices perdidos: {{ report.missedIndices.join(', ') || 'nenhum' }} · extras: {{
-      report.extraIndices.join(', ') || 'nenhum' }}
-    </p>
-    }
-    <p class="hint">
-      Os percentuais usam somente notas correspondidas. Não existe nota geral. O resultado é local e
-      não grava o áudio.
-    </p>
+    <p>{{ state()?.filename }} · revisão {{ state()?.revision }}</p>
+    <app-study-report
+      [report]="report"
+      [reportKey]="state()?.startsAtEpochMs ?? 0"
+      [context]="state()?.study ?? null"
+      [compatible]="compatible(state())"
+      [busy]="busy() || active() || score.busy()"
+      (prepared)="prepareStudy($event)"
+    />
   </section>
   } @if (score.score()) {
   <section class="card results" aria-label="Histórico de análises salvas">
@@ -316,61 +255,20 @@
       }
     </ul>
     } @if (savedReport(); as saved) {
-    <div class="saved-report-detail" aria-live="polite">
+    <div #reportDetail class="saved-report-detail" aria-live="polite">
       <h3>{{ saved.title }} · {{ saved.partName }} · revisão {{ saved.revision }}</h3>
-      <p>{{ saved.filename }} · {{ saved.completedAt }} · SHA-256 {{ saved.sha256 }}</p>
-      <p>
-        Correspondências {{ saved.report.matchedCount }} / {{ saved.report.expectedCount }} ·
-        perdidas {{ saved.report.missedCount }} · extras {{ saved.report.extraCount }}
-      </p>
-      @if (saved.report.status === 'INSUFFICIENT_DATA') {
-      <p>Dados insuficientes para calcular métricas.</p>
-      } @else {
-      <div class="metrics">
-        <div>
-          <strong>{{ saved.report.pitchAccuracyPercent | number:'1.0-1' }}%</strong
-          ><span>Altura</span>
-        </div>
-        <div>
-          <strong>{{ saved.report.timingAccuracyPercent | number:'1.0-1' }}%</strong
-          ><span>Entradas no tempo</span>
-        </div>
-        <div>
-          <strong>{{ saved.report.durationAccuracyPercent | number:'1.0-1' }}%</strong
-          ><span>Duração</span>
-        </div>
-        <div>
-          <strong
-            >{{ saved.report.interOnsetAccuracyPercent === null ? '—' :
-            (saved.report.interOnsetAccuracyPercent | number:'1.0-1') + '%' }}</strong
-          ><span>Intervalos rítmicos</span>
-        </div>
-      </div>
-      <div class="table-scroll">
-        <table>
-          <thead>
-            <tr>
-              <th>Nota</th>
-              <th>Esperada</th>
-              <th>Tocada</th>
-              <th>Entrada (ms)</th>
-              <th>Afinação (cents)</th>
-            </tr>
-          </thead>
-          <tbody>
-            @for (match of saved.report.matches; track match.expectedIndex) {
-            <tr>
-              <td>{{ match.expectedIndex + 1 }}</td>
-              <td>{{ match.expectedMidi }}</td>
-              <td>{{ match.observedMidi }}</td>
-              <td>{{ match.onsetErrorMs | number:'1.0-0' }}</td>
-              <td>{{ match.centsError | number:'1.0-0' }}</td>
-            </tr>
-            }
-          </tbody>
-        </table>
-      </div>
-      }
+      <details>
+        <summary>Origem do relatório</summary>
+        <p>{{ saved.filename }} · {{ saved.completedAt }} · SHA-256 {{ saved.sha256 }}</p>
+      </details>
+      <app-study-report
+        [report]="saved.report"
+        [reportKey]="saved.id"
+        [context]="saved.study ?? null"
+        [compatible]="compatible(saved)"
+        [busy]="busy() || active() || score.busy()"
+        (prepared)="prepareStudy($event, true)"
+      />
     </div>
     }
   </section>

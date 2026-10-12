@@ -24,12 +24,29 @@ final class OmrWorkspace {
       List<Integer> pagesRequiringReview,
       List<String> measuresRequiringReview,
       List<String> warnings,
-      List<String> unsupportedSymbols) {}
+      List<String> unsupportedSymbols,
+      String xml) {}
 
-  private record Pending(Preview preview, OmrResult result) {}
+  private record Pending(Preview preview, OmrResult result, String jobId) {}
+
+  private static final class Recognition {
+    final String id;
+    final Thread thread;
+    volatile boolean cancelled;
+    volatile String phase = "reading";
+
+    Recognition(String id) {
+      this.id = id;
+      this.thread = Thread.currentThread();
+    }
+  }
 
   private final OmrEngine engine;
   private Pending pending;
+  private Recognition recognition;
+  private String lastPhase = "idle";
+  private final java.util.LinkedHashSet<String> cancelledBeforeStart =
+      new java.util.LinkedHashSet<>();
 
   OmrWorkspace(OmrEngine engine) {
     this.engine = engine;
@@ -39,42 +56,52 @@ final class OmrWorkspace {
     return engine.available();
   }
 
-  boolean installable() {
-    return engine.installable();
-  }
-
-  Status status() {
-    var progress = engine.installProgress();
-    boolean installing =
-        List.of("downloading", "verifying", "extracting", "checking").contains(progress.phase());
+  synchronized Status status() {
     return new Status(
         engine.available(),
-        engine.installable(),
-        installing,
-        progress.phase(),
-        progress.downloadedBytes(),
-        progress.totalBytes());
+        recognition != null,
+        recognition == null ? lastPhase : recognition.phase,
+        recognition == null ? null : recognition.id);
   }
 
-  record Status(
-      boolean available,
-      boolean installable,
-      boolean installing,
-      String phase,
-      long downloadedBytes,
-      long totalBytes) {}
+  record Status(boolean available, boolean recognizing, String recognitionPhase, String jobId) {}
 
-  boolean install() throws IOException {
-    if (!engine.available()) engine.install();
-    return engine.available();
+  Preview preview(byte[] bytes, String filename) throws IOException {
+    return preview(bytes, filename, UUID.randomUUID().toString());
   }
 
-  synchronized Preview preview(byte[] bytes, String filename) throws IOException {
-    pending = null;
-    if (!engine.available()) throw new IllegalStateException("Audiveris is not configured");
+  Preview preview(byte[] bytes, String filename, String jobId) throws IOException {
+    Recognition job;
+    synchronized (this) {
+      if (cancelledBeforeStart.remove(jobId)) throw new IOException("Reconhecimento cancelado.");
+      if (recognition != null)
+        throw new IllegalStateException("Já existe um reconhecimento em andamento.");
+      job = new Recognition(jobId);
+      recognition = job;
+      pending = null;
+    }
+    try {
+      return recognize(bytes, filename, job);
+    } finally {
+      synchronized (this) {
+        lastPhase = job.cancelled ? "cancelled" : pending == null ? "failed" : "ready";
+        recognition = null;
+      }
+    }
+  }
+
+  private Preview recognize(byte[] bytes, String filename, Recognition job) throws IOException {
+    if (!engine.available())
+      throw new IllegalStateException(
+          "O reconhecimento óptico não está disponível. Reinstale o pacote completo do ARPEON.");
     var input = new OmrInput(bytes, filename);
     OmrInputValidator.validate(input);
-    var result = engine.recognize(input);
+    var result =
+        engine.recognize(
+            input,
+            phase -> {
+              if (!job.cancelled) job.phase = phase;
+            });
     var score = result.imported().score();
     int measures = score.parts().stream().mapToInt(part -> part.measures().size()).max().orElse(0);
     int eventCount =
@@ -136,9 +163,42 @@ final class OmrWorkspace {
             result.pagesRequiringReview(),
             recognized.stream().map(measure -> measure.part() + " · " + measure.number()).toList(),
             result.warnings(),
-            result.unsupportedSymbols());
-    pending = new Pending(view, result);
+            result.unsupportedSymbols(),
+            new org.arpeon.musicxml.MusicXmlExporter()
+                .write(
+                    score,
+                    result.imported().keyId(),
+                    result.imported().instruments().entrySet().stream()
+                        .collect(
+                            java.util.stream.Collectors.toMap(
+                                java.util.Map.Entry::getKey,
+                                entry ->
+                                    org.arpeon.domain.instrument.InstrumentCatalog.get(
+                                        entry.getValue())))));
+    synchronized (this) {
+      if (job.cancelled) throw new IOException("Reconhecimento cancelado.");
+      pending = new Pending(view, result, job.id);
+    }
     return view;
+  }
+
+  synchronized boolean cancel(String jobId) {
+    if (recognition != null && recognition.id.equals(jobId)) {
+      recognition.cancelled = true;
+      recognition.phase = "cancelling";
+      if (pending != null && pending.jobId().equals(jobId)) pending = null;
+      recognition.thread.interrupt();
+      return true;
+    }
+    if (pending != null && pending.jobId().equals(jobId)) {
+      pending = null;
+      lastPhase = "cancelled";
+      return true;
+    }
+    if (recognition != null) return false;
+    cancelledBeforeStart.add(jobId);
+    if (cancelledBeforeStart.size() > 64) cancelledBeforeStart.removeFirst();
+    return true;
   }
 
   synchronized OmrResult accept(String token) {
@@ -148,6 +208,11 @@ final class OmrWorkspace {
   }
 
   synchronized void clear() {
+    pending = null;
+  }
+
+  synchronized void close() {
+    if (recognition != null) cancel(recognition.id);
     pending = null;
   }
 }

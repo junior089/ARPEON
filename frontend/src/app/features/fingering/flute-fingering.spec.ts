@@ -1,18 +1,25 @@
 import { describe, expect, it } from 'vitest';
-import { fluteChartPosition } from './flute-fingering';
-
-describe('flute fingering chart lookup', () => {
-  it('selects the correct cell by pitch and octave', () => {
-    expect(fluteChartPosition('C4')).toEqual({ label: 'Dó 4', position: '0px 0px' });
-    expect(fluteChartPosition('G5')).toEqual({ label: 'Sol 5', position: '-287px -546px' });
-    expect(fluteChartPosition('F6')).toEqual({ label: 'Fá 6', position: '-574px -390px' });
+import { fluteFingerings } from './flute-data';
+describe('Boehm flute touch-key data', () => {
+  it('distinguishes low C, C sharp and D foot keys', () => {
+    expect(fluteFingerings('C4')?.variants[0]?.pressed).toContain('C');
+    expect(fluteFingerings('C#4')?.variants[0]?.pressed).toContain('Cs');
+    expect(fluteFingerings('C#4')?.variants[0]?.pressed).not.toContain('C');
+    expect(fluteFingerings('D4')?.variants[0]?.pressed).not.toContain('Eb');
+    expect(fluteFingerings('D#4')?.variants[0]?.pressed).toContain('Eb');
   });
-
-  it('maps enharmonic flats and excludes notes outside the local chart', () => {
-    expect(fluteChartPosition('D♭4')?.position).toBe(fluteChartPosition('C#4')?.position);
-    expect(fluteChartPosition('D♭4')?.label).toBe('Ré♭ 4');
-    expect(fluteChartPosition('Ebb4')?.position).toBe(fluteChartPosition('D4')?.position);
-    expect(fluteChartPosition('C7')).toBeNull();
-    expect(fluteChartPosition(null)).toBeNull();
+  it('keeps enharmonic spelling while looking up sounding keys', () => {
+    expect(fluteFingerings('D♭4')?.variants).toEqual(fluteFingerings('C#4')?.variants);
+    expect(fluteFingerings('D♭4')?.label).toBe('Ré♭4');
+    expect(fluteFingerings('Ebb4')?.variants).toEqual(fluteFingerings('D4')?.variants);
+  });
+  it('uses separate register data and only verified alternatives', () => {
+    expect(fluteFingerings('C5')?.variants[0]?.pressed).toEqual(['L1', 'Eb']);
+    expect(fluteFingerings('C6')?.variants[0]?.pressed).toEqual(['T', 'L2', 'Eb']);
+    expect(fluteFingerings('F6')?.variants[0]?.pressed).toEqual(['T', 'L1', 'L3', 'R1', 'Eb']);
+    expect(fluteFingerings('Bb4')?.variants.map((v) => v.id)).toEqual(['standard', 'thumb-bb']);
+    expect(fluteFingerings('F#5')?.variants[1]?.pressed).toContain('R2');
+    expect(fluteFingerings('B3')).toBeNull();
+    expect(fluteFingerings('G6')).toBeNull();
   });
 });

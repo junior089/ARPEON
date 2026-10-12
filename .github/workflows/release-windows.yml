@@ -1,0 +1,130 @@
+name: Publish signed Windows release
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Numeric version already committed in build.gradle.kts'
+        required: true
+      channel:
+        type: choice
+        options: [testing, beta, stable]
+        default: testing
+        required: true
+permissions:
+  contents: write
+concurrency:
+  group: windows-release-${{ inputs.channel }}
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: windows-latest
+    environment: windows-publication
+    timeout-minutes: 60
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+      RELEASE_CHANNEL: ${{ inputs.channel }}
+      RELEASE_BRANCH: ${{ github.event.repository.default_branch }}
+      ARPEON_UPDATE_FEED_URL: https://raw.githubusercontent.com/${{ github.repository }}/${{ github.event.repository.default_branch }}/updates/${{ inputs.channel }}.xml
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version: '24.21.0'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Require version-specific release evidence
+        shell: pwsh
+        run: |
+          if ($env:RELEASE_VERSION -notmatch '^\d+\.\d+\.\d+$') { throw 'Invalid release version.' }
+          $version = [regex]::Match((Get-Content build.gradle.kts -Raw), 'version\s*=\s*"([0-9]+\.[0-9]+\.[0-9]+)"').Groups[1].Value
+          if ($version -ne $env:RELEASE_VERSION) { throw 'Requested version differs from committed source.' }
+          ./scripts/assert-release-ready.ps1
+      - name: Validate frontend
+        working-directory: frontend
+        shell: pwsh
+        run: |
+          foreach ($arguments in @(@('ci'), @('run','format:check'), @('run','lint'), @('run','typecheck'), @('test'), @('run','build'), @('audit','--audit-level=low'))) {
+            & npm @arguments
+            if ($LASTEXITCODE -ne 0) { throw "Frontend validation failed: $arguments" }
+          }
+      - name: Validate Java and dependency licenses
+        shell: pwsh
+        run: |
+          node scripts/check-licenses.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'License inventory failed.' }
+          ./gradlew.bat build --warning-mode=fail
+          if ($LASTEXITCODE -ne 0) { throw 'Java validation failed.' }
+          ./scripts/prepare-windows-runtime.ps1 -PrepareInstallerTools
+          python scripts/audit-dependencies.py --audiveris apps/desktop/build/native-resources/audiveris-5.11.0 --output apps/desktop/build/dependency-audit.json
+          if ($LASTEXITCODE -ne 0) { throw 'Dependency audit failed.' }
+      - name: Sign, package and verify
+        shell: pwsh
+        env:
+          SIGNING_PFX_BASE64: ${{ secrets.ARPEON_SIGNING_PFX_BASE64 }}
+          SIGNING_PASSWORD: ${{ secrets.ARPEON_SIGNING_PASSWORD }}
+          UPDATE_PRIVATE_KEY: ${{ secrets.ARPEON_UPDATE_PRIVATE_KEY }}
+          ARPEON_TIMESTAMP_URL: ${{ vars.ARPEON_TIMESTAMP_URL }}
+        run: |
+          if (-not $env:SIGNING_PFX_BASE64 -or -not $env:UPDATE_PRIVATE_KEY -or -not $env:ARPEON_TIMESTAMP_URL) { throw 'Publication credentials are not configured.' }
+          $pfx = Join-Path $env:RUNNER_TEMP 'arpeon-signing.pfx'
+          $key = Join-Path $env:RUNNER_TEMP 'arpeon-update.key'
+          $certificate = $null
+          try {
+            [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:SIGNING_PFX_BASE64))
+            [IO.File]::WriteAllText($key, $env:UPDATE_PRIVATE_KEY, [Text.UTF8Encoding]::new($false))
+            $certificate = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password (ConvertTo-SecureString $env:SIGNING_PASSWORD -AsPlainText -Force)
+            $env:ARPEON_SIGN_CERT_THUMBPRINT = $certificate.Thumbprint
+            $sdk = Get-ChildItem 'C:/Program Files (x86)/Windows Kits/10/bin' -Directory | Sort-Object Name -Descending | Where-Object { Test-Path (Join-Path $_.FullName 'x64/signtool.exe') } | Select-Object -First 1
+            if (-not $sdk) { throw 'Windows SDK signing tools are unavailable.' }
+            $env:PATH = "$(Join-Path $sdk.FullName 'x64');$env:PATH"
+            $tool = 'apps/desktop/build/native-resources/build-tools/winsparkle-tool.exe'
+            $keyOutput = & $tool public-key --private-key-file $key
+            if ($LASTEXITCODE -ne 0) { throw 'Update signing key is invalid.' }
+            $publicKey = [regex]::Match(($keyOutput -join [Environment]::NewLine), 'Public key: ([A-Za-z0-9+/]{43}=)').Groups[1].Value
+            if (-not $publicKey) { throw 'Cannot derive update public key.' }
+            ./scripts/package-windows.ps1 -SkipFrontendBuild -ForRelease -OutputSubdirectory release -UpdateChannel $env:RELEASE_CHANNEL -UpdateFeedUrl $env:ARPEON_UPDATE_FEED_URL -UpdatePublicKey $publicKey
+            ./scripts/verify-package.ps1 -Package apps/desktop/build/native/release/ARPEON
+            $base = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/v$env:RELEASE_VERSION-$env:RELEASE_CHANNEL"
+            ./scripts/new-update-appcast.ps1 -Installer "apps/desktop/build/native/release/ARPEON-$env:RELEASE_VERSION.msi" -Version $env:RELEASE_VERSION -DownloadUrl "$base/ARPEON-$env:RELEASE_VERSION.msi" -ReleaseNotesUrl "$base/RELEASE-NOTES.md" -PrivateKeyFile $key -Channel $env:RELEASE_CHANNEL -Output apps/desktop/build/native/release/appcast.xml
+          } finally {
+            if ($certificate) { Remove-Item -LiteralPath "Cert:\CurrentUser\My\$($certificate.Thumbprint)" }
+            foreach ($secretFile in @($pfx, $key)) { if (Test-Path -LiteralPath $secretFile) { Remove-Item -LiteralPath $secretFile } }
+          }
+      - name: Publish immutable artifacts, then update channel feed
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "v$env:RELEASE_VERSION-$env:RELEASE_CHANNEL"
+          $root = 'apps/desktop/build/native/release'
+          $path = "repos/$env:GITHUB_REPOSITORY/contents/updates/$env:RELEASE_CHANNEL.xml"
+          $current = & gh api ("{0}?ref={1}" -f $path, $env:RELEASE_BRANCH) 2>$null
+          $previousSha = $null
+          if ($LASTEXITCODE -eq 0) {
+            $previous = $current | ConvertFrom-Json
+            $previousSha = $previous.sha
+            $feed = [xml][Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($previous.content))
+            $previousVersion = $feed.rss.channel.item.SelectSingleNode("*[local-name()='version']").InnerText
+            if ([Version]$env:RELEASE_VERSION -le [Version]$previousVersion) { throw 'Channel publication must increase its version.' }
+          }
+          $artifacts = @((Join-Path $root "ARPEON-$env:RELEASE_VERSION.msi"), (Join-Path $root "ARPEON-$env:RELEASE_VERSION.msi.sha256"), (Join-Path $root "ARPEON-$env:RELEASE_VERSION-windows-x64.zip"), (Join-Path $root "ARPEON-$env:RELEASE_VERSION-windows-x64.zip.sha256"))
+          foreach ($file in @('source.zip','RELEASE-NOTES.md','BUILD-INFO.json','FILES-SHA256.json','THIRD_PARTY_NOTICES.md')) {
+            Copy-Item -LiteralPath (Join-Path "$root/ARPEON" $file) -Destination (Join-Path $root $file)
+            $artifacts += Join-Path $root $file
+          }
+          $options = @('--draft','--title',"ARPEON $env:RELEASE_VERSION",'--notes-file',"$root/RELEASE-NOTES.md",'--target',$env:GITHUB_SHA)
+          if ($env:RELEASE_CHANNEL -ne 'stable') { $options += '--prerelease' }
+          & gh release create $tag @artifacts @options
+          if ($LASTEXITCODE -ne 0) { throw 'Draft release failed; existing versions are never overwritten.' }
+          gh release edit $tag --draft=false
+          if ($LASTEXITCODE -ne 0) { throw 'Publication failed; channel feed was not changed.' }
+          $payload = @{ message = "Publish ARPEON $env:RELEASE_VERSION to $env:RELEASE_CHANNEL"; branch = $env:RELEASE_BRANCH; content = [Convert]::ToBase64String([IO.File]::ReadAllBytes((Resolve-Path "$root/appcast.xml"))) }
+          if ($previousSha) { $payload.sha = $previousSha }
+          $requestFile = Join-Path $env:RUNNER_TEMP 'arpeon-feed-request.json'
+          $payload | ConvertTo-Json | Set-Content -LiteralPath $requestFile -Encoding utf8
+          gh api --method PUT $path --input $requestFile
+          if ($LASTEXITCODE -ne 0) { throw 'Artifacts were published, but feed publication failed. Existing clients remain on the previous feed; repair publication explicitly.' }

@@ -19,8 +19,13 @@ public final class OmrInputValidator {
 
   public static int validate(OmrInput input) throws IOException {
     String name = input.filename();
-    if (name.length() > 120 || !name.matches("[A-Za-z0-9._ -]+\\.(?i:pdf|png|jpg|jpeg)"))
-      throw new IOException("Use a short PDF, PNG or JPEG filename without a path");
+    if (name.length() > 120
+        || name.isBlank()
+        || name.chars()
+            .anyMatch(c -> c == '/' || c == '\\' || c == ':' || Character.isISOControl(c))
+        || !name.toLowerCase(Locale.ROOT).matches(".+\\.(pdf|png|jpg|jpeg)"))
+      throw new IOException(
+          "Escolha um PDF, PNG ou JPEG com nome de até 120 caracteres, sem caminho.");
     byte[] bytes = input.bytes();
     String lower = name.toLowerCase(Locale.ROOT);
     if (lower.endsWith(".pdf")) {

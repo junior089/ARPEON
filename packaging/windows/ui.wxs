@@ -1,0 +1,137 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Operate: one decision screen, native measured progress, explicit maintenance.
+     Gold/charcoal header inherits the product; system controls retain DPI and assistive support. -->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Fragment>
+    <UI Id="ArpeonUI">
+      <TextStyle Id="ArpeonBody" FaceName="Segoe UI" Size="9" />
+      <TextStyle Id="ArpeonTitle" FaceName="Segoe UI" Size="14" Bold="yes" />
+      <TextStyle Id="ArpeonMuted" FaceName="Segoe UI" Size="9" Red="80" Green="80" Blue="85" />
+      <TextStyle Id="WixUI_Font_Normal" FaceName="Segoe UI" Size="9" />
+      <TextStyle Id="WixUI_Font_Bigger" FaceName="Segoe UI" Size="14" Bold="yes" />
+      <TextStyle Id="WixUI_Font_Title" FaceName="Segoe UI" Size="10" Bold="yes" />
+      <Property Id="DefaultUIFont" Value="ArpeonBody" />
+      <Property Id="WixUI_Mode" Value="InstallDir" />
+      <Property Id="ARPEON_SETUP_TITLE" Value="Instalar no computador" />
+      <Property Id="ARPEON_SETUP_ACTION" Value="Instalar" />
+      <DialogRef Id="BrowseDlg" /><DialogRef Id="CancelDlg" /><DialogRef Id="ErrorDlg" />
+      <DialogRef Id="FilesInUse" /><DialogRef Id="MsiRMFilesInUse" />
+      <DialogRef Id="FatalError" /><DialogRef Id="UserExit" /><DialogRef Id="OutOfDiskDlg" />
+      <DialogRef Id="OutOfRbDiskDlg" /><DialogRef Id="PrepareDlg" />
+      <Dialog Id="ArpeonSetup" Width="370" Height="285" Title="ARPEON" NoMinimize="yes">
+        <Control Id="Banner" Type="Bitmap" X="0" Y="0" Width="370" Height="50" Text="ArpeonBanner" TabSkip="yes" />
+        <Control Id="Title" Type="Text" X="20" Y="65" Width="330" Height="24" Text="{\ArpeonTitle}[ARPEON_SETUP_TITLE]">
+          <Condition Action="hide">ARPEON_OLDER</Condition>
+        </Control>
+        <Control Id="UpgradeTitle" Type="Text" X="20" Y="65" Width="330" Height="24" Text="{\ArpeonTitle}Atualizar instalação" Hidden="yes">
+          <Condition Action="show">ARPEON_OLDER</Condition>
+        </Control>
+        <Control Id="Version" Type="Text" X="20" Y="94" Width="330" Height="24" Text="Versão [ProductVersion] · Windows 64 bits" />
+        <Control Id="DirectoryLabel" Type="Text" X="20" Y="124" Width="330" Height="14" Text="Pasta do aplicativo" />
+        <Control Id="Directory" Type="PathEdit" X="20" Y="142" Width="262" Height="19" Property="INSTALLDIR">
+          <Condition Action="disable">ARPEON_OLDER OR ARPEON_RECOVERY</Condition>
+        </Control>
+        <Control Id="Browse" Type="PushButton" X="290" Y="142" Width="60" Height="19" Text="Alterar…">
+          <Condition Action="disable">ARPEON_OLDER OR ARPEON_RECOVERY</Condition>
+          <Publish Property="_BrowseProperty" Value="INSTALLDIR">1</Publish>
+          <Publish Event="SpawnDialog" Value="BrowseDlg">1</Publish>
+        </Control>
+        <Control Id="Desktop" Type="CheckBox" X="20" Y="174" Width="160" Height="18" Property="INSTALLDESKTOPSHORTCUT" CheckBoxValue="1" Text="Atalho na área de trabalho">
+          <Condition Action="disable">ARPEON_OLDER OR ARPEON_RECOVERY</Condition>
+        </Control>
+        <Control Id="Menu" Type="CheckBox" X="192" Y="174" Width="160" Height="18" Property="INSTALLMENUSHORTCUT" CheckBoxValue="1" Text="Atalho no menu Iniciar">
+          <Condition Action="disable">ARPEON_OLDER OR ARPEON_RECOVERY</Condition>
+        </Control>
+        <Control Id="Preservation" Type="Text" X="20" Y="207" Width="330" Height="30" Text="{\ArpeonMuted}Projetos e preferências são guardados separadamente e preservados em atualizações e reparações." />
+        <Control Id="Line" Type="Line" X="0" Y="248" Width="370" Height="0" />
+        <Control Id="Install" Type="PushButton" X="220" Y="260" Width="64" Height="19" Default="yes" Text="[ARPEON_SETUP_ACTION]">
+          <Condition Action="hide">ARPEON_OLDER</Condition>
+          <Publish Event="SetTargetPath" Value="INSTALLDIR" Order="1">1</Publish>
+          <Publish Event="EndDialog" Value="Return" Order="2">1</Publish>
+        </Control>
+        <Control Id="Upgrade" Type="PushButton" X="220" Y="260" Width="64" Height="19" Text="Atualizar" Hidden="yes">
+          <Condition Action="show">ARPEON_OLDER</Condition>
+          <Publish Event="EndDialog" Value="Return">1</Publish>
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="292" Y="260" Width="58" Height="19" Cancel="yes" Text="Cancelar">
+          <Publish Event="EndDialog" Value="Exit">1</Publish>
+        </Control>
+      </Dialog>
+      <Dialog Id="ArpeonMaintenance" Width="370" Height="285" Title="ARPEON" NoMinimize="yes">
+        <Control Id="Banner" Type="Bitmap" X="0" Y="0" Width="370" Height="50" Text="ArpeonBanner" TabSkip="yes" />
+        <Control Id="Title" Type="Text" X="20" Y="66" Width="330" Height="24" Text="{\ArpeonTitle}Versão já instalada" />
+        <Control Id="Version" Type="Text" X="20" Y="96" Width="330" Height="15" Text="Versão [ProductVersion]" />
+        <Control Id="Directory" Type="Text" X="20" Y="119" Width="330" Height="30" Text="{\ArpeonMuted}[INSTALLDIR]" />
+        <Control Id="Open" Type="PushButton" X="20" Y="161" Width="95" Height="22" Default="yes" Text="Abrir ARPEON">
+          <Publish Event="DoAction" Value="LaunchArpeon">1</Publish>
+          <Publish Event="EndDialog" Value="Exit">1</Publish>
+        </Control>
+        <Control Id="Repair" Type="PushButton" X="128" Y="161" Width="95" Height="22" Text="Reparar arquivos">
+          <Publish Property="REINSTALLMODE" Value="amus">1</Publish>
+          <Publish Property="REINSTALL" Value="ALL">1</Publish>
+          <Publish Event="ReinstallMode" Value="amus">1</Publish>
+          <Publish Event="Reinstall" Value="ALL">1</Publish>
+          <Publish Event="EndDialog" Value="Return">1</Publish>
+        </Control>
+        <Control Id="Remove" Type="PushButton" X="236" Y="161" Width="114" Height="22" Text="Desinstalar…">
+          <Publish Event="NewDialog" Value="ArpeonRemove">1</Publish>
+        </Control>
+        <Control Id="Description" Type="Text" X="20" Y="205" Width="330" Height="30" Text="{\ArpeonMuted}Reparar substitui os arquivos do aplicativo. Seus projetos e preferências permanecem guardados." />
+        <Control Id="Line" Type="Line" X="0" Y="248" Width="370" Height="0" />
+        <Control Id="Close" Type="PushButton" X="292" Y="260" Width="58" Height="19" Cancel="yes" Text="Fechar"><Publish Event="EndDialog" Value="Exit">1</Publish></Control>
+      </Dialog>
+      <Dialog Id="ArpeonRemove" Width="300" Height="135" Title="Remover ARPEON" NoMinimize="yes">
+        <Control Id="Message" Type="Text" X="18" Y="18" Width="264" Height="60" Text="Remover o aplicativo deste computador? Seus projetos, históricos e preferências serão preservados." />
+        <Control Id="Remove" Type="PushButton" X="150" Y="103" Width="64" Height="19" Text="Remover">
+          <Publish Event="Remove" Value="ALL">1</Publish>
+          <Publish Event="EndDialog" Value="Return">1</Publish>
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="222" Y="103" Width="60" Height="19" Default="yes" Cancel="yes" Text="Cancelar"><Publish Event="NewDialog" Value="ArpeonMaintenance">1</Publish></Control>
+      </Dialog>
+      <Dialog Id="ArpeonProgress" Width="370" Height="285" Title="ARPEON" Modeless="yes">
+        <Control Id="Banner" Type="Bitmap" X="0" Y="0" Width="370" Height="50" Text="ArpeonBanner" TabSkip="yes" />
+        <Control Id="Title" Type="Text" X="20" Y="68" Width="330" Height="24" Text="{\ArpeonTitle}Preparando ARPEON">
+          <Subscribe Event="ActionText" Attribute="Text" />
+        </Control>
+        <Control Id="Action" Type="Text" X="20" Y="117" Width="330" Height="34" Text="Aguarde a conclusão da operação."><Subscribe Event="ActionData" Attribute="Text" /></Control>
+        <Control Id="Progress" Type="ProgressBar" X="20" Y="162" Width="330" Height="12" ProgressBlocks="no"><Subscribe Event="SetProgress" Attribute="Progress" /></Control>
+        <Control Id="Description" Type="Text" X="20" Y="202" Width="330" Height="30" Text="{\ArpeonMuted}Aguarde a operação ou o cancelamento terminar antes de fechar esta janela." />
+        <Control Id="Line" Type="Line" X="0" Y="248" Width="370" Height="0" />
+        <Control Id="Cancel" Type="PushButton" X="292" Y="260" Width="58" Height="19" Cancel="yes" Text="Cancelar"><Publish Event="SpawnDialog" Value="CancelDlg">1</Publish></Control>
+      </Dialog>
+      <Dialog Id="ArpeonComplete" Width="370" Height="285" Title="ARPEON" NoMinimize="yes">
+        <Control Id="Banner" Type="Bitmap" X="0" Y="0" Width="370" Height="50" Text="ArpeonBanner" TabSkip="yes" />
+        <Control Id="Title" Type="Text" X="20" Y="72" Width="330" Height="26" Text="{\ArpeonTitle}Operação concluída" />
+        <Control Id="Description" Type="Text" X="20" Y="115" Width="330" Height="45" Text="O Windows concluiu a operação. Seus projetos e preferências foram preservados." />
+        <Control Id="Launch" Type="CheckBox" X="20" Y="178" Width="330" Height="18" Property="ARPEON_LAUNCH" CheckBoxValue="1" Text="Abrir ARPEON ao concluir">
+          <Condition Action="hide">REMOVE = "ALL"</Condition>
+        </Control>
+        <Control Id="Line" Type="Line" X="0" Y="248" Width="370" Height="0" />
+        <Control Id="Finish" Type="PushButton" X="280" Y="260" Width="70" Height="19" Default="yes" Cancel="yes" Text="Concluir">
+          <Publish Event="DoAction" Value="LaunchArpeon" Order="1">ARPEON_LAUNCH = "1" AND NOT REMOVE = "ALL"</Publish>
+          <Publish Event="EndDialog" Value="Return" Order="2">1</Publish>
+        </Control>
+      </Dialog>
+      <Property Id="ARPEON_LAUNCH" Value="1" />
+      <InstallUISequence>
+        <Show Dialog="ArpeonSetup" Before="ExecuteAction">NOT Installed</Show>
+        <Show Dialog="ArpeonMaintenance" Before="ArpeonSetup">Installed AND NOT RESUME AND NOT Preselected</Show>
+        <Show Dialog="ArpeonProgress" Before="ExecuteAction">1</Show>
+        <Show Dialog="ArpeonComplete" OnExit="success">1</Show>
+        <Show Dialog="FatalError" OnExit="error">1</Show>
+        <Show Dialog="UserExit" OnExit="cancel">1</Show>
+      </InstallUISequence>
+      <AdminUISequence>
+        <Show Dialog="ArpeonComplete" OnExit="success">1</Show>
+        <Show Dialog="FatalError" OnExit="error">1</Show>
+        <Show Dialog="UserExit" OnExit="cancel">1</Show>
+      </AdminUISequence>
+    </UI>
+    <Binary Id="ArpeonBanner" SourceFile="$(var.Banner)" />
+    <UIRef Id="WixUI_Common" />
+    <SetProperty Id="ARPEON_SETUP_TITLE" Value="Recuperar instalação" After="SetARPEON_RECOVERY" Sequence="ui">ARPEON_RECOVERY</SetProperty>
+    <SetProperty Id="ARPEON_SETUP_ACTION" Value="Reparar" After="SetARPEON_SETUP_TITLE" Sequence="ui">ARPEON_RECOVERY</SetProperty>
+    <SetProperty Id="INSTALLDESKTOPSHORTCUT" Action="NormalizeDesktopChoice" Value="0" Before="ExecuteAction" Sequence="ui">NOT INSTALLDESKTOPSHORTCUT</SetProperty>
+    <SetProperty Id="INSTALLMENUSHORTCUT" Action="NormalizeMenuChoice" Value="0" Before="ExecuteAction" Sequence="ui">NOT INSTALLMENUSHORTCUT</SetProperty>
+  </Fragment>
+</Wix>

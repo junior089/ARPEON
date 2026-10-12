@@ -13,7 +13,6 @@ import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
-import java.util.concurrent.TimeUnit;
 import org.arpeon.musicxml.MusicXmlImporter;
 
 /** Isolated Audiveris CLI boundary; no Audiveris classes enter the musical domain. */
@@ -53,58 +52,66 @@ public final class AudiverisOmrEngine implements OmrEngine {
   }
 
   @Override
-  public boolean installable() {
-    return !available() && AudiverisInstaller.supported();
-  }
-
-  @Override
-  public void install() throws IOException {
-    if (!installable()) {
-      if (available()) return;
-      throw new IOException("Automatic Audiveris setup requires 64-bit Windows");
-    }
-    AudiverisInstaller.install();
-  }
-
-  @Override
-  public InstallProgress installProgress() {
-    return AudiverisInstaller.progress();
-  }
-
-  @Override
   public OmrResult recognize(OmrInput input) throws IOException {
+    return recognize(input, ignored -> {});
+  }
+
+  @Override
+  public OmrResult recognize(OmrInput input, java.util.function.Consumer<String> phase)
+      throws IOException {
     if (!available())
       throw new IOException(
-          "Audiveris is not configured; set ARPEON_AUDIVERIS_EXECUTABLE to the installed"
-              + " executable");
+          "O reconhecimento óptico não está disponível neste pacote. Reinstale o ARPEON com o"
+              + " pacote completo.");
+    phase.accept("reading");
     int pages = OmrInputValidator.validate(input);
-    Path job = Files.createTempDirectory("arpeon-omr-");
+    String configuredTemp = System.getProperty("arpeon.omr.tempDir");
+    Path job;
+    if (configuredTemp == null) job = Files.createTempDirectory("arpeon-omr-");
+    else {
+      Path temp = Path.of(configuredTemp).toAbsolutePath().normalize();
+      Files.createDirectories(temp);
+      if (Files.isSymbolicLink(temp)) throw new IOException("Unsafe OMR temporary directory");
+      job = Files.createTempDirectory(temp, "arpeon-omr-");
+    }
     try {
       String extension =
           input.filename().substring(input.filename().lastIndexOf('.')).toLowerCase(Locale.ROOT);
       Path source = job.resolve("source" + extension);
       Path output = Files.createDirectory(job.resolve("output"));
       Files.write(source, input.bytes());
+      checkInterrupted();
+      phase.accept("recognizing");
       runner.run(resolveExecutable(), source, output);
+      checkInterrupted();
+      phase.accept("preparing");
       List<Path> exports;
       try (var files = Files.walk(output, 3)) {
         exports =
             files
                 .filter(path -> Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS))
                 .filter(
-                    path -> path.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".xml"))
+                    path -> {
+                      String name = path.getFileName().toString().toLowerCase(Locale.ROOT);
+                      return name.endsWith(".xml") || name.endsWith(".musicxml");
+                    })
                 .toList();
       }
+      if (exports.isEmpty())
+        throw new IOException(
+            "O Audiveris terminou sem exportar uma partitura MusicXML. Confira"
+                + " se o PDF contém pautas impressas legíveis e tente novamente.");
       if (exports.size() != 1)
         throw new IOException(
-            "Audiveris must produce exactly one MusicXML score; split movements in Audiveris"
-                + " first");
+            "O Audiveris exportou mais de uma partitura. Separe os movimentos no Audiveris e"
+                + " importe um MusicXML de cada vez.");
       Path xml = exports.getFirst();
       if (Files.size(xml) > MusicXmlImporter.MAX_BYTES)
         throw new IOException("Audiveris MusicXML exceeds 128 MiB");
       var normalized = OmrMusicXml.normalize(Files.readAllBytes(xml));
       var imported =
           importer.read(new ByteArrayInputStream(normalized.xml()), "recognized.musicxml");
+      checkInterrupted();
       var warnings = new ArrayList<>(normalized.warnings());
       warnings.add(
           "Reconhecimento óptico exige conferência com a imagem original; confiança por nota não"
@@ -126,35 +133,12 @@ public final class AudiverisOmrEngine implements OmrEngine {
   }
 
   private Path resolveExecutable() {
-    if (fixedExecutable) return executable;
-    if (executable != null && Files.isRegularFile(executable)) return executable;
-    Path local = AudiverisInstaller.installedExecutable();
-    if (local != null) return local;
-    if (System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("win")) {
-      for (String folder : List.of("Program Files", "Program Files (x86)")) {
-        Path system =
-            Path.of(
-                System.getenv().getOrDefault("SystemDrive", "C:\\"),
-                folder,
-                "Audiveris",
-                "Audiveris.exe");
-        if (Files.isRegularFile(system)) return system;
-        Path bin =
-            Path.of(
-                System.getenv().getOrDefault("SystemDrive", "C:\\"),
-                folder,
-                "Audiveris",
-                "bin",
-                "Audiveris.exe");
-        if (Files.isRegularFile(bin)) return bin;
-      }
-      String localAppData = System.getenv("LOCALAPPDATA");
-      if (localAppData != null) {
-        Path perUser = Path.of(localAppData, "Programs", "Audiveris", "Audiveris.exe");
-        if (Files.isRegularFile(perUser)) return perUser;
-      }
-    }
-    return executable;
+    if (fixedExecutable || executable != null) return executable;
+    String home = System.getProperty("arpeon.audiveris.home");
+    if (home == null || home.isBlank()) return null;
+    Path root = Path.of(home).toAbsolutePath().normalize();
+    boolean windows = System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("win");
+    return root.resolve(windows ? "Audiveris.exe" : "bin/Audiveris");
   }
 
   private static void runCli(Path executable, Path source, Path output) throws IOException {
@@ -169,30 +153,11 @@ public final class AudiverisOmrEngine implements OmrEngine {
             output.toString(),
             "--",
             source.toString());
-    var process =
-        new ProcessBuilder(command)
-            .directory(source.getParent().toFile())
-            .redirectOutput(ProcessBuilder.Redirect.DISCARD)
-            .redirectError(ProcessBuilder.Redirect.DISCARD)
-            .start();
-    boolean finished;
-    try {
-      finished = process.waitFor(TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
-    } catch (InterruptedException failure) {
-      process.destroyForcibly();
-      Thread.currentThread().interrupt();
-      throw new IOException("Audiveris recognition interrupted", failure);
-    }
-    if (!finished) {
-      process.destroyForcibly();
-      try {
-        process.waitFor(5, TimeUnit.SECONDS);
-      } catch (InterruptedException failure) {
-        Thread.currentThread().interrupt();
-      }
-      throw new IOException("Audiveris exceeded the ten-minute recognition limit");
-    }
-    if (process.exitValue() != 0) throw new IOException("Audiveris could not recognize this score");
+    AudiverisProcess.run(command, source.getParent(), TIMEOUT);
+  }
+
+  private static void checkInterrupted() throws IOException {
+    if (Thread.currentThread().isInterrupted()) throw new IOException("Reconhecimento cancelado.");
   }
 
   private static String sha256(byte[] bytes) {

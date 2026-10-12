@@ -1,40 +1,72 @@
-<section class="transport" aria-label="Transporte">
+<section
+  class="transport"
+  [attr.aria-label]="'Transporte da partitura ' + (session.score()?.title ?? '')"
+>
   @if (session.transport(); as state) {
   <span class="transport-document" [title]="session.score()?.title ?? ''"
     >Partitura <strong>{{ session.score()?.title }}</strong></span
   >
-  <div class="playback-buttons">
+  <div class="playback-buttons" role="group" aria-label="Controles de reprodução">
     <button
-      (click)="session.action('play')"
-      [disabled]="session.busy() || state.status === 'PLAYING'"
-      aria-label="Reproduzir"
-      title="Reproduzir · Espaço"
-    >
-      <app-icon name="play" />
-    </button>
-    <button
-      (click)="session.action('pause')"
-      [disabled]="session.busy() || state.status !== 'PLAYING'"
-      aria-label="Pausar"
-      title="Pausar · Espaço"
-    >
-      <app-icon name="pause" />
-    </button>
-    <button
+      type="button"
       (click)="session.action('stop')"
-      [disabled]="session.busy() || state.status === 'STOPPED'"
-      aria-label="Parar"
+      [disabled]="session.busy()"
+      aria-label="Parar e voltar ao início"
       title="Parar · Shift+Espaço"
     >
-      <app-icon name="stop" />
+      <app-icon name="previous" />
+    </button>
+    <button
+      type="button"
+      (click)="jump(-1)"
+      [disabled]="session.busy() || state.measureIndex <= (state.loop?.startMeasureIndex ?? 0)"
+      aria-label="Compasso anterior"
+      title="Compasso anterior"
+    >
+      <app-icon name="rewind" />
+    </button>
+    <button
+      class="main-play"
+      type="button"
+      (click)="togglePlayback()"
+      [disabled]="session.busy()"
+      [attr.aria-label]="state.status === 'PLAYING' ? 'Pausar' : 'Reproduzir'"
+      title="Reproduzir / pausar · Espaço"
+    >
+      <app-icon [name]="state.status === 'PLAYING' ? 'pause' : 'play'" />
+    </button>
+    <button
+      type="button"
+      (click)="jump(1)"
+      [disabled]="session.busy() || state.measureIndex >= (state.loop?.endMeasureIndex ?? (session.score()?.measures?.length ?? 1) - 1)"
+      aria-label="Próximo compasso"
+      title="Próximo compasso"
+    >
+      <app-icon name="forward" />
+    </button>
+    <button
+      type="button"
+      (click)="jump(1, true)"
+      [disabled]="session.busy()"
+      aria-label="Último compasso"
+      title="Ir ao último compasso"
+    >
+      <app-icon name="next" />
     </button>
   </div>
   <label class="seek">
-    <span>Compasso {{ state.measureNumber }} / {{ session.score()?.measures?.length }}</span>
+    <span class="compact-document" [title]="session.score()?.title ?? ''"
+      >{{ session.score()?.title }}</span
+    >
+    <span
+      [title]="'Posição na execução: ' + (state.measureIndex + 1) + ' de ' + session.score()?.measures?.length + ' compassos, incluindo repetições'"
+      >{{ state.countInBeatsLeft > 0 ? 'Contagem: ' + state.countInBeatsLeft : 'Compasso ' +
+      state.measureNumber }}{{ state.loop ? ' · A–B' : '' }}</span
+    >
     <input
       type="range"
-      min="0"
-      [max]="state.totalTicks"
+      [min]="state.loop?.startTick ?? 0"
+      [max]="state.loop ? state.loop.endTick - 1 : state.totalTicks"
       [value]="seeking() ? pendingTick() : state.tick"
       (input)="setSeek($event)"
       (change)="commitSeek($event)"
@@ -42,50 +74,121 @@
       [attr.aria-valuetext]="'Compasso ' + state.measureNumber"
     />
   </label>
-  <div class="bpm">
-    <label for="starting-bpm">BPM inicial</label>
-    <input
-      id="starting-bpm"
-      type="number"
-      min="30"
-      max="300"
-      step="1"
-      [value]="draftBpm() ?? state.startingBpm"
-      (input)="setDraftBpm($event)"
+  <button
+    type="button"
+    class="settings-toggle"
+    aria-label="Ajustes da reprodução"
+    aria-controls="transport-settings"
+    [attr.aria-expanded]="settingsOpen()"
+    (click)="settingsOpen.set(!settingsOpen())"
+  >
+    <app-icon name="settings" /><span class="player-tempo">{{ state.bpm }} BPM</span>
+  </button>
+  <div id="transport-settings" class="transport-settings" [class.expanded]="settingsOpen()">
+    <button
+      type="button"
+      aria-controls="score-loop-controls"
+      [attr.aria-expanded]="loopOpen()"
+      [class.loop-active]="!!state.loop"
+      (click)="loopOpen.set(!loopOpen())"
+    >
+      {{ state.loop ? 'A–B ativo' : 'Trecho A–B' }}
+    </button>
+    <div class="bpm">
+      <label for="starting-bpm">BPM inicial</label>
+      <input
+        id="starting-bpm"
+        type="number"
+        min="30"
+        max="300"
+        step="1"
+        [value]="draftBpm() ?? state.startingBpm"
+        (input)="setDraftBpm($event)"
+        [disabled]="session.busy()"
+      />
+      <button (click)="applyBpm()" [disabled]="session.busy() || !canApplyBpm()">Aplicar</button>
+    </div>
+    <button
+      class="toggle"
+      [attr.aria-pressed]="state.metronome"
+      (click)="session.action('metronome', {enabled: !state.metronome})"
       [disabled]="session.busy()"
-    />
-    <button (click)="applyBpm()" [disabled]="session.busy() || !canApplyBpm()">Aplicar</button>
+    >
+      Metrônomo
+    </button>
+    <button
+      class="toggle"
+      [attr.aria-pressed]="state.countIn"
+      (click)="session.action('count-in', {enabled: !state.countIn})"
+      [disabled]="session.busy()"
+    >
+      Contagem
+    </button>
+    <span class="transport-state" role="status">
+      @if (state.countInBeatsLeft > 0) { Contagem: {{ state.countInBeatsLeft }} } @else if
+      (state.status === 'PLAYING') { Reproduzindo } @else if (state.status === 'PAUSED') { Pausado }
+      @else { Parado }
+    </span>
   </div>
-  <button
-    class="toggle"
-    [attr.aria-pressed]="state.metronome"
-    (click)="session.action('metronome', {enabled: !state.metronome})"
-    [disabled]="session.busy()"
+  @if (loopOpen()) {
+  <div
+    id="score-loop-controls"
+    class="loop-controls"
+    role="group"
+    aria-label="Repetição de trecho A–B"
   >
-    Metrônomo
-  </button>
-  <button
-    class="toggle"
-    [attr.aria-pressed]="state.countIn"
-    (click)="session.action('count-in', {enabled: !state.countIn})"
-    [disabled]="session.busy()"
-  >
-    Contagem
-  </button>
-  <span class="transport-state" role="status">
-    @if (state.countInBeatsLeft > 0) { Contagem: {{ state.countInBeatsLeft }} } @else if
-    (state.status === 'PLAYING') { Reproduzindo } @else if (state.status === 'PAUSED') { Pausado }
-    @else { Parado }
-  </span>
-  } @else {
+    <label
+      >A · início<select
+        [value]="loopStart()"
+        (change)="setLoopPoint('start', $event)"
+        [disabled]="session.busy()"
+      >
+        @for (measure of session.score()?.measures ?? []; track measure.index) {
+        <option [value]="measure.index">
+          Posição {{ measure.index + 1 }} · compasso {{ measure.number }}
+        </option>
+        }
+      </select></label
+    >
+    <label
+      >B · fim<select
+        [value]="loopEnd()"
+        (change)="setLoopPoint('end', $event)"
+        [disabled]="session.busy()"
+      >
+        @for (measure of session.score()?.measures ?? []; track measure.index) {
+        <option [value]="measure.index">
+          Posição {{ measure.index + 1 }} · compasso {{ measure.number }}
+        </option>
+        }
+      </select></label
+    >
+    <button type="button" (click)="applyLoop(true)" [disabled]="session.busy() || !validLoop()">
+      {{ state.loop ? 'Aplicar A–B' : 'Repetir trecho' }}
+    </button>
+    @if (state.loop) {
+    <button type="button" (click)="applyLoop(false)" [disabled]="session.busy()">
+      Desativar repetição
+    </button>
+    }
+    <p class="loop-hint" [class.error]="!validLoop()" role="status">
+      {{ validLoop() ? 'Inclui A e B. Posições seguem a execução, com repetições. Contagem inicial
+      só ao partir do início da partitura.' : 'Escolha B na mesma posição de A ou depois dela.' }}
+    </p>
+  </div>
+  } } @else {
   <div class="playback-buttons" aria-label="Transporte sem partitura">
     <button disabled aria-label="Reproduzir"><app-icon name="play" /></button
     ><button disabled aria-label="Pausar"><app-icon name="pause" /></button
     ><button disabled aria-label="Parar"><app-icon name="stop" /></button>
   </div>
   <span class="transport-empty"
-    >{{ session.score() ? 'Transporte indisponível. Reinicie o ARPEON.' : 'Reprodução disponível ao
-    abrir um MusicXML.' }}</span
+    >{{ session.score() ? 'A reprodução perdeu a conexão local.' : 'Reprodução disponível ao abrir
+    uma partitura.' }}</span
   >
-  }
+  @if (session.score()) {
+  <button type="button" (click)="session.refreshTransport()" [disabled]="session.busy()">
+    Reconectar
+  </button>
+  } }
 </section>

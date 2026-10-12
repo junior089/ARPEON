@@ -1,0 +1,133 @@
+<section class="library" aria-label="Biblioteca de projetos">
+  @if (session.projects().length) {
+  <label for="project-search">Buscar projetos</label>
+  <input
+    id="project-search"
+    type="search"
+    placeholder="Nome ou arquivo"
+    [value]="query()"
+    (input)="filter($event)"
+  />
+  <label class="sort"
+    >Ordenar
+    <select aria-label="Ordenar projetos" [value]="order()" (change)="filter($event, true)">
+      <option value="recent" [selected]="order() === 'recent'">Atualizados recentemente</option>
+      <option value="name" [selected]="order() === 'name'">Nome · A–Z</option>
+    </select>
+  </label>
+  <p class="result-count" role="status">
+    {{ filtered().length }} de {{ session.projects().length }} projetos
+  </p>
+  <ul class="project-list" aria-label="Projetos salvos">
+    @for (project of visible(); track project.id) {
+    <li [class.selected]="selectedId() === project.id">
+      <div class="project-row">
+        <button
+          class="project-open"
+          type="button"
+          [attr.aria-label]="'Abrir projeto ' + (project.title || project.filename)"
+          (click)="opened.emit(project.id)"
+          [disabled]="session.busy()"
+        >
+          <strong>{{ project.title || project.filename }}</strong>
+          <span class="filename">{{ project.filename }}</span>
+          <span class="updated"
+            >{{ project.updatedAt | date:'dd/MM/yyyy HH:mm' }}{{ project.id === session.projectId()
+            ? ' · Aberto' : '' }}</span
+          >
+        </button>
+        <button
+          class="manage"
+          type="button"
+          [attr.aria-label]="'Gerenciar projeto ' + (project.title || project.filename)"
+          [attr.aria-expanded]="selectedId() === project.id"
+          (click)="select(project)"
+          [disabled]="session.busy()"
+        >
+          ⋯
+        </button>
+      </div>
+      @if (selectedId() === project.id) {
+      <ng-container [ngTemplateOutlet]="projectActions" />
+      }
+    </li>
+    }
+  </ul>
+  @if (!filtered().length) {
+  <p class="hint">Nenhum projeto corresponde à busca.</p>
+  } @if (pageCount() > 1) {
+  <nav class="pagination" aria-label="Páginas da biblioteca">
+    <button
+      type="button"
+      aria-label="Projetos anteriores"
+      [disabled]="currentPage() === 0"
+      (click)="page.set(currentPage() - 1)"
+    >
+      ‹
+    </button>
+    <span>{{ currentPage() + 1 }} de {{ pageCount() }}</span>
+    <button
+      type="button"
+      aria-label="Próximos projetos"
+      [disabled]="currentPage() + 1 >= pageCount()"
+      (click)="page.set(currentPage() + 1)"
+    >
+      ›
+    </button>
+  </nav>
+  }
+  <ng-template #projectActions>
+    @if (selected()) {
+    <div class="project-actions" aria-label="Ações do projeto selecionado">
+      <div class="actions">
+        <button type="button" (click)="prepare('rename')" [disabled]="session.busy()">
+          Renomear
+        </button>
+        <button type="button" (click)="prepare('duplicate')" [disabled]="session.busy()">
+          Duplicar
+        </button>
+      </div>
+      @if (operation()) {
+      <form (submit)="submit($event)">
+        <label for="project-name"
+          >{{ operation() === 'duplicate' ? 'Nome da cópia' : 'Nome do projeto' }}</label
+        >
+        <input
+          id="project-name"
+          type="text"
+          required
+          maxlength="200"
+          [value]="name()"
+          (input)="name.set($any($event.target).value)"
+          [disabled]="session.busy()"
+        />
+        @if (!validName()) {
+        <p class="hint">Use de 1 a 200 caracteres, sem quebras de linha.</p>
+        }
+        <p class="hint">
+          {{ operation() === 'duplicate' ? 'Copia a versão salva, incluindo a origem e os avisos.
+          Alterações ainda não salvas não entram na cópia.' : 'Altera o nome na biblioteca. O título
+          musical e as notas permanecem iguais.' }}
+        </p>
+        <div class="actions">
+          <button type="submit" class="primary" [disabled]="session.busy() || !validName()">
+            {{ operation() === 'duplicate' ? 'Criar cópia' : 'Salvar nome' }}
+          </button>
+          <button type="button" (click)="operation.set(null)" [disabled]="session.busy()">
+            Cancelar
+          </button>
+        </div>
+      </form>
+      }
+      <button type="button" class="destructive" (click)="remove()" [disabled]="session.busy()">
+        Excluir projeto salvo
+      </button>
+    </div>
+    }
+  </ng-template>
+  } @else {
+  <p class="hint">Nenhum projeto salvo.</p>
+  } @if (message()) {
+  <p class="hint" role="status">{{ message() }}</p>
+  }
+</section>

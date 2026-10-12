@@ -2,6 +2,8 @@ import { Component, computed, inject, OnInit } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
 import { TunerState } from '../../core/tuner-contract';
 import { TunerSession } from './tuner-session';
+import { captureOwnerProvider } from '../../core/capture-owner';
+import { AudioPreparation } from '../../shared/audio-preparation';
 
 const labels: Record<TunerState, string> = {
   IDLE: 'Microfone desligado',
@@ -15,8 +17,8 @@ const labels: Record<TunerState, string> = {
 
 @Component({
   selector: 'app-tuner-panel',
-  imports: [DecimalPipe],
-  providers: [TunerSession],
+  imports: [DecimalPipe, AudioPreparation],
+  providers: [TunerSession, captureOwnerProvider],
   templateUrl: './tuner-panel.html',
   styleUrl: './tuner-panel.scss',
 })

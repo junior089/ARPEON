@@ -1,0 +1,97 @@
+<section class="audio-preparation" aria-label="Preparar áudio">
+  <h2>Preparar áudio</h2>
+  <div class="fields">
+    <label
+      >Microfone
+      <select
+        id="audio-input"
+        #device
+        [value]="audio.selectedDevice()"
+        (change)="audio.selectDevice(device.value)"
+        [disabled]="locked() || tone.playing()"
+      >
+        @if (audio.missingDevice()) {
+        <option [value]="audio.selectedDevice()" selected disabled>
+          {{ audio.deviceName() || 'Entrada salva' }} · indisponível
+        </option>
+        } @else if (!audio.devices().length) {
+        <option value="">Nenhuma entrada disponível</option>
+        } @for (device of audio.devices(); track device.id) {
+        <option [value]="device.id" [selected]="device.id === audio.selectedDevice()">
+          {{ device.name }}
+        </option>
+        }
+      </select>
+    </label>
+    <label
+      >Referência · Lá 4 (Hz)
+      <input
+        #reference
+        type="number"
+        min="400"
+        max="480"
+        step="0.1"
+        [value]="audio.referenceHz()"
+        (input)="audio.setReference(reference.valueAsNumber)"
+        [disabled]="locked() || tone.playing()"
+        [attr.aria-invalid]="!validReference(audio.referenceHz())"
+      />
+    </label>
+  </div>
+  <div class="actions">
+    <button type="button" (click)="audio.refresh()" [disabled]="locked() || tone.playing()">
+      {{ audio.loading() ? 'Consultando entradas…' : 'Atualizar entradas' }}
+    </button>
+    <button
+      type="button"
+      (click)="tone.playing() ? tone.stop() : tone.play(audio.referenceHz())"
+      [disabled]="!tone.playing() && (locked() || !validReference(audio.referenceHz()))"
+    >
+      {{ tone.playing() ? 'Parar referência' : 'Ouvir Lá 4' }}
+    </button>
+  </div>
+  <details class="audio-help">
+    <summary>Sobre estes ajustes</summary>
+    <p class="hint">
+      Entrada e Lá compartilhados entre Afinador, Prática e Análise. O microfone só liga ao iniciar
+      a escuta.
+    </p>
+    <p class="hint">
+      Referência: 400–480 Hz; padrão 440 Hz. O teste toca por dois segundos na saída do aplicativo.
+      A referência MIDI do exercício usa o sintetizador do sistema.
+    </p>
+  </details>
+  @if (audio.missingDevice() && !audio.deviceError()) {
+  <p class="warning" role="status">
+    A entrada salva está indisponível. Reconecte-a e atualize as entradas, ou escolha outro
+    microfone.
+  </p>
+  } @else if (!audio.loading() && !audio.devices().length && !audio.deviceError()) {
+  <p class="warning" role="status">
+    Nenhuma entrada encontrada. Conecte um microfone e atualize as entradas.
+  </p>
+  } @if (!validReference(audio.referenceHz())) {
+  <p class="error" role="alert">
+    Use um Lá entre 400 e 480 Hz. A escuta fica indisponível até corrigir o valor.
+  </p>
+  } @if (audio.deviceError()) {
+  <p class="error" role="alert">{{ audio.deviceError() }}</p>
+  } @if (tone.error()) {
+  <p class="error" role="alert">{{ tone.error() }}</p>
+  } @if (audio.preferencesError()) {
+  <p class="error" role="alert">
+    {{ audio.preferencesError() }} Os ajustes atuais continuam disponíveis nesta janela.
+  </p>
+  <button
+    type="button"
+    (click)="audio.retrySave()"
+    [disabled]="audio.saving() || audio.loading() || audio.missingDevice() || !validReference(audio.referenceHz())"
+  >
+    Tentar guardar ajustes
+  </button>
+  }
+  <p class="save-state" role="status">
+    {{ audio.saving() ? 'Guardando ajustes…' : audio.saved() ? 'Ajustes guardados neste computador.'
+    : 'Ajustes em uso nesta janela.' }}
+  </p>
+</section>

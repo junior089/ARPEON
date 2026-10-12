@@ -15,15 +15,20 @@ import type { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
 import { TunerSession } from '../tuner/tuner-session';
 import { PracticeOptions, PracticeSession } from './practice-session';
 import { FluteFingering } from '../fingering/flute-fingering';
+import { captureOwnerProvider } from '../../core/capture-owner';
+import { PracticeHistory } from './practice-history';
+import { AudioPreparation } from '../../shared/audio-preparation';
+import { PracticeSetup, practiceSetupErrors } from './practice-setup';
 
 @Component({
   selector: 'app-practice-panel',
-  imports: [DecimalPipe, FluteFingering],
-  providers: [PracticeSession, TunerSession],
+  imports: [DecimalPipe, FluteFingering, PracticeHistory, AudioPreparation],
+  providers: [PracticeSession, TunerSession, captureOwnerProvider],
   templateUrl: './practice-panel.html',
   styleUrl: './practice-panel.scss',
 })
 export class PracticePanel implements OnInit, AfterViewInit, OnDestroy {
+  private readonly setup = inject(PracticeSetup);
   readonly session = inject(PracticeSession);
   readonly microphone = inject(TunerSession);
   readonly inspectedPitch = signal<string | null>(null);
@@ -58,6 +63,10 @@ export class PracticePanel implements OnInit, AfterViewInit, OnDestroy {
   private renderGeneration = 0;
   private destroyed = false;
 
+  constructor() {
+    Object.assign(this, this.setup.options);
+  }
+
   ngOnInit(): void {
     void this.microphone.refreshDevices();
   }
@@ -76,7 +85,32 @@ export class PracticePanel implements OnInit, AfterViewInit, OnDestroy {
   }
 
   number(event: Event): number {
+    if (event.target instanceof HTMLInputElement) return event.target.valueAsNumber;
     return Number(this.text(event));
+  }
+
+  private options(): PracticeOptions {
+    return {
+      kind: this.kind,
+      keyId: this.keyId,
+      octave: this.octave,
+      scaleType: this.scaleType,
+      bpm: this.bpm,
+      loop: this.loop,
+      progressiveStep: this.progressiveStep,
+    };
+  }
+
+  setupErrors(): ReturnType<typeof practiceSetupErrors> {
+    return practiceSetupErrors(this.options());
+  }
+  setupMessages(): string[] {
+    return Object.values(this.setupErrors());
+  }
+  canGenerate(): boolean {
+    return (
+      !this.session.busy() && !this.session.view()?.attemptOpen && !this.setupMessages().length
+    );
   }
 
   feedbackLabel(state: string): string {
@@ -89,15 +123,8 @@ export class PracticePanel implements OnInit, AfterViewInit, OnDestroy {
   }
 
   async generate(): Promise<void> {
-    const options: PracticeOptions = {
-      kind: this.kind,
-      keyId: this.keyId,
-      octave: this.octave,
-      scaleType: this.scaleType,
-      bpm: this.bpm,
-      loop: this.loop,
-      progressiveStep: this.progressiveStep,
-    };
+    if (!this.canGenerate()) return;
+    const options = this.options();
     if (await this.session.generate(options)) {
       this.inspectedPitch.set(null);
       await this.render(this.session.view()?.xml ?? '');
@@ -138,6 +165,7 @@ export class PracticePanel implements OnInit, AfterViewInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.setup.options = this.options();
     this.destroyed = true;
     ++this.renderGeneration;
     this.renderer?.clear();

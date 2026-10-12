@@ -10,6 +10,7 @@ import {
   OnDestroy,
   output,
   ViewChild,
+  untracked,
 } from '@angular/core';
 import type { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
 import { signal } from '@angular/core';
@@ -17,15 +18,47 @@ import { ScoreSession } from './score-session';
 import { FluteFingering } from '../fingering/flute-fingering';
 import type { EventHeadView, EventView } from '../../core/score-contract';
 import { WorkspaceLayout } from '../../shared/workspace-layout';
+import { PlaybackCursor } from '../../shared/playback-cursor';
+import { DesktopPreferences, WorkspaceMode } from '../../core/desktop-preferences';
+import { SCORE_FILE_ACCEPT, importRoute } from '../../core/import-routing';
+import { NotationPreview } from '../../shared/notation-preview';
+import { annotateScore } from './score-annotations';
+import {
+  parsePitch,
+  pitchLabel,
+  concertPitch,
+  frequency,
+  eventSymbols,
+  measureSymbols,
+} from './music-reading';
+import { ReferenceTone } from '../../core/reference-tone';
+import { AudioSettings } from '../../core/audio-settings';
+import {
+  RHYTHMIC_FIGURES,
+  figureDuration,
+  identifyFigure,
+  durationName,
+  durationProblem,
+} from './rhythm-duration';
 
-export function eventIndexAtTimestamp(events: EventView[], timestamp: number): number | null {
+export function eventIndexAtTimestamp(
+  events: EventView[],
+  timestamp: number,
+  pitch?: string,
+  voiceId?: string,
+): number | null {
   let elapsed = 0;
   for (const event of events) {
     const onset =
       event.onsetNumerator !== undefined && event.onsetDenominator
         ? event.onsetNumerator / event.onsetDenominator
         : elapsed;
-    if (Math.abs(onset - timestamp) < 0.0001) return event.index;
+    if (
+      Math.abs(onset - timestamp) < 0.0001 &&
+      (!pitch || event.pitch === pitch || event.heads?.some((head) => head.pitch === pitch)) &&
+      (!voiceId || (event.voiceId ?? '1') === voiceId)
+    )
+      return event.index;
     elapsed += event.numerator / event.denominator;
   }
   return null;
@@ -33,12 +66,50 @@ export function eventIndexAtTimestamp(events: EventView[], timestamp: number): n
 
 @Component({
   selector: 'app-score-workspace',
-  imports: [FluteFingering],
+  imports: [FluteFingering, NotationPreview],
   templateUrl: './score-workspace.html',
   styleUrl: './score-workspace.scss',
 })
 export class ScoreWorkspace implements AfterViewInit, OnDestroy {
+  private readonly preferences = inject(DesktopPreferences);
+  private readonly readingSaved = this.preferences.snapshot();
+  readonly readingEnabled = signal(this.readingSaved.readingEnabled ?? false);
+  readonly readingLanguage = signal<'letters' | 'portuguese'>(
+    this.readingSaved.readingLanguage ?? 'letters',
+  );
+  readonly readingOctave = signal(this.readingSaved.readingOctave ?? false);
+  readonly readingScope = signal<'all' | 'selection'>(this.readingSaved.readingScope ?? 'all');
+  readonly followFingering = signal(this.readingSaved.followFingering ?? false);
+  readonly tone = inject(ReferenceTone);
+  readonly audio = inject(AudioSettings);
+  readonly pitchLabel = pitchLabel;
+  readonly selectedPitch = computed(() => parsePitch(this.selectedHead()?.pitch ?? null));
+  readonly soundingPitch = computed(() => {
+    const pitch = this.selectedPitch();
+    const instrument = this.session
+      .score()
+      ?.instruments.find((item) => item.id === this.activeInstrumentId());
+    return pitch ? concertPitch(pitch, instrument?.soundingSemitones ?? 0) : null;
+  });
+  private readonly readingDocument = computed(() =>
+    new DOMParser().parseFromString(this.session.xml(), 'application/xml'),
+  );
+  readonly symbols = computed(() => {
+    const event = this.selectedEvent();
+    return event
+      ? [
+          ...eventSymbols(event),
+          ...measureSymbols(
+            this.readingDocument(),
+            this.activePart()?.id ?? '',
+            this.measureIndex(),
+          ),
+        ]
+      : [];
+  });
   readonly requestedView = output<'import' | 'practice'>();
+  readonly requestedFile = output<File>();
+  readonly fileAccept = SCORE_FILE_ACCEPT;
   readonly session = inject(ScoreSession);
   readonly layout = inject(WorkspaceLayout);
   @ViewChild('studyPanel') private studyPanel?: ElementRef<HTMLDetailsElement>;
@@ -101,8 +172,10 @@ export class ScoreWorkspace implements AfterViewInit, OnDestroy {
   readonly eventIndex = signal(0);
   readonly selectedHeadIndex = signal(0);
   readonly studyPage = signal(0);
-  readonly darkScore = signal(false);
-  readonly selectedProjectId = signal('');
+  readonly darkScore = this.layout.scoreDark;
+  readonly pageCount = signal(1);
+  readonly pageNumber = signal(1);
+  readonly pageNumbers = computed(() => Array.from({ length: this.pageCount() }, (_, i) => i + 1));
   readonly activePart = computed(() =>
     this.session.score()?.parts.find((part) => part.id === this.session.transport()?.activePartId),
   );
@@ -145,15 +218,50 @@ export class ScoreWorkspace implements AfterViewInit, OnDestroy {
   octave = 4;
   numerator = 1;
   denominator = 4;
+  readonly rhythmicFigures = RHYTHMIC_FIGURES;
+  readonly durationName = durationName;
+  fractionMode = false;
+
+  get figureValue(): string {
+    return this.fractionMode ? 'custom' : String(identifyFigure(this)?.denominator ?? 'custom');
+  }
+
+  get durationDots(): number {
+    return identifyFigure(this)?.dots ?? 0;
+  }
+
+  chooseFigure(value: string): void {
+    this.fractionMode = value === 'custom';
+    if (this.fractionMode) return;
+    const denominator = Number(value);
+    if (!this.rhythmicFigures.some((figure) => figure.denominator === denominator)) return;
+    Object.assign(this, figureDuration(denominator, this.durationDots));
+  }
+
+  chooseDots(value: number): void {
+    const figure = identifyFigure(this);
+    if (this.fractionMode || !figure || ![0, 1, 2].includes(value)) return;
+    Object.assign(this, figureDuration(figure.denominator, value));
+  }
+
+  durationError(inserting = false): string {
+    const measure = this.currentMeasure();
+    const meter =
+      measure?.durationNumerator && measure.durationDenominator
+        ? { numerator: measure.durationNumerator, denominator: measure.durationDenominator }
+        : null;
+    return durationProblem(this, this.selectedEvent(), measure?.events ?? [], meter, inserting);
+  }
   semitones = 2;
   sourceKey = '';
   targetKey = '';
   targetInstrument = 'flute';
   @ViewChild('sheet') private sheet?: ElementRef<HTMLDivElement>;
+  @ViewChild('documentRegion') private documentRegion?: ElementRef<HTMLDivElement>;
   @ViewChild('studyNotes') private studyNotes?: ElementRef<HTMLDivElement>;
   private renderer?: OpenSheetMusicDisplay;
   private renderGeneration = 0;
-  private cursorTick = -1;
+  private playbackCursor?: PlaybackCursor;
   private animationFrame = 0;
   private playbackAnchor = { tick: 0, time: 0, bpm: 120 };
   private destroyed = false;
@@ -161,6 +269,34 @@ export class ScoreWorkspace implements AfterViewInit, OnDestroy {
   private resizeFrame = 0;
 
   constructor() {
+    effect(() => {
+      this.readingEnabled();
+      this.readingLanguage();
+      this.readingOctave();
+      this.readingScope();
+      if (this.readingScope() === 'selection') {
+        this.selectedHead();
+        this.selectedEvent();
+        this.measureIndex();
+        this.activePart();
+      }
+      untracked(() => this.refreshAnnotations());
+      this.preferences.update({
+        readingEnabled: this.readingEnabled(),
+        readingLanguage: this.readingLanguage(),
+        readingOctave: this.readingOctave(),
+        readingScope: this.readingScope(),
+        followFingering: this.followFingering(),
+      });
+    });
+    const selection = this.session.studySelection?.();
+    if (selection) {
+      this.measureIndex.set(selection.measureIndex);
+      this.eventIndex.set(selection.eventIndex);
+      this.studyPage.set(Math.floor(selection.eventIndex / 48));
+    }
+    this.layout.restorePanels();
+    this.widePanels = { explorer: this.layout.explorer(), inspector: this.layout.inspector() };
     if (this.compactViewport) {
       this.layout.explorer.set(false);
       this.layout.inspector.set(false);
@@ -169,7 +305,7 @@ export class ScoreWorkspace implements AfterViewInit, OnDestroy {
       const zoom = this.layout.zoom();
       if (this.renderer) {
         this.renderer.Zoom = zoom / 100;
-        this.renderer.render();
+        this.redraw();
       }
     });
     effect(() => {
@@ -177,12 +313,12 @@ export class ScoreWorkspace implements AfterViewInit, OnDestroy {
       if (!transport) return;
       cancelAnimationFrame(this.animationFrame);
       this.playbackAnchor = {
-        tick: transport.tick,
+        tick: transport.audibleTick ?? transport.tick,
         time: performance.now(),
-        bpm: transport.bpm,
+        bpm: transport.audibleBpm ?? transport.bpm,
       };
-      this.positionCursor(transport.tick);
-      if (transport.status === 'PLAYING') this.animateCursor();
+      this.positionCursor(this.playbackAnchor.tick);
+      if (transport.status === 'PLAYING' && transport.countInBeatsLeft === 0) this.animateCursor();
     });
     effect(() => {
       const partId = this.activePart()?.id;
@@ -208,6 +344,9 @@ export class ScoreWorkspace implements AfterViewInit, OnDestroy {
   }
 
   ngAfterViewInit(): void {
+    const selection = this.session.studySelection?.();
+    if (this.studyPanel && this.layout.mode() === 'study')
+      this.studyPanel.nativeElement.open = true;
     if (typeof ResizeObserver !== 'undefined' && this.sheet) {
       let width = 0;
       this.resizeObserver = new ResizeObserver(([entry]) => {
@@ -215,14 +354,17 @@ export class ScoreWorkspace implements AfterViewInit, OnDestroy {
         width = entry.contentRect.width;
         cancelAnimationFrame(this.resizeFrame);
         this.resizeFrame = requestAnimationFrame(() => {
-          if (width > 0 && !this.destroyed) this.renderer?.render();
+          if (width > 0 && !this.destroyed) this.redraw();
         });
       });
       this.resizeObserver.observe(this.sheet.nativeElement);
     }
     this.sourceKey = this.session.score()?.keyId ?? '';
     void this.loadCurrentMeasure().then(() => {
-      if (!this.destroyed) this.selectEvent(0);
+      if (!this.destroyed) {
+        this.selectEvent(selection?.eventIndex ?? 0);
+        if (selection) this.session.studySelection.set(null);
+      }
     });
     if (this.session.xml()) void this.render(this.session.xml());
   }
@@ -232,6 +374,14 @@ export class ScoreWorkspace implements AfterViewInit, OnDestroy {
     if (!(input instanceof HTMLInputElement) || !input.files?.[0]) return;
     const file = input.files[0];
     input.value = '';
+    if (importRoute(file.name) !== 'direct') {
+      this.requestedFile.emit(file);
+      return;
+    }
+    await this.openDocument(file);
+  }
+
+  async openDocument(file: File): Promise<void> {
     if (
       this.session.projectDirty() &&
       !window.confirm('A partitura atual tem alterações não salvas. Quer substituí-la?')
@@ -247,9 +397,7 @@ export class ScoreWorkspace implements AfterViewInit, OnDestroy {
     }
   }
 
-  async openSavedProject(): Promise<void> {
-    const id = this.selectedProjectId();
-    if (!id) return;
+  async openSavedProject(id: string): Promise<void> {
     if (
       this.session.projectDirty() &&
       !window.confirm('A partitura atual tem alterações não salvas. Quer substituí-la?')
@@ -266,14 +414,7 @@ export class ScoreWorkspace implements AfterViewInit, OnDestroy {
   }
 
   async saveCurrentProject(): Promise<void> {
-    if (await this.session.saveProject())
-      this.selectedProjectId.set(this.session.projectId() ?? '');
-  }
-
-  async deleteSavedProject(): Promise<void> {
-    const id = this.selectedProjectId();
-    if (!id || !window.confirm('Excluir este projeto salvo deste computador?')) return;
-    if (await this.session.deleteProject(id)) this.selectedProjectId.set('');
+    await this.session.saveProject();
   }
 
   textValue(event: Event): string {
@@ -313,6 +454,7 @@ export class ScoreWorkspace implements AfterViewInit, OnDestroy {
     if (selected) {
       this.numerator = selected.numerator;
       this.denominator = selected.denominator;
+      this.fractionMode = identifyFigure(selected) === null;
       if (selected.kind === 'NOTE') {
         this.step = selected.step;
         this.alter = selected.alter;
@@ -325,27 +467,11 @@ export class ScoreWorkspace implements AfterViewInit, OnDestroy {
     const event = this.selectedEvent();
     if (event?.kind === 'CHORD' && event.heads?.some((head) => head.index === index))
       this.selectedHeadIndex.set(index);
-    const head = this.selectedHead();
-    if (head) {
-      const eventHead = event?.heads?.find((candidate) => candidate.index === index);
-      if (eventHead) {
-        const [step, octaveText] =
-          eventHead.pitch.match(/^([A-G])(?:bb|b|##|#)?(-?\d+)$/)?.slice(1) ?? [];
-        if (step && octaveText) {
-          this.step = step;
-          this.octave = Number(octaveText);
-          this.alter =
-            eventHead.pitch.includes('bb') || eventHead.pitch.includes('##')
-              ? eventHead.pitch.includes('bb')
-                ? -2
-                : 2
-              : eventHead.pitch.includes('b')
-                ? -1
-                : eventHead.pitch.includes('#')
-                  ? 1
-                  : 0;
-        }
-      }
+    const pitch = parsePitch(this.selectedHead()?.pitch ?? null);
+    if (pitch) {
+      this.step = pitch.step;
+      this.alter = pitch.alter;
+      this.octave = pitch.octave;
     }
   }
 
@@ -365,15 +491,30 @@ export class ScoreWorkspace implements AfterViewInit, OnDestroy {
     const bundle = await import('opensheetmusicdisplay');
     if (renderer !== this.renderer) return;
     const PointF2D = (bundle.default ?? bundle).PointF2D;
-    const point = graphic.svgToOsmd(graphic.domToSvg(new PointF2D(event.clientX, event.clientY)));
-    const note = graphic.GetNearestNote(point, new PointF2D(2.5, 2.5));
+    const svg = event.target.closest('svg');
+    const matrix = svg?.getScreenCTM();
+    if (!svg || !matrix) return;
+    const pageIndex = this.pages().findIndex((page) => page.contains(svg));
+    const page = graphic.MusicPages[pageIndex];
+    if (!page) return;
+    const screenPoint = svg.createSVGPoint();
+    screenPoint.x = event.clientX;
+    screenPoint.y = event.clientY;
+    const localPoint = screenPoint.matrixTransform(matrix.inverse());
+    const point = graphic.svgToOsmd(new PointF2D(localPoint.x, localPoint.y));
+    const note = graphic.GetNearestNote(point, new PointF2D(2.5, 2.5), page);
     if (!note) return;
     const position = note.PositionAndShape.AbsolutePosition;
     if (Math.hypot(point.x - position.x, point.y - position.y) > 2.5) return;
     const measure = note.parentVoiceEntry.parentStaffEntry.parentMeasure;
     const measureIndex = graphic.MeasureList.findIndex((row) => row.includes(measure));
-    const partIndex = graphic.MeasureList[measureIndex]?.indexOf(measure) ?? -1;
-    const part = score.parts[partIndex];
+    const source = note.sourceNote;
+    if (!source || source.isRest()) return;
+    const part = score.parts.find(
+      (part) => part.id === source.ParentVoiceEntry.ParentVoice.Parent.IdString,
+    );
+    const pitch = source.Pitch.ToStringShort(3);
+    const voiceId = String(source.ParentVoiceEntry.ParentVoice.VoiceId);
     const timestamp = note.parentVoiceEntry.parentStaffEntry.relInMeasureTimestamp.RealValue;
     if (measureIndex < 0 || !part) return;
     if (part.id !== this.activePart()?.id) await this.selectPart(part.id);
@@ -381,14 +522,21 @@ export class ScoreWorkspace implements AfterViewInit, OnDestroy {
     if (!(await this.session.loadMeasureEvents(part.id, measureIndex))) return;
     const events = this.session.score()?.parts.find((candidate) => candidate.id === part.id)
       ?.measures[measureIndex]?.events;
-    const eventIndex = events ? eventIndexAtTimestamp(events, timestamp) : null;
+    const eventIndex = events ? eventIndexAtTimestamp(events, timestamp, pitch, voiceId) : null;
     if (eventIndex === null) return;
     const selected = events?.[eventIndex];
     if (selected?.kind !== 'NOTE' && selected?.kind !== 'CHORD') return;
     await this.selectMeasure(measureIndex);
     this.selectEvent(eventIndex);
+    if (selected?.kind === 'CHORD') {
+      const head = selected.heads?.find((head) => head.pitch === pitch);
+      if (head) this.selectHead(head.index);
+    }
     const selectedEvent = this.currentMeasure()?.events[eventIndex];
-    const measureStart = score.measures[measureIndex]?.startTick ?? 0;
+    // The transport contains performed occurrences; the editor contains written measures.
+    const measureStart =
+      score.measures.find((measure) => measure.number === part.measures[measureIndex]?.number)
+        ?.startTick ?? 0;
     if (selectedEvent) {
       const onset =
         selectedEvent.onsetNumerator !== undefined && selectedEvent.onsetDenominator
@@ -396,12 +544,22 @@ export class ScoreWorkspace implements AfterViewInit, OnDestroy {
           : 0;
       await this.session.action('seek', { tick: Math.round(measureStart + onset) });
     }
-    this.layout.inspector.set(true);
+    if (
+      this.layout.mode() === 'edit' ||
+      this.layout.mode() === 'custom' ||
+      this.layout.mode() === 'study'
+    )
+      this.layout.inspector.set(true);
   }
 
   focusStudyNotes(): void {
+    if (this.layout.mode() === 'play') this.setWorkspaceMode('study');
     if (this.studyPanel) this.studyPanel.nativeElement.open = true;
-    this.studyNotes?.nativeElement.querySelector('button')?.focus();
+    if (this.layout.mode() === 'study')
+      this.documentRegion?.nativeElement.parentElement
+        ?.querySelector<HTMLSelectElement>('.selection-location select')
+        ?.focus();
+    else this.studyNotes?.nativeElement.querySelector('button')?.focus();
   }
 
   private selection(): {
@@ -435,6 +593,13 @@ export class ScoreWorkspace implements AfterViewInit, OnDestroy {
   ) {
     const selected = this.selection();
     if (!selected) return;
+    if (action === 'set-duration' || action === 'insert-note' || action === 'insert-rest') {
+      const problem = this.durationError(action !== 'set-duration');
+      if (problem) {
+        this.session.error.set(problem);
+        return;
+      }
+    }
     let params: Record<string, string | number> = { ...selected };
     if (
       this.selectedEvent()?.kind === 'CHORD' &&
@@ -504,9 +669,10 @@ export class ScoreWorkspace implements AfterViewInit, OnDestroy {
       pending = new OpenSheetMusicDisplay(container, {
         backend: 'svg',
         ...scoreAppearance(this.darkScore()),
-        drawTitle: false,
+        drawTitle: true,
         followCursor: true,
         autoResize: false,
+        pageFormat: 'A4_P',
       });
       await pending.load(xml);
       if (generation !== this.renderGeneration) {
@@ -516,8 +682,13 @@ export class ScoreWorkspace implements AfterViewInit, OnDestroy {
       pending.Zoom = this.layout.zoom() / 100;
       pending.render();
       this.renderer = pending;
-      this.cursorTick = -1;
-      this.positionCursor(this.session.transport()?.tick ?? 0);
+      this.refreshAnnotations();
+      if (this.studyPanel && this.layout.mode() === 'study')
+        this.studyPanel.nativeElement.open = true;
+      this.playbackCursor = new PlaybackCursor(pending.cursor);
+      this.refreshPages();
+      const transport = this.session.transport();
+      this.positionCursor(transport?.audibleTick ?? transport?.tick ?? 0);
     } catch (failure: unknown) {
       pending?.clear();
       if (this.destroyed || generation !== this.renderGeneration) return;
@@ -529,31 +700,125 @@ export class ScoreWorkspace implements AfterViewInit, OnDestroy {
   }
 
   private positionCursor(tick: number): void {
-    if (!this.renderer || tick === this.cursorTick) return;
-    const cursor = this.renderer.cursor;
-    if (tick < this.cursorTick || this.cursorTick < 0) cursor.reset();
-    const sourceTime = tick / 1920;
-    let steps = 0;
-    while (
-      !cursor.iterator.EndReached &&
-      cursor.iterator.CurrentSourceTimestamp.RealValue < sourceTime &&
-      steps++ < 100_000
-    ) {
-      cursor.next();
+    if ((this.session.transport()?.countInBeatsLeft ?? 0) > 0) {
+      this.renderer?.cursor.hide();
+      return;
     }
-    if (cursor.iterator.CurrentSourceTimestamp.RealValue > sourceTime && steps > 0)
-      cursor.previous();
-    if (!cursor.iterator.EndReached) cursor.show();
-    this.cursorTick = tick;
+    this.playbackCursor?.position(tick);
+    if (this.followFingering() && this.session.transport()?.status === 'PLAYING')
+      this.followPlayingNote();
+  }
+
+  private followPlayingNote(): void {
+    const iterator = this.renderer?.cursor?.Iterator;
+    const note = iterator?.CurrentVoiceEntries.find(
+      (entry) => entry.ParentVoice.Parent.IdString === this.activePart()?.id,
+    )?.Notes.find((note) => !note.isRest());
+    if (!note) return;
+    const pitch = note.Pitch.ToStringShort(3);
+    const measure = iterator?.CurrentMeasureIndex;
+    if (measure === undefined || this.measureIndex() !== measure) {
+      if (measure !== undefined) void this.selectMeasure(measure);
+      return;
+    }
+    const index = this.currentMeasure()?.events.findIndex(
+      (event) =>
+        event.pitch === pitch &&
+        Math.abs(
+          (event.onsetNumerator ?? 0) / (event.onsetDenominator ?? 1) -
+            note.ParentVoiceEntry.Timestamp.RealValue,
+        ) < 0.0001,
+    );
+    if (index !== undefined && index >= 0 && index !== this.eventIndex()) this.selectEvent(index);
+  }
+
+  private refreshAnnotations(): void {
+    if (!this.renderer || !this.sheet) return;
+    const event = this.selectedEvent();
+    annotateScore(this.renderer, this.sheet.nativeElement, {
+      enabled: this.readingEnabled(),
+      language: this.readingLanguage(),
+      octave: this.readingOctave(),
+      scope: this.readingScope(),
+      partId: this.activePart()?.id ?? '',
+      measure: this.measureIndex(),
+      pitch: this.selectedHead()?.pitch ?? null,
+      onset: (event?.onsetNumerator ?? 0) / (event?.onsetDenominator ?? 1),
+      voiceId: event?.voiceId ?? '1',
+      dark: this.darkScore(),
+    });
+  }
+
+  async hearSelected(): Promise<void> {
+    const pitch = this.soundingPitch();
+    if (!pitch || this.session.transport()?.status === 'PLAYING' || this.session.busy()) return;
+    await this.tone.playPitch(frequency(pitch.midi, this.audio.referenceHz()));
+  }
+
+  private redraw(): void {
+    const renderer = this.renderer;
+    if (!renderer) return;
+    renderer.render();
+    this.refreshAnnotations();
+    this.playbackCursor = new PlaybackCursor(renderer.cursor);
+    this.refreshPages();
+    const transport = this.session.transport();
+    this.positionCursor(transport?.audibleTick ?? transport?.tick ?? 0);
+  }
+
+  private pages(): HTMLElement[] {
+    return Array.from(this.sheet?.nativeElement.children ?? []).filter(
+      (element): element is HTMLElement =>
+        element instanceof HTMLElement && !!element.querySelector('svg'),
+    );
+  }
+
+  private refreshPages(): void {
+    this.pageCount.set(Math.max(1, this.pages().length));
+    this.updateVisiblePage();
+  }
+
+  updateVisiblePage(): void {
+    const region = this.documentRegion?.nativeElement;
+    if (!region) return;
+    const caption = region.querySelector('.page-caption');
+    const viewport = region.getBoundingClientRect();
+    const top = viewport.top + (caption?.getBoundingClientRect().height ?? 0) + 16;
+    let index = -1;
+    let mostVisible = 0;
+    this.pages().forEach((page, pageIndex) => {
+      const bounds = page.getBoundingClientRect();
+      const visible = Math.min(viewport.bottom, bounds.bottom) - Math.max(top, bounds.top);
+      if (visible > mostVisible) {
+        mostVisible = visible;
+        index = pageIndex;
+      }
+    });
+    if (index >= 0) this.pageNumber.set(index + 1);
+  }
+
+  goToPage(number: number): void {
+    const region = this.documentRegion?.nativeElement;
+    const page = this.pages()[number - 1];
+    if (!region || !page) return;
+    const caption = region.querySelector('.page-caption');
+    const top =
+      region.scrollTop +
+      page.getBoundingClientRect().top -
+      region.getBoundingClientRect().top -
+      (caption?.getBoundingClientRect().height ?? 0) -
+      16;
+    region.scrollTo({ top: Math.max(0, top), behavior: 'instant' });
+    this.pageNumber.set(number);
   }
 
   private animateCursor(): void {
     this.animationFrame = requestAnimationFrame((time) => {
       const transport = this.session.transport();
       if (!transport || transport.status !== 'PLAYING' || this.destroyed) return;
-      const elapsed = Math.max(0, time - this.playbackAnchor.time);
+      const elapsed = Math.min(160, Math.max(0, time - this.playbackAnchor.time));
       const predictedTick = Math.min(
-        transport.totalTicks,
+        transport.loop ? transport.loop.endTick - 1 : transport.totalTicks,
         this.playbackAnchor.tick + Math.floor((elapsed * this.playbackAnchor.bpm * 8) / 1000),
       );
       this.positionCursor(predictedTick);
@@ -562,12 +827,20 @@ export class ScoreWorkspace implements AfterViewInit, OnDestroy {
   }
 
   toggleScoreTheme(): void {
-    this.darkScore.update((dark) => !dark);
+    this.layout.toggleScoreTheme();
     void this.render(this.session.xml());
+  }
+
+  setWorkspaceMode(mode: Exclude<WorkspaceMode, 'custom'>): void {
+    this.layout.setMode(mode);
+    this.widePanels = { explorer: this.layout.explorer(), inspector: this.layout.inspector() };
+    if (this.compactViewport && mode === 'edit') this.layout.explorer.set(false);
+    if (this.studyPanel) this.studyPanel.nativeElement.open = mode === 'study';
   }
 
   ngOnDestroy(): void {
     this.destroyed = true;
+    this.tone.stop();
     this.resizeObserver?.disconnect();
     cancelAnimationFrame(this.resizeFrame);
     cancelAnimationFrame(this.animationFrame);

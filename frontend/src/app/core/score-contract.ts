@@ -14,8 +14,17 @@ export interface PartState {
 }
 
 export interface TransportState {
+  loop?: {
+    startTick: number;
+    endTick: number;
+    startMeasureIndex: number;
+    endMeasureIndex: number;
+  } | null;
   status: 'STOPPED' | 'PAUSED' | 'PLAYING';
   tick: number;
+  audibleTick?: number;
+  audibleBpm?: number;
+  audioLatencyMs?: number;
   totalTicks: number;
   measureIndex: number;
   measureNumber: string;
@@ -54,6 +63,8 @@ export interface EventView {
 }
 
 export interface MeasureEventsPage {
+  durationNumerator?: number;
+  durationDenominator?: number;
   revision: number;
   partId: string;
   index: number;
@@ -64,7 +75,13 @@ export interface MeasureEventsPage {
 export interface PartView {
   id: string;
   name: string;
-  measures: { index: number; number: string; events: EventView[] }[];
+  measures: {
+    index: number;
+    number: string;
+    events: EventView[];
+    durationNumerator?: number;
+    durationDenominator?: number;
+  }[];
 }
 
 export interface RangeWarning {
@@ -123,6 +140,7 @@ export interface ScoreView {
 }
 
 export interface PreviewView {
+  xml?: string;
   token: string;
   description: string;
   changedNotes: number;
@@ -199,6 +217,11 @@ function isEvent(value: unknown): value is EventView {
 export function isMeasureEventsPage(value: unknown): value is MeasureEventsPage {
   return (
     record(value) &&
+    ((value['durationNumerator'] === undefined && value['durationDenominator'] === undefined) ||
+      (integer(value['durationNumerator']) &&
+        value['durationNumerator'] > 0 &&
+        integer(value['durationDenominator']) &&
+        value['durationDenominator'] > 0)) &&
     integer(value['revision']) &&
     typeof value['partId'] === 'string' &&
     integer(value['index']) &&
@@ -216,7 +239,28 @@ export function isTransport(value: unknown): value is TransportState {
       value['status'] === 'PAUSED' ||
       value['status'] === 'PLAYING') &&
     integer(value['tick']) &&
+    (value['audibleTick'] === undefined || integer(value['audibleTick'])) &&
+    (value['audibleBpm'] === undefined ||
+      (typeof value['audibleBpm'] === 'number' &&
+        Number.isFinite(value['audibleBpm']) &&
+        value['audibleBpm'] > 0)) &&
+    (value['audioLatencyMs'] === undefined ||
+      (typeof value['audioLatencyMs'] === 'number' &&
+        Number.isFinite(value['audioLatencyMs']) &&
+        value['audioLatencyMs'] >= 0)) &&
     integer(value['totalTicks']) &&
+    (value['loop'] === undefined ||
+      value['loop'] === null ||
+      (record(value['loop']) &&
+        integer(value['loop']['startTick']) &&
+        integer(value['loop']['endTick']) &&
+        value['loop']['startTick'] >= 0 &&
+        value['loop']['endTick'] > value['loop']['startTick'] &&
+        value['loop']['endTick'] <= value['totalTicks'] &&
+        integer(value['loop']['startMeasureIndex']) &&
+        integer(value['loop']['endMeasureIndex']) &&
+        value['loop']['startMeasureIndex'] >= 0 &&
+        value['loop']['endMeasureIndex'] >= value['loop']['startMeasureIndex'])) &&
     integer(value['measureIndex']) &&
     typeof value['measureNumber'] === 'string' &&
     typeof value['bpm'] === 'number' &&
@@ -323,6 +367,7 @@ export function isWorkspace(value: unknown): value is WorkspaceView {
       (record(preview) &&
         typeof preview['token'] === 'string' &&
         typeof preview['description'] === 'string' &&
+        (preview['xml'] === undefined || typeof preview['xml'] === 'string') &&
         integer(preview['changedNotes']) &&
         Array.isArray(preview['changes']) &&
         preview['changes'].every(

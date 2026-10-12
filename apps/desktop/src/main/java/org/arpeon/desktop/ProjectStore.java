@@ -60,7 +60,8 @@ final class ProjectStore {
       ImportWorkspace.Source source,
       String xmlSha256,
       String createdAt,
-      String updatedAt) {}
+      String updatedAt,
+      String name) {}
 
   private final Path root;
   private final DurableWriter durableWriter;
@@ -76,7 +77,7 @@ final class ProjectStore {
   }
 
   static ProjectStore defaultStore() {
-    return new ProjectStore(Path.of(System.getProperty("user.home"), ".arpeon", "projects"));
+    return new ProjectStore(UserDirectories.data().resolve("projects"));
   }
 
   synchronized List<Info> list() throws IOException {
@@ -97,7 +98,7 @@ final class ProjectStore {
               .log(System.Logger.Level.WARNING, "Ignoring an invalid local project manifest");
           continue;
         }
-        result.add(new Info(id, manifest.title(), manifest.filename(), manifest.updatedAt()));
+        result.add(new Info(id, projectName(manifest), manifest.filename(), manifest.updatedAt()));
         if (result.size() > MAX_PROJECTS)
           throw new IOException("Local project limit reached; remove projects before adding more");
       }
@@ -107,6 +108,18 @@ final class ProjectStore {
   }
 
   synchronized Saved save(String requestedId, Data data) throws IOException {
+    return save(requestedId, data, null);
+  }
+
+  synchronized Saved rename(String id, String name) throws IOException {
+    return save(id, load(id).data(), validName(name));
+  }
+
+  synchronized Saved duplicate(String id, String name) throws IOException {
+    return save(null, load(id).data(), validName(name));
+  }
+
+  private Saved save(String requestedId, Data data, String name) throws IOException {
     String id =
         requestedId == null || requestedId.isBlank() ? UUID.randomUUID().toString() : requestedId;
     if (!isId(id)) throw new IllegalArgumentException("Invalid project ID");
@@ -135,7 +148,8 @@ final class ProjectStore {
             data.source(),
             sha256(xml),
             createdAt,
-            updatedAt);
+            updatedAt,
+            name != null ? name : previous == null ? null : previous.name());
 
     Path staging = Files.createTempDirectory(root, ".pending-");
     Path backup = root.resolve(".backup-" + id + "-" + UUID.randomUUID());
@@ -227,6 +241,13 @@ final class ProjectStore {
           || manifest.updatedAt() == null
           || !manifest.xmlSha256().matches("[0-9a-f]{64}"))
         throw new IOException("Invalid project manifest");
+      if (manifest.name() != null) {
+        try {
+          validName(manifest.name());
+        } catch (IllegalArgumentException invalidName) {
+          throw new IOException("Invalid project name", invalidName);
+        }
+      }
       validate(
           new Data(
               manifest.title(),
@@ -344,6 +365,20 @@ final class ProjectStore {
     }
   }
 
+  private static String projectName(Manifest manifest) {
+    return manifest.name() == null ? manifest.title() : manifest.name();
+  }
+
+  private static String validName(String name) {
+    if (name == null
+        || name.isBlank()
+        || name.strip().length() > 200
+        || name.codePoints().anyMatch(Character::isISOControl))
+      throw new IllegalArgumentException(
+          "Use um nome de projeto entre 1 e 200 caracteres, sem quebras de linha.");
+    return name.strip();
+  }
+
   private static String sha256(byte[] bytes) {
     try {
       return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes));
@@ -353,10 +388,30 @@ final class ProjectStore {
   }
 
   private static void move(Path source, Path destination) throws IOException {
-    try {
-      Files.move(source, destination, StandardCopyOption.ATOMIC_MOVE);
-    } catch (AtomicMoveNotSupportedException unsupported) {
-      Files.move(source, destination);
+    for (int attempt = 0; ; attempt++) {
+      try {
+        try {
+          Files.move(source, destination, StandardCopyOption.ATOMIC_MOVE);
+        } catch (AtomicMoveNotSupportedException unsupported) {
+          Files.move(source, destination);
+        }
+        return;
+      } catch (java.nio.file.AccessDeniedException locked) {
+        if (!System.getProperty("os.name").startsWith("Windows") || attempt >= 3) throw locked;
+        // Windows scanners can briefly keep a just-written score directory open.
+        System.getLogger(ProjectStore.class.getName())
+            .log(System.Logger.Level.DEBUG, "Retrying locked project directory move");
+        try {
+          Thread.sleep(50L * (attempt + 1));
+        } catch (InterruptedException interrupted) {
+          Thread.currentThread().interrupt();
+          var failure =
+              new java.io.InterruptedIOException(
+                  "Project save interrupted while waiting for the directory");
+          failure.initCause(interrupted);
+          throw failure;
+        }
+      }
     }
   }
 

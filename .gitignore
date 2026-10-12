@@ -2,6 +2,7 @@
 .tools/
 .playwright-mcp/
 .test-tmp/
+.impeccable/
 
 # Gradle and JVM build output
 .gradle/
@@ -29,6 +30,10 @@ pnpm-debug.log*
 !.env.example
 *.pem
 *.key
+*.pfx
+*.p12
+*.jks
+*.keystore
 
 # IDE and operating-system metadata
 .idea/

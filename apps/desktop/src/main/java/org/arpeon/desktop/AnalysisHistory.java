@@ -6,7 +6,6 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -29,7 +28,8 @@ final class AnalysisHistory {
       String partName,
       String mode,
       String completedAt,
-      PerformanceAnalyzer.Report report) {}
+      PerformanceAnalyzer.Report report,
+      AnalysisStudy.Context study) {}
 
   record Summary(
       String id,
@@ -59,8 +59,7 @@ final class AnalysisHistory {
   }
 
   static AnalysisHistory defaultHistory() {
-    return new AnalysisHistory(
-        Path.of(System.getProperty("user.home"), ".arpeon", "analysis-history.json"));
+    return new AnalysisHistory(UserDirectories.data().resolve("analysis-history.json"));
   }
 
   synchronized List<Summary> summaries() throws IOException {
@@ -114,28 +113,16 @@ final class AnalysisHistory {
   }
 
   private void write(List<Entry> entries) throws IOException {
-    Files.createDirectories(file.getParent());
-    Path temporary = Files.createTempFile(file.getParent(), "analysis-", ".tmp");
-    try {
-      var retained = new ArrayList<>(entries);
-      if (retained.size() > MAX_ENTRIES) retained.subList(MAX_ENTRIES, retained.size()).clear();
-      String content = json.toJson(retained);
-      while (content.getBytes(StandardCharsets.UTF_8).length > MAX_BYTES && retained.size() > 1) {
-        retained.removeLast();
-        content = json.toJson(retained);
-      }
-      if (content.getBytes(StandardCharsets.UTF_8).length > MAX_BYTES)
-        throw new IOException("Analysis history exceeds the 16 MiB limit");
-      Files.writeString(temporary, content, StandardCharsets.UTF_8);
-      try {
-        Files.move(
-            temporary, file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-      } catch (java.nio.file.AtomicMoveNotSupportedException unsupported) {
-        Files.move(temporary, file, StandardCopyOption.REPLACE_EXISTING);
-      }
-    } finally {
-      Files.deleteIfExists(temporary);
+    var retained = new ArrayList<>(entries);
+    if (retained.size() > MAX_ENTRIES) retained.subList(MAX_ENTRIES, retained.size()).clear();
+    byte[] content = json.toJson(retained).getBytes(StandardCharsets.UTF_8);
+    while (content.length > MAX_BYTES && retained.size() > 1) {
+      retained.removeLast();
+      content = json.toJson(retained).getBytes(StandardCharsets.UTF_8);
     }
+    if (content.length > MAX_BYTES)
+      throw new IOException("Analysis history exceeds the 16 MiB limit");
+    DurableFiles.replace(file, content);
   }
 
   private static Summary summary(Entry entry) {
@@ -189,6 +176,28 @@ final class AnalysisHistory {
           || entry.report().extraIndices().size() > PerformanceAnalyzer.MAX_OBSERVED_EVENTS)
         throw new IOException("Invalid analysis report");
       Instant.parse(entry.completedAt());
+      var study = entry.study();
+      if (study != null) {
+        if (study.scoreXmlSha256() == null
+            || !study.scoreXmlSha256().matches("[0-9a-f]{64}")
+            || !Double.isFinite(study.initialBpm())
+            || study.initialBpm() <= 0
+            || study.config() == null
+            || study.notes() == null
+            || study.notes().size() != entry.report().expectedCount())
+          throw new IOException("Invalid analysis study context");
+        for (int i = 0; i < study.notes().size(); i++) {
+          var note = study.notes().get(i);
+          if (note == null
+              || note.index() != i
+              || note.measureIndex() < 0
+              || note.eventIndex() < 0
+              || note.measureNumber() == null
+              || note.executionMeasureIndex() < 0
+              || note.endMeasureIndex() < note.executionMeasureIndex())
+            throw new IOException("Invalid analysis study location");
+        }
+      }
     } catch (IllegalArgumentException
         | NullPointerException
         | java.time.DateTimeException failure) {

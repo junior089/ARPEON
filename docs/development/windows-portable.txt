@@ -1,30 +1,22 @@
-ARPEON para Windows (pacote portatil)
+ARPEON para Windows — build interno de engenharia
 
-1. Extraia o arquivo ZIP inteiro para uma pasta local.
-2. Abra ARPEON.exe na pasta ARPEON extraida. A interface abre no navegador padrao.
-3. Mantenha a janela de console aberta enquanto usa o ARPEON. Feche a janela ou
-   pressione Ctrl+C para encerrar o servidor local.
+Instale o MSI ou extraia o ZIP inteiro e abra ARPEON.exe na pasta ARPEON.
+A interface abre em uma janela própria. Feche-a ou use Arquivo > Encerrar ARPEON.
+Java, Chromium, Audiveris e modelos de OCR estão incluídos. Não instale runtimes
+separadamente e não mova o executável para fora da pasta.
 
-O Java necessario esta incluido na pasta runtime. Nao e necessario instalar Java
-nem ter conexao com a internet para usar as funcoes locais. O ARPEON usa apenas
-uma porta local 127.0.0.1 para a interface. Nao mova o .exe para fora da pasta.
+Partituras, configurações e históricos ficam no diretório de dados do usuário,
+fora da instalação. Perfis antigos em ~/.arpeon são preservados. Desinstalar o
+aplicativo não remove projetos. A licença, avisos e source.zip estão nesta pasta.
 
-Para reconhecer PDF/imagem, abra Importar e clique em Configurar Audiveris
-automaticamente. No primeiro uso, o ARPEON baixa o pacote oficial Audiveris
-5.11.0 (cerca de 81 MiB), confere seu SHA-256, prepara os arquivos na pasta
-do usuario e verifica se o executavel inicia. Precisa de internet apenas
-nessa etapa. O Audiveris nao acompanha o ZIP do ARPEON.
+Em Importar, selecione PDF/imagem, reconheça e confira a prévia com o original.
+O reconhecimento exige revisão musical; nenhum OCR garante transcrição exata.
+As funções locais trabalham offline. A importação da Wikimedia usa a internet.
+Atualizações permanecem inativas enquanto não houver publicação oficial.
 
-O codigo-fonte correspondente esta em source.zip; a licenca e os avisos de
-terceiros estao nesta pasta. Veja docs/development/setup.md no codigo-fonte
-para instrucoes de compilacao. RELEASE-NOTES.md resume esta versao e suas
-limitacoes. O checksum SHA-256 do ZIP fica no arquivo .sha256 ao lado dele.
-
-Assinatura Authenticode e opcional para builds locais. Em um ambiente de release,
-instale o certificado de assinatura no armazenamento Pessoal do usuario que executa
-o build, disponibilize signtool.exe no PATH e configure
-ARPEON_SIGN_CERT_THUMBPRINT (40 caracteres) e ARPEON_TIMESTAMP_URL (endpoint RFC
-3161 HTTP(S)). Execute package-windows.ps1 -RequireSignature. O script assina e
-verifica ARPEON.exe antes de criar o ZIP; sem essas variaveis o pacote e emitido
-sem assinatura e o script mostra um aviso. A chave privada nao deve ficar no
-repositorio nem no pacote.
+Este pacote ainda não foi aprovado para distribuição pública: faltam revisão
+das condições de redistribuição do JAI e fontes nativas, instalação em máquina
+limpa, assinatura confiável, atualização completa e aceitação com hardware real.
+Veja docs/development/production-validation.md e docs/legal/native-distribution.md
+no source.zip. Checksums verificam integridade; um pacote sem assinatura não
+identifica um editor confiável para o Windows.

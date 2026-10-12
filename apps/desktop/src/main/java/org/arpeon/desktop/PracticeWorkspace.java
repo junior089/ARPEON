@@ -83,6 +83,7 @@ final class PracticeWorkspace implements AutoCloseable {
   private int attemptBpm;
   private int iteration;
   private boolean loop;
+  private boolean playbackSuspended = true;
   private int progressiveStep;
   private List<Target> targets = List.of();
   private int targetIndex;
@@ -252,6 +253,7 @@ final class PracticeWorkspace implements AutoCloseable {
     if (attemptId != null)
       throw new IllegalStateException("Finish the current attempt before starting another");
     resetAttempt();
+    playbackSuspended = true;
     player.stop();
     active = true;
     startedNanos = System.nanoTime();
@@ -359,9 +361,18 @@ final class PracticeWorkspace implements AutoCloseable {
   synchronized View playback(String action) {
     requireExercise();
     switch (action) {
-      case "play" -> player.play();
-      case "pause" -> player.pause();
-      case "stop" -> player.stop();
+      case "play" -> {
+        playbackSuspended = false;
+        player.play();
+      }
+      case "pause" -> {
+        playbackSuspended = true;
+        player.pause();
+      }
+      case "stop" -> {
+        playbackSuspended = true;
+        player.stop();
+      }
       default -> throw new IllegalArgumentException("Unknown practice playback action");
     }
     return snapshot();
@@ -398,7 +409,10 @@ final class PracticeWorkspace implements AutoCloseable {
   synchronized View snapshot() {
     requireExercise();
     var state = player.snapshot();
-    if (loop && state.status().equals("STOPPED") && state.tick() == state.totalTicks()) {
+    if (loop
+        && !playbackSuspended
+        && state.status().equals("STOPPED")
+        && state.tick() == state.totalTicks()) {
       iteration++;
       bpm = Math.min(180, bpm + progressiveStep);
       player.setBpm(bpm);
@@ -427,7 +441,17 @@ final class PracticeWorkspace implements AutoCloseable {
   }
 
   synchronized void stopIfPlaying() {
+    playbackSuspended = true;
     if (player != null && player.snapshot().status().equals("PLAYING")) player.stop();
+  }
+
+  synchronized void pauseIfPlaying() {
+    playbackSuspended = true;
+    if (player != null && player.snapshot().status().equals("PLAYING")) player.pause();
+  }
+
+  synchronized boolean activeAttempt() {
+    return active;
   }
 
   private Double stability() {

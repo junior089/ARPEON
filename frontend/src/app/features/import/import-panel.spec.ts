@@ -1,11 +1,233 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { LOCAL_FETCH, SESSION_TOKEN } from '../../core/local-session';
 import { ScoreSession } from '../score/score-session';
 import { ImportPanel } from './import-panel';
 
+const omrPreview = () => ({
+  token: 'omr',
+  title: 'Rascunho de validação',
+  filename: 'Canção – flauta.pdf',
+  sha256: 'a'.repeat(64),
+  pages: 2,
+  parts: 1,
+  measures: 2,
+  recognizedMeasures: [{ part: 'Flauta', number: '1', events: ['C5 · 1/4'] }],
+  pagesRequiringReview: [1, 2],
+  measuresRequiringReview: ['Flauta · 1'],
+  warnings: ['P1 · compasso 1: Fórmula provisória 5/4. Confira o original.'],
+  unsupportedSymbols: [],
+});
+async function panelWith(fetcher: typeof fetch) {
+  await TestBed.configureTestingModule({
+    imports: [ImportPanel],
+    providers: [
+      { provide: LOCAL_FETCH, useValue: fetcher },
+      { provide: SESSION_TOKEN, useValue: 'session' },
+      {
+        provide: ScoreSession,
+        useValue: { busy: signal(false), error: signal(''), projectDirty: signal(false) },
+      },
+    ],
+  }).compileComponents();
+  return TestBed.createComponent(ImportPanel);
+}
+function pdfEvent(name = 'Canção – flauta.pdf'): Event {
+  const input = document.createElement('input');
+  Object.defineProperty(input, 'files', {
+    value: [new File(['%PDF-1.3'], name, { type: 'text/html' })],
+  });
+  return { target: input } as unknown as Event;
+}
+
 describe('ImportPanel', () => {
+  afterEach(() => {
+    TestBed.resetTestingModule();
+    vi.restoreAllMocks();
+  });
+  it('accepts accented filenames and shows locally rendered pages with disclosed draft cautions', async () => {
+    const create = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:pdf-original');
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockImplementation(async (url) =>
+        url === '/api/omr/pdf-page'
+          ? new Response('png', { headers: { 'Content-Type': 'image/png' } })
+          : Response.json(url === '/api/omr/status' ? { available: true } : omrPreview()),
+      );
+    const fixture = await panelWith(fetcher);
+    await fixture.componentInstance.analyzeOmr(pdfEvent());
+    await vi.waitFor(() => expect(fixture.componentInstance.omrPageLoading()).toBe(false));
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    expect(root.querySelector('.omr-pdf-page')?.getAttribute('src')).toBe('blob:pdf-original');
+    expect(root.querySelector('iframe')).toBeNull();
+    expect((create.mock.calls[0]?.[0] as Blob).type).toBe('application/pdf');
+    expect(root.textContent).toContain('Rascunho · avisos de ritmo: 1');
+    await fixture.componentInstance.showOmrOriginalPage(2);
+    expect(fixture.componentInstance.omrOriginalPage()).toBe(2);
+    expect(fetcher).toHaveBeenCalledWith(
+      '/api/omr/pdf-page',
+      expect.objectContaining({
+        headers: expect.objectContaining({ 'X-Arpeon-Page': '2' }),
+      }),
+    );
+    expect(fetcher).toHaveBeenCalledWith(
+      '/api/omr/preview',
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          'X-Arpeon-Filename': encodeURIComponent('Canção – flauta.pdf'),
+          'X-Arpeon-Job': expect.any(String),
+        }),
+      }),
+    );
+  });
+  it('keeps a page error recoverable and ignores a page arriving after leaving the surface', async () => {
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:original');
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    let finish: ((response: Response) => void) | undefined;
+    let pageCalls = 0;
+    const latePage = new Promise<Response>((resolve) => {
+      finish = resolve;
+    });
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async (url) => {
+      if (url === '/api/omr/status') return Response.json({ available: true });
+      if (url === '/api/omr/cancel') return Response.json({ cancelled: true });
+      if (url === '/api/omr/pdf-page') {
+        if (++pageCalls === 1) return Response.json({ error: 'page failed' }, { status: 422 });
+        return latePage;
+      }
+      return Response.json(omrPreview());
+    });
+    const fixture = await panelWith(fetcher);
+    const panel = fixture.componentInstance;
+    await panel.analyzeOmr(pdfEvent());
+    await vi.waitFor(() => expect(panel.omrPageLoading()).toBe(false));
+    expect(panel.omrPageError()).toContain('Tente novamente');
+    expect(panel.omrPending()?.token).toBe('omr');
+    const retry = panel.showOmrOriginalPage(1);
+    await vi.waitFor(() => expect(pageCalls).toBe(2));
+    panel.ngOnDestroy();
+    finish?.(new Response('png', { headers: { 'Content-Type': 'image/png' } }));
+    await retry;
+    expect(panel.omrPageImage()).toBe('');
+  });
+  it('keeps native failure detail separate from the readable error', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockImplementation(async (url) =>
+        url === '/api/omr/status'
+          ? Response.json({ available: true })
+          : Response.json(
+              { error: 'O Audiveris não concluiu o reconhecimento.\nNATIVE_FAILURE_DETAIL' },
+              { status: 422 },
+            ),
+      );
+    const fixture = await panelWith(fetcher);
+    await fixture.componentInstance.analyzeOmr(pdfEvent());
+    expect(fixture.componentInstance.error()).toBe('O Audiveris não concluiu o reconhecimento.');
+    expect(fixture.componentInstance.omrDiagnostic()).toBe('NATIVE_FAILURE_DETAIL');
+  });
+  it('cancels the matching backend job and discards a late successful response', async () => {
+    let finish: ((response: Response) => void) | undefined;
+    const previewResponse = new Promise<Response>((resolve) => {
+      finish = resolve;
+    });
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async (url) => {
+      if (url === '/api/omr/status') return Response.json({ available: true });
+      if (url === '/api/omr/cancel') return Response.json({ cancelled: true });
+      return previewResponse;
+    });
+    const fixture = await panelWith(fetcher);
+    const panel = fixture.componentInstance;
+    const running = panel.analyzeOmr(pdfEvent());
+    await vi.waitFor(() =>
+      expect(fetcher).toHaveBeenCalledWith('/api/omr/preview', expect.anything()),
+    );
+    expect(panel.busy()).toBe(true);
+    await panel.cancelOmr();
+    expect(panel.busy()).toBe(true);
+    const previewCall = fetcher.mock.calls.find((call) => call[0] === '/api/omr/preview');
+    const cancelCall = fetcher.mock.calls.find((call) => call[0] === '/api/omr/cancel');
+    const headers = previewCall?.[1]?.headers as Record<string, string>;
+    expect(JSON.parse(String(cancelCall?.[1]?.body))).toEqual({ jobId: headers['X-Arpeon-Job'] });
+    finish?.(Response.json(omrPreview()));
+    await running;
+    expect(panel.omrPending()).toBeNull();
+    expect(panel.omrMessage()).toContain('Reconhecimento cancelado');
+    expect(panel.busy()).toBe(false);
+  });
+  it('does not claim cancellation or lose the result if the cancellation request fails', async () => {
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:pdf-original');
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    let finish: ((response: Response) => void) | undefined;
+    const response = new Promise<Response>((resolve) => {
+      finish = resolve;
+    });
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async (url) => {
+      if (url === '/api/omr/status') return Response.json({ available: true });
+      if (url === '/api/omr/cancel') throw new TypeError('connection failed');
+      return response;
+    });
+    const fixture = await panelWith(fetcher);
+    const panel = fixture.componentInstance;
+    const running = panel.analyzeOmr(pdfEvent());
+    await vi.waitFor(() =>
+      expect(fetcher).toHaveBeenCalledWith('/api/omr/preview', expect.anything()),
+    );
+    await panel.cancelOmr();
+    expect(panel.cancellingOmr()).toBe(false);
+    expect(panel.busy()).toBe(true);
+    finish?.(Response.json(omrPreview()));
+    await running;
+    expect(panel.omrPending()?.token).toBe('omr');
+  });
+  it('does not republish a preview when cancellation completes during JSON decoding', async () => {
+    let finish: ((value: unknown) => void) | undefined;
+    const decoding = new Promise<unknown>((resolve) => {
+      finish = resolve;
+    });
+    const response = Response.json({});
+    const json = vi.spyOn(response, 'json').mockImplementation(() => decoding);
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async (url) => {
+      if (url === '/api/omr/status') return Response.json({ available: true });
+      if (url === '/api/omr/cancel') return Response.json({ cancelled: true });
+      return response;
+    });
+    const fixture = await panelWith(fetcher);
+    const panel = fixture.componentInstance;
+    const running = panel.analyzeOmr(pdfEvent());
+    await vi.waitFor(() => expect(json).toHaveBeenCalled());
+    await panel.cancelOmr();
+    finish?.(omrPreview());
+    await running;
+    expect(panel.omrPending()).toBeNull();
+    expect(panel.omrOriginalUrl()).toBe('');
+    expect(panel.omrMessage()).toContain('Reconhecimento cancelado');
+  });
+  it('does not install a late result after leaving the import surface', async () => {
+    let finish: ((response: Response) => void) | undefined;
+    const response = new Promise<Response>((resolve) => {
+      finish = resolve;
+    });
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async (url) => {
+      if (url === '/api/omr/status') return Response.json({ available: true });
+      if (url === '/api/omr/cancel') return Response.json({ cancelled: true });
+      return response;
+    });
+    const fixture = await panelWith(fetcher);
+    const panel = fixture.componentInstance;
+    const running = panel.analyzeOmr(pdfEvent());
+    await vi.waitFor(() =>
+      expect(fetcher).toHaveBeenCalledWith('/api/omr/preview', expect.anything()),
+    );
+    panel.ngOnDestroy();
+    finish?.(Response.json(omrPreview()));
+    await running;
+    expect(panel.omrPending()).toBeNull();
+    expect(fetcher).toHaveBeenCalledWith('/api/omr/cancel', expect.anything());
+  });
   it('explains a lost local connection during PDF recognition', async () => {
     const fetcher = vi.fn<typeof fetch>().mockRejectedValue(new TypeError('Failed to fetch'));
     await TestBed.configureTestingModule({
@@ -44,7 +266,7 @@ describe('ImportPanel', () => {
 
     expect(fetcher).toHaveBeenCalledTimes(1);
     expect(fetcher).toHaveBeenCalledWith('/api/omr/status', expect.any(Object));
-    expect(panel.error()).toContain('Audiveris não configurado');
+    expect(panel.error()).toContain('Reinstale o pacote completo do ARPEON');
   });
 
   it('accepts and pages a local draft beyond the former 512-note limit', async () => {
@@ -140,6 +362,10 @@ describe('ImportPanel', () => {
     expect((fixture.nativeElement as HTMLElement).querySelector('img')?.getAttribute('src')).toBe(
       'blob:original',
     );
+    const original = (fixture.nativeElement as HTMLElement).querySelector('a[download]');
+    expect(original?.getAttribute('href')).toBe('blob:original');
+    expect(original?.getAttribute('download')).toBe('sheet.png');
+    expect(original?.hasAttribute('target')).toBe(false);
     await panel.acceptOmr();
     expect(acceptOmr).not.toHaveBeenCalled();
     panel.omrAcknowledged = true;

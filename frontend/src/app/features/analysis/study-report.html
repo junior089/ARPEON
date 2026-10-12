@@ -1,0 +1,248 @@
+@let result = report();
+<p class="coverage" role="status">
+  <strong>{{ result.matchedCount }} de {{ result.expectedCount }} notas correspondidas</strong>
+  · cobertura {{ coverage() | number:'1.0-1' }}%. Os percentuais abaixo consideram as
+  correspondências, não a partitura inteira.
+</p>
+@if (result.status === 'INSUFFICIENT_DATA') {
+<p>
+  Nenhuma nota estável foi capturada. Confira a entrada de áudio e o sinal antes de repetir a
+  tentativa; não há métricas para interpretar.
+</p>
+} @else {
+<p>
+  Notas não identificadas: {{ result.missedCount ?? '—' }} · extras: {{ result.extraCount ?? '—' }}
+  · antecipadas: {{ result.earlyCount ?? '—' }} · atrasadas: {{ result.lateCount ?? '—' }}.
+</p>
+@if (coverage() < 70) {
+<p class="notice">
+  A cobertura ficou abaixo de 70%. Confira a captura e as notas não identificadas antes de
+  interpretar os percentuais como resultado do trecho inteiro.
+</p>
+} @if (caution()) {
+<p class="notice">
+  A captura pede atenção: a confiança média é {{ result.meanMatchedConfidence === null ?
+  'indisponível' : (result.meanMatchedConfidence | number:'1.2-2') }}. Confira ruído, entrada e
+  distância do microfone. Baixa confiança e notas não identificadas também podem vir da captura.
+</p>
+}
+<div class="metrics">
+  <div>
+    <strong
+      >{{ result.pitchAccuracyPercent === null ? '—' : (result.pitchAccuracyPercent |
+      number:'1.0-1') + '%' }}</strong
+    ><span>Altura</span>
+  </div>
+  <div>
+    <strong
+      >{{ result.timingAccuracyPercent === null ? '—' : (result.timingAccuracyPercent |
+      number:'1.0-1') + '%' }}</strong
+    ><span>Entradas no tempo</span>
+  </div>
+  <div>
+    <strong
+      >{{ result.durationAccuracyPercent === null ? '—' : (result.durationAccuracyPercent |
+      number:'1.0-1') + '%' }}</strong
+    ><span>Duração</span>
+  </div>
+  <div>
+    <strong
+      >{{ result.interOnsetAccuracyPercent === null ? '—' : (result.interOnsetAccuracyPercent |
+      number:'1.0-1') + '%' }}</strong
+    ><span>Intervalos rítmicos</span>
+  </div>
+</div>
+<section aria-label="Orientação de estudo">
+  <h3>Próximo estudo</h3>
+  @if (context()) { @if (!compatible()) {
+  <p class="notice">
+    A partitura, a revisão ou o instrumento mudou. Este relatório continua disponível; analise a
+    configuração atual para preparar seus trechos.
+  </p>
+  } @if (passages().length) {
+  <label class="tempo"
+    >Andamento do estudo (BPM)
+    <input
+      type="number"
+      min="30"
+      max="300"
+      [value]="bpm()"
+      (input)="setBpm($event)"
+      [disabled]="busy()"
+    />
+  </label>
+  <p class="hint">
+    Sugestão inicial: 80% do andamento analisado, limitada a 30–300 BPM. Ajuste como preferir.
+    Preparar abre a pauta sem iniciar áudio ou microfone.
+  </p>
+  <p class="hint">
+    O A–B prepara a reprodução para estudo. Uma nova análise ainda avalia a parte inteira no
+    andamento escrito.
+  </p>
+  <ol class="passages">
+    @for (passage of passages(); track passage.location.executionMeasureIndex) {
+    <li>
+      <strong
+        >Compasso {{ passage.location.measureNumber }} · posição {{
+        passage.location.executionMeasureIndex + 1 }} na execução</strong
+      >
+      <p>
+        {{ passage.affected }} de {{ passage.expected }} notas com desvios ou sem correspondência.
+      </p>
+      @if (passage.pitch) {
+      <p>
+        Notas com altura fora da tolerância: {{ passage.pitch }}. Confira as alturas e pratique as
+        mudanças de digitação lentamente.
+      </p>
+      } @if (passage.early || passage.late) {
+      <p>
+        Entradas antecipadas: {{ passage.early }}; atrasadas: {{ passage.late }}. Marque a pulsação
+        antes de tocar novamente.
+      </p>
+      } @if (passage.duration) {
+      <p>
+        Notas com duração fora da tolerância: {{ passage.duration }}. Sustente cada nota pelo valor
+        escrito.
+      </p>
+      } @if (passage.missed) {
+      <p>Notas não identificadas: {{ passage.missed }}. Confira a articulação e a captura.</p>
+      }
+      <button
+        type="button"
+        class="primary"
+        (click)="prepare(passage.location.index, true)"
+        [disabled]="busy() || !compatible() || !validBpm()"
+      >
+        Preparar trecho A–B · compasso {{ passage.location.measureNumber }} · posição {{
+        passage.location.executionMeasureIndex + 1 }}
+      </button>
+    </li>
+    }
+  </ol>
+  } @else {
+  <p>
+    {{ caution() ? 'Confira a captura antes de escolher um trecho: as correspondências de baixa
+    confiança não geram sugestões de erro musical.' : 'As correspondências não indicam um trecho
+    prioritário pelos critérios desta tentativa. Revise as notas extras e a cobertura antes de
+    repetir.' }}
+  </p>
+  }
+  <details>
+    <summary>Critérios das sugestões</summary>
+    <p>
+      Mostramos até três compassos, ordenados pela proporção de notas com algum desvio ou sem
+      correspondência. Cada nota é contada uma vez, mesmo com vários desvios. Passagens repetidas
+      ficam separadas.
+    </p>
+    <p>
+      Desvios musicais entram nas sugestões apenas com confiança de pelo menos 0,80. Notas não
+      identificadas continuam visíveis. A cautela de captura usa confiança média abaixo de 0,80 e
+      cobertura abaixo de 70%; são regras desta interface e não modificam os percentuais do
+      analisador.
+    </p>
+    <p>
+      Critérios da tentativa: entrada ±{{ context()!.config.timingToleranceMs }} ms; altura ±{{
+      context()!.config.pitchToleranceCents }} cents; duração ±{{
+      context()!.config.rhythmTolerancePercent }}%; alinhamento {{
+      context()!.config.alignmentWindowMs }} ms; compensação {{
+      context()!.config.latencyCompensationMs }} ms. Andamento inicial {{ context()!.initialBpm }}
+      BPM; transposição sonora {{ context()!.soundingSemitones }} semitons.
+    </p>
+  </details>
+  } @else {
+  <p>
+    Este relatório antigo não guarda localizações e critérios completos. Seus resultados continuam
+    disponíveis; uma nova tentativa permite preparar trechos pela análise.
+  </p>
+  }
+</section>
+<details>
+  <summary>Desvios por nota · {{ result.matches.length }} correspondências</summary>
+  <p class="hint">
+    Alturas em som real, com oitava. Entrada negativa: antecipada; positiva: atrasada. Os índices de
+    nota seguem a execução, incluindo repetições.
+  </p>
+  <div class="table-scroll">
+    <table>
+      <thead>
+        <tr>
+          <th>Nota / compasso</th>
+          <th>Esperada</th>
+          <th>Tocada</th>
+          <th>Entrada (ms)</th>
+          <th>Duração (%)</th>
+          <th>Afinação (cents)</th>
+          <th>Confiança</th>
+          <th>Pauta</th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (match of matches(); track match.expectedIndex) {
+        <tr>
+          <td>
+            {{ match.expectedIndex + 1 }} @if (context()?.notes?.[match.expectedIndex]; as location)
+            { · {{ location.measureNumber }} (posição {{ location.executionMeasureIndex + 1 }}) }
+          </td>
+          <td>{{ noteName(match.expectedMidi) }}</td>
+          <td>{{ noteName(match.observedMidi) }}</td>
+          <td>{{ match.onsetErrorMs | number:'1.0-0' }}</td>
+          <td>{{ match.durationErrorPercent | number:'1.0-0' }}</td>
+          <td>{{ match.centsError | number:'1.0-0' }}</td>
+          <td>{{ match.confidence | number:'1.2-2' }}</td>
+          <td>
+            <button
+              type="button"
+              (click)="prepare(match.expectedIndex, false)"
+              [disabled]="busy() || !compatible() || !context()?.notes?.[match.expectedIndex]"
+              [attr.aria-label]="'Ver nota ' + (match.expectedIndex + 1) + ' na pauta'"
+            >
+              Ver na pauta
+            </button>
+          </td>
+        </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+  @if (pageCount() > 1) {
+  <nav aria-label="Páginas das correspondências">
+    <button type="button" (click)="page.set(currentPage() - 1)" [disabled]="currentPage() === 0">
+      Anteriores
+    </button>
+    <span>{{ currentPage() + 1 }} de {{ pageCount() }}</span>
+    <button
+      type="button"
+      (click)="page.set(currentPage() + 1)"
+      [disabled]="currentPage() + 1 >= pageCount()"
+    >
+      Próximas
+    </button>
+  </nav>
+  }
+  <p>
+    Notas não identificadas (a partir de 1): {{ result.missedIndices.length ?
+    result.missedIndices.map(indexLabel).join(', ') : 'nenhuma' }}.
+  </p>
+  <details>
+    <summary>Dados técnicos</summary>
+    <p>
+      Erro médio de entrada: {{ result.meanAbsoluteTimingErrorMs === null ? '—' :
+      (result.meanAbsoluteTimingErrorMs | number:'1.0-1') + ' ms' }} · afinação da mesma altura: {{
+      result.meanAbsoluteIntonationCents === null ? '—' : (result.meanAbsoluteIntonationCents |
+      number:'1.0-1') + ' cents' }}.
+    </p>
+    <p>
+      MIDI esperado/tocado nesta página: @for (match of matches(); track match.expectedIndex) { {{
+      match.expectedIndex + 1 }}: {{ match.expectedMidi }}/{{ match.observedMidi }}; }
+    </p>
+    <p>
+      Índices extras da captura (a partir de zero): {{ result.extraIndices.join(', ') || 'nenhum'
+      }}.
+    </p>
+  </details>
+</details>
+}
+<p class="hint">
+  Não existe nota geral. A análise é monofônica e usa entradas estimadas; áudio fraco, latência e
+  articulações rápidas podem limitar o resultado. O relatório é local e não grava áudio.
+</p>

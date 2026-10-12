@@ -58,7 +58,13 @@ final class ScoreWorkspace implements AutoCloseable {
   record MeasureEvents(int index, String number, List<EventView> events) {}
 
   record MeasureEventsPage(
-      int revision, String partId, int index, String number, List<EventView> events) {}
+      int revision,
+      String partId,
+      int index,
+      String number,
+      List<EventView> events,
+      long durationNumerator,
+      long durationDenominator) {}
 
   record PartView(String id, String name, List<MeasureEvents> measures) {}
 
@@ -103,7 +109,8 @@ final class ScoreWorkspace implements AutoCloseable {
       int changedNotes,
       List<PitchChange> changes,
       List<ScoreTransform.RangeWarning> warningsBefore,
-      List<ScoreTransform.RangeWarning> warningsAfter) {}
+      List<ScoreTransform.RangeWarning> warningsAfter,
+      String xml) {}
 
   private record PositionedEvent(
       String voiceId, int eventIndex, org.arpeon.domain.score.TimedEvent timed) {}
@@ -121,7 +128,9 @@ final class ScoreWorkspace implements AutoCloseable {
       double durationMs,
       double initialBpm,
       List<ExpectedEvent> expected,
-      List<Long> expectedTicks) {}
+      List<Long> expectedTicks,
+      List<AnalysisStudy.Location> locations,
+      String scoreXmlSha256) {}
 
   private record Pending(int revision, ScoreDocument.State candidate, PreviewView view) {}
 
@@ -345,7 +354,13 @@ final class ScoreWorkspace implements AutoCloseable {
               List.copyOf(headViews)));
     }
     return new MeasureEventsPage(
-        document.revision(), partId, measureIndex, measure.number(), List.copyOf(events));
+        document.revision(),
+        partId,
+        measureIndex,
+        measure.number(),
+        List.copyOf(events),
+        measure.timeSignature().measureDuration().numerator(),
+        measure.timeSignature().measureDuration().denominator());
   }
 
   synchronized boolean isOpen() {
@@ -369,6 +384,11 @@ final class ScoreWorkspace implements AutoCloseable {
         importWarnings,
         source,
         exportXml());
+  }
+
+  synchronized int revision() {
+    if (document == null) throw new IllegalStateException("No score is open");
+    return document.revision();
   }
 
   synchronized View openProject(ProjectStore.Data data) throws IOException {
@@ -417,6 +437,9 @@ final class ScoreWorkspace implements AutoCloseable {
     }
     var expected = new ArrayList<ExpectedEvent>();
     var expectedTicks = new ArrayList<Long>();
+    var locations = new ArrayList<AnalysisStudy.Location>();
+    var execution = org.arpeon.transport.ExecutionMap.expand(document.current());
+    var eventPages = new java.util.HashMap<Integer, MeasureEventsPage>();
     for (var note : selectedNotes) {
       if (expected.size() == PerformanceAnalyzer.MAX_EXPECTED_EVENTS)
         throw new IllegalArgumentException("Analysis supports up to 2048 notes");
@@ -426,6 +449,28 @@ final class ScoreWorkspace implements AutoCloseable {
           new ExpectedEvent(
               expected.size(), note.midiNumber() + transposition, onset, end - onset));
       expectedTicks.add(note.startTick());
+      int occurrence = timeline.measureIndexAt(note.startTick());
+      int written = execution.get(occurrence).measureIndex();
+      var measure = timeline.measures().get(occurrence);
+      long localTick = note.startTick() - measure.startTick();
+      var page = eventPages.computeIfAbsent(written, index -> measureEvents(partId, index));
+      var event =
+          page.events().stream()
+              .filter(
+                  candidate ->
+                      !candidate.kind().equals("REST")
+                          && candidate.onsetNumerator() * 1920 / candidate.onsetDenominator()
+                              == localTick)
+              .findFirst()
+              .orElseThrow(() -> new IllegalStateException("Analysis note location missing"));
+      locations.add(
+          new AnalysisStudy.Location(
+              expected.size() - 1,
+              written,
+              page.number(),
+              event.index(),
+              occurrence,
+              timeline.measureIndexAt(note.startTick() + note.durationTicks() - 1)));
     }
     if (expected.isEmpty()) throw new IllegalArgumentException("Selected part has no notes");
     double duration = 1000 * timeline.secondsAt(timeline.totalTicks());
@@ -442,7 +487,81 @@ final class ScoreWorkspace implements AutoCloseable {
         duration,
         timeline.firstBpm(),
         List.copyOf(expected),
-        List.copyOf(expectedTicks));
+        List.copyOf(expectedTicks),
+        List.copyOf(locations),
+        scoreXmlSha256());
+  }
+
+  private String scoreXmlSha256() {
+    try {
+      return java.util.HexFormat.of()
+          .formatHex(
+              java.security.MessageDigest.getInstance("SHA-256")
+                  .digest(exportXml().getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+    } catch (java.security.NoSuchAlgorithmException unavailable) {
+      throw new IllegalStateException("SHA-256 unavailable", unavailable);
+    }
+  }
+
+  record StudySelection(MidiScorePlayer.State transport, AnalysisStudy.Location location) {}
+
+  synchronized StudySelection prepareStudy(JsonObject request) {
+    keys(
+        request,
+        "sha256",
+        "scoreXmlSha256",
+        "revision",
+        "partId",
+        "soundingSemitones",
+        "expectedIndex",
+        "bpm",
+        "repeat");
+    String sha256 = string(request, "sha256");
+    String xmlHash = string(request, "scoreXmlSha256");
+    int revision = integer(request, "revision");
+    String partId = string(request, "partId");
+    int transposition = integer(request, "soundingSemitones");
+    int index = integer(request, "expectedIndex");
+    var tempo = request.get("bpm");
+    var repeat = request.get("repeat");
+    if (tempo == null
+        || !tempo.isJsonPrimitive()
+        || !tempo.getAsJsonPrimitive().isNumber()
+        || repeat == null
+        || !repeat.isJsonPrimitive()
+        || !repeat.getAsJsonPrimitive().isBoolean())
+      throw new IllegalArgumentException("Informe o andamento e a repetição do trecho.");
+    double bpm = tempo.getAsDouble();
+    if (!Double.isFinite(bpm) || bpm < 30 || bpm > 300)
+      throw new IllegalArgumentException("Escolha um andamento entre 30 e 300 BPM.");
+    if (document == null || !imported.sha256().equals(sha256) || document.revision() != revision)
+      throw new IllegalStateException(
+          "A partitura mudou. Analise esta revisão antes de preparar o trecho.");
+    var source = analysisSource(partId);
+    if (source.soundingSemitones() != transposition)
+      throw new IllegalStateException(
+          "O instrumento mudou. Analise novamente para usar este trecho.");
+    if (index < 0 || index >= source.locations().size())
+      throw new IllegalArgumentException("Nota do relatório fora da partitura.");
+    if (!source.scoreXmlSha256().equals(xmlHash))
+      throw new IllegalStateException(
+          "O conteúdo da partitura mudou. Analise novamente antes de preparar este trecho.");
+    var location = source.locations().get(index);
+    int end = location.endMeasureIndex();
+    // Include continuations of every note that starts in this performed measure.
+    if (repeat.getAsBoolean())
+      for (var candidate : source.locations())
+        if (candidate.executionMeasureIndex() == location.executionMeasureIndex())
+          end = Math.max(end, candidate.endMeasureIndex());
+    player.pause();
+    player.selectPart(partId);
+    player.setLoop(location.executionMeasureIndex(), end, repeat.getAsBoolean());
+    if (repeat.getAsBoolean()) player.setBpm(bpm);
+    player.seek(
+        repeat.getAsBoolean()
+            ? timeline.measures().get(location.executionMeasureIndex()).startTick()
+            : source.expectedTicks().get(index));
+    return new StudySelection(player.snapshot(), location);
   }
 
   synchronized View edit(String action, JsonObject request) {
@@ -640,7 +759,9 @@ final class ScoreWorkspace implements AutoCloseable {
             changes.changedHeads(),
             changes.events().stream().limit(24).toList(),
             warnings(score, state.instruments()),
-            warnings(candidate.score(), candidate.instruments()));
+            warnings(candidate.score(), candidate.instruments()),
+            exporter.write(
+                candidate.score(), candidate.keyId(), profiles(candidate.instruments())));
     pending = new Pending(document.revision(), candidate, view);
     return snapshot();
   }
@@ -737,7 +858,12 @@ final class ScoreWorkspace implements AutoCloseable {
       next.setMute(part.id(), part.mute());
       next.setSolo(part.id(), part.solo());
     }
-    next.seek(Math.min(previous.tick(), nextTimeline.totalTicks()));
+    if (previous.loop() != null
+        && previous.loop().endMeasureIndex() < nextTimeline.measures().size()) {
+      next.setLoop(previous.loop().startMeasureIndex(), previous.loop().endMeasureIndex(), true);
+      var range = next.snapshot().loop();
+      next.seek(Math.max(range.startTick(), Math.min(previous.tick(), range.endTick() - 1)));
+    } else next.seek(Math.min(previous.tick(), nextTimeline.totalTicks()));
     player.close();
     player = next;
     timeline = nextTimeline;
@@ -856,6 +982,13 @@ final class ScoreWorkspace implements AutoCloseable {
         exactTransportKeys(request, "enabled");
         player.setCountIn(request.get("enabled").getAsBoolean());
       }
+      case "loop" -> {
+        exactTransportKeys(request, "startMeasureIndex", "endMeasureIndex", "enabled");
+        player.setLoop(
+            request.get("startMeasureIndex").getAsBigDecimal().intValueExact(),
+            request.get("endMeasureIndex").getAsBigDecimal().intValueExact(),
+            request.get("enabled").getAsBoolean());
+      }
       case "select-part" -> {
         exactTransportKeys(request, "id");
         player.selectPart(request.get("id").getAsString());
@@ -877,6 +1010,10 @@ final class ScoreWorkspace implements AutoCloseable {
     if (player != null && player.snapshot().status().equals("PLAYING")) player.stop();
   }
 
+  synchronized void pauseIfPlaying() {
+    if (player != null && player.snapshot().status().equals("PLAYING")) player.pause();
+  }
+
   private static void exactTransportKeys(JsonObject object, String... names) {
     keys(object, names);
     for (String name : names) {
@@ -885,7 +1022,8 @@ final class ScoreWorkspace implements AutoCloseable {
           || !value.isJsonPrimitive()
           || name.equals("enabled") && !value.getAsJsonPrimitive().isBoolean()
           || name.equals("id") && !value.getAsJsonPrimitive().isString()
-          || (name.equals("tick") || name.equals("bpm")) && !value.getAsJsonPrimitive().isNumber())
+          || (name.equals("tick") || name.equals("bpm") || name.endsWith("MeasureIndex"))
+              && !value.getAsJsonPrimitive().isNumber())
         throw new IllegalArgumentException("Invalid transport parameter");
     }
   }

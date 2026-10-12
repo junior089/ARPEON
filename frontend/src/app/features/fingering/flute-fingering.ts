@@ -1,131 +1,221 @@
-import { Component, computed, input } from '@angular/core';
-
-const STEPS: Record<string, number> = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
-const NAMES: Record<string, string> = {
-  C: 'Dó',
-  D: 'Ré',
-  E: 'Mi',
-  F: 'Fá',
-  G: 'Sol',
-  A: 'Lá',
-  B: 'Si',
-};
-
-export interface FluteChartPosition {
-  label: string;
-  position: string;
-}
-
-export function fluteChartPosition(pitch: string | null): FluteChartPosition | null {
-  const match = /^([A-G])(##|♯♯|bb|♭♭|#|♯|b|♭)?(-?\d+)$/.exec(pitch ?? '');
-  if (!match) return null;
-  const step = STEPS[match[1] ?? ''];
-  if (step === undefined) return null;
-  const marks = match[2] ?? '';
-  const alteration =
-    marks.startsWith('#') || marks.startsWith('♯') ? marks.length : marks ? -marks.length : 0;
-  const midi = (Number(match[3]) + 1) * 12 + step + alteration;
-  const offset = midi - 60;
-  if (offset < 0 || offset > 29) return null; // The local chart covers C4–F6.
-  const column = Math.floor(offset / 12);
-  const row = offset % 12;
-  const accidental = alteration > 0 ? '♯'.repeat(alteration) : '♭'.repeat(-alteration);
-  return {
-    label: `${NAMES[match[1] ?? '']}${accidental} ${match[3]}`,
-    position: `${-column * 287}px ${-row * 78}px`,
-  };
-}
+import { Component, computed, effect, input, signal } from '@angular/core';
+import { FLUTE_KEYS, fluteFingerings, FluteKey } from './flute-data';
 
 @Component({
   selector: 'app-flute-fingering',
   template: `
     <section class="fingering" aria-label="Como tocar a nota na flauta transversal">
-      <div class="fingering-copy">
-        <p class="fingering-label">Digitação · flauta transversal</p>
-        @if (position(); as chart) {
-          <h3>{{ chart.label }}</h3>
-          <p>
-            As teclas escuras na figura ficam pressionadas. Confira a nota escrita e a oitava antes
-            de tocar.
-          </p>
-        } @else {
-          <h3>Digitação indisponível</h3>
-          <p>
-            A carta local cobre Dó 4 a Fá 6. Selecione uma nota nesse intervalo para ver a posição.
-          </p>
-        }
+      <div class="fingering-heading">
+        <h3>Digitação · flauta</h3>
+        <span>Boehm · pé em Dó</span>
       </div>
       @if (position(); as chart) {
-        <div
-          class="diagram"
-          role="img"
-          [attr.aria-label]="'Digitação para ' + chart.label + ': teclas escuras pressionadas'"
-        >
-          <div class="chart-crop" [style.background-position]="chart.position"></div>
+        <div class="pitch-row">
+          <strong>{{ chart.label }}</strong>
+          @if (chart.variants.length > 1) {
+            <select
+              aria-label="Digitação da flauta"
+              [value]="variant()"
+              (change)="variant.set($any($event.target).value)"
+            >
+              @for (item of chart.variants; track item.id) {
+                <option [value]="item.id">{{ item.name }}</option>
+              }
+            </select>
+          }
         </div>
+        <svg
+          viewBox="0 0 424 95"
+          class="diagram"
+          role="group"
+          [attr.aria-label]="'Chaves para ' + chart.label"
+        >
+          <path class="tube" d="M16 19h390v24H16z M46 43v8h285v-8" />
+          <path class="mechanism" d="M59 16h247 M60 49h247" />
+          @for (key of keys; track key.id) {
+            <g
+              role="button"
+              tabindex="0"
+              [attr.aria-label]="key.label + ': ' + (pressed(key.id) ? 'pressionada' : 'aberta')"
+              (click)="inspect(key.id)"
+              (keydown.enter)="inspect(key.id)"
+              (keydown.space)="$event.preventDefault(); inspect(key.id)"
+            >
+              <title>{{ key.label }}: {{ pressed(key.id) ? 'pressionada' : 'aberta' }}</title>
+              <rect
+                class="hit-target"
+                [attr.x]="key.x - 16"
+                [attr.y]="key.y - 16"
+                width="32"
+                height="32"
+              />
+              <circle
+                [attr.cx]="key.x"
+                [attr.cy]="key.y"
+                r="11"
+                [class.pressed]="pressed(key.id)"
+                [class.inspected]="inspected() === key.id"
+              />
+              <text
+                [attr.x]="key.x"
+                [attr.y]="key.y + 4"
+                text-anchor="middle"
+                [class.pressed-label]="pressed(key.id)"
+              >
+                {{
+                  key.id === 'Gs' ? 'G♯' : key.id === 'Cs' ? 'C♯' : key.id === 'Bb' ? 'B♭' : key.id
+                }}
+              </text>
+            </g>
+          }
+          <text x="103" y="92" text-anchor="middle" class="hand">Mão esquerda</text>
+          <text x="263" y="92" text-anchor="middle" class="hand">Mão direita</text>
+        </svg>
+        <p class="key-status" aria-live="polite">
+          {{ inspectedLabel() || 'Dourado: pressionada · contorno: aberta' }}
+        </p>
+        @if (current()?.note) {
+          <p class="variant-note">{{ current()?.note }}</p>
+        }
+      } @else {
+        <p class="unavailable">
+          Selecione uma nota entre Dó4 e Fá6. Não há digitação verificada fora dessa extensão.
+        </p>
       }
-      <a href="/flute-fingering-cc0.jpg" target="_blank" rel="noopener">Ver carta completa ↗</a>
+      <details>
+        <summary>Fonte e leitura do diagrama</summary>
+        <p>
+          Esquema das chaves acionadas pelos dedos, não dos mecanismos internos. T: polegar em Si;
+          B♭: alavanca Si bemol. Fonte: carta CC0 e guia Yamaha. A resposta varia com o instrumento
+          e a embocadura.
+        </p>
+        <a href="/flute-fingering-cc0.jpg" target="_blank" rel="noopener"
+          >Consultar carta de referência</a
+        >
+      </details>
     </section>
   `,
   styles: `
     .fingering {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      align-items: center;
-      gap: var(--space-3) var(--space-4);
-      padding: var(--space-4) 0;
+      padding-block: var(--space-3);
       border-block: 1px solid var(--border);
+      min-width: 0;
     }
-    .fingering h3 {
-      margin: 0.35rem 0;
+    .fingering-heading,
+    .pitch-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-2);
+      flex-wrap: wrap;
+    }
+    h3 {
+      margin: 0;
+    }
+    .fingering-heading span,
+    p,
+    details {
+      color: var(--secondary);
+      font-size: var(--text-small);
+    }
+    .pitch-row {
+      margin-block: var(--space-2);
+    }
+    .pitch-row strong {
       font-size: var(--text-section);
-      font-weight: 600;
-      letter-spacing: -0.04em;
-    }
-    .fingering p:not(.fingering-label) {
-      max-width: 48ch;
-      color: var(--secondary);
-      font-size: var(--text-small);
-      line-height: 1.55;
-      margin: 0;
-    }
-    .fingering .fingering-label {
-      font-size: var(--text-small);
-      color: var(--secondary);
-      margin: 0;
     }
     .diagram {
-      width: 287px;
-      max-width: 100%;
-      height: 78px;
-      overflow: hidden;
-      background: var(--color-reference-paper);
-      border-radius: 3px;
+      display: block;
+      width: 100%;
+      max-width: 540px;
+      overflow: visible;
     }
-    .chart-crop {
-      width: 287px;
-      height: 78px;
-      background-image: url('/flute-fingering-cc0.jpg');
-      background-repeat: no-repeat;
+    .tube {
+      fill: var(--surface);
+      stroke: var(--control-border);
     }
-    .fingering a {
-      color: var(--accent);
-      font-size: var(--text-small);
-      text-underline-offset: 3px;
-      grid-column: 1 / -1;
+    .mechanism {
+      stroke: var(--control-border);
+      fill: none;
     }
-    @media (max-width: 650px) {
-      .fingering {
-        grid-template-columns: 1fr;
-        padding: var(--space-3) 0;
-      }
-      .fingering a {
-        grid-column: auto;
-      }
+    circle {
+      fill: var(--color-key-open);
+      stroke: var(--secondary);
+      stroke-width: 1.5;
+    }
+    .hit-target {
+      fill: transparent;
+      pointer-events: all;
+    }
+    circle.pressed {
+      fill: var(--color-key-pressed);
+      stroke: var(--accent);
+    }
+    circle.inspected {
+      stroke-width: 3;
+    }
+    text {
+      fill: var(--primary);
+      font: 10px var(--ui);
+      pointer-events: none;
+    }
+    text.pressed-label {
+      fill: var(--on-accent);
+    }
+    .hand {
+      fill: var(--secondary);
+    }
+    g[role='button'] {
+      cursor: pointer;
+    }
+    g:focus-visible {
+      outline: none;
+    }
+    g:focus-visible circle {
+      stroke: var(--color-focus);
+      stroke-width: 3;
+    }
+    .key-status {
+      min-height: 18px;
+      margin: var(--space-2) 0;
+    }
+    details p {
+      margin: var(--space-2) 0;
+    }
+    .variant-note,
+    .unavailable {
+      margin: var(--space-2) 0;
     }
   `,
 })
 export class FluteFingering {
   readonly pitch = input<string | null>(null);
-  readonly position = computed(() => fluteChartPosition(this.pitch()));
+  readonly position = computed(() => fluteFingerings(this.pitch()));
+  readonly keys = FLUTE_KEYS;
+  readonly variant = signal('standard');
+  readonly inspected = signal<FluteKey | null>(null);
+  readonly current = computed(
+    () =>
+      this.position()?.variants.find((v) => v.id === this.variant()) ??
+      this.position()?.variants[0],
+  );
+  readonly inspectedLabel = computed(() => {
+    const id = this.inspected();
+    return id
+      ? `${this.keys.find((k) => k.id === id)?.label}: ${this.pressed(id) ? 'pressionada' : 'aberta'}`
+      : '';
+  });
+  constructor() {
+    effect(() => {
+      this.pitch();
+      this.variant.set('standard');
+      this.inspected.set(null);
+    });
+  }
+  pressed(key: FluteKey): boolean {
+    return this.current()?.pressed.includes(key) ?? false;
+  }
+  inspect(key: FluteKey): void {
+    this.inspected.set(key);
+  }
 }

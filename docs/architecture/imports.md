@@ -52,8 +52,25 @@ validates its name, signature, size, page count or image dimensions before launc
 configured Audiveris executable. The CLI runs in batch with a ten-minute deadline and a
 temporary output directory, exporting uncompressed MusicXML. The adapter accepts exactly one
 bounded XML score, removes presentation-only markup and rejects musical structures the narrow
-MusicXML importer cannot represent (repeats, multiple staves and unsupported notation).
+MusicXML importer cannot represent (multiple staves and unsupported notation). Supported bounded
+repeats remain intact. An OMR-only preparation step consolidates identical repeated keys,
+preserves exact tuplet durations without their visual grouping, leaves explicit trailing space
+in incomplete measures and records provisional meters or empty-measure rests in review warnings.
+Ordinary MusicXML imports stay strict; actual key changes and unrepresentable music fail visibly.
 Independent voices, cursor movement and single-voice chords are preserved. Its result remains pending until the user reviews the
 original and acknowledges the OMR preview; only then is the score opened. Original SHA-256,
 source filename, measure-by-measure event labels and recognition warnings remain in memory.
 No Audiveris type enters the domain.
+
+`X-Arpeon-Job` identifies each preview request. Authenticated `POST /api/omr/cancel` with
+`{jobId}` interrupts only the corresponding native process tree or invalidates its pending preview.
+A bounded tombstone set prevents a cancelled upload from subsequently starting recognition.
+`GET /api/omr/status` exposes reading, recognizing, preparing and cancelling phases. Cancelled jobs
+never publish a late result. The HTTP boundary clears the worker's native interruption before
+writing the terminal response; native process code itself preserves interruption.
+The original PDF/image is retained as a MIME-controlled local browser blob for comparison.
+For PDF pages, authenticated `POST /api/omr/pdf-page` accepts the original bytes and filename
+plus a one-based `X-Arpeon-Page`. PDFBox validates the same input limits and generates a PNG
+with its longest edge capped at 1600 pixels; one request can render at a time. The browser
+shows loading, retry and page navigation and revokes images after replacement or dismissal.
+No native PDF plug-in, persistent page cache or remote service is required.

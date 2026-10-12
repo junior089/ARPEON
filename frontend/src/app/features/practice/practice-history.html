@@ -1,0 +1,117 @@
+<section aria-labelledby="history-title" [attr.aria-busy]="session.historyBusy()">
+  <h2 id="history-title">Histórico local</h2>
+  <p class="history-note">
+    Até 5.000 tentativas neste computador. Nenhuma amostra de microfone é guardada.
+  </p>
+  <form (submit)="apply($event)">
+    <div class="history-filters">
+      <label
+        >Exercício no histórico
+        <select [value]="kind" (change)="kind = text($event)" [disabled]="session.historyBusy()">
+          <option value="">Todos os exercícios</option>
+          @for (item of kinds; track item.id) {
+          <option [value]="item.id" [selected]="kind === item.id">{{ item.name }}</option>
+          }
+        </select>
+      </label>
+      <label
+        >Resultado
+        <select
+          [value]="outcome"
+          (change)="outcome = text($event)"
+          [disabled]="session.historyBusy()"
+        >
+          <option value="">Todos os resultados</option>
+          <option value="completed">Concluídas</option>
+          <option value="interrupted">Interrompidas</option>
+        </select>
+      </label>
+      <label
+        >De<input
+          type="date"
+          [value]="fromDate"
+          (input)="fromDate = text($event)"
+          [disabled]="session.historyBusy()"
+      /></label>
+      <label
+        >Até<input
+          type="date"
+          [value]="untilDate"
+          (input)="untilDate = text($event)"
+          [disabled]="session.historyBusy()"
+      /></label>
+    </div>
+    <p class="history-note">
+      Período pela data de encerramento, no horário deste computador. Inclui o dia final.
+    </p>
+    <div class="history-actions">
+      <button type="submit" [disabled]="session.historyBusy()">Filtrar histórico</button>
+      <button type="button" (click)="clear()" [disabled]="session.historyBusy()">
+        Limpar filtros
+      </button>
+    </div>
+  </form>
+  @if (validationError()) {
+  <p class="history-error" role="alert">{{ validationError() }}</p>
+  } @if (session.savedAttempt()) {
+  <p class="history-note" role="status">Tentativa salva. Os filtros atuais podem ocultá-la.</p>
+  } @if (session.historyBusy()) {
+  <p role="status">Carregando histórico…</p>
+  } @else if (session.historyError()) {
+  <p class="history-error" role="alert">{{ session.historyError() }}</p>
+  <button #historyRetry type="button" (click)="retry()">Tentar carregar novamente</button>
+  } @else if (session.historyPage(); as page) {
+  <p #pageStatus class="history-summary" role="status" tabindex="-1">
+    {{ page.matchingCount | number:'1.0-0' }} de {{ page.totalCount | number:'1.0-0' }} tentativas ·
+    {{ page.completedCount | number:'1.0-0' }} concluídas · {{ page.matchingCount -
+    page.completedCount | number:'1.0-0' }} interrompidas
+  </p>
+  @if (!page.entries.length) {
+  <p>
+    {{ page.totalCount ? 'Nenhuma tentativa corresponde aos filtros. Ajuste o período ou limpe os
+    filtros.' : 'Nenhuma tentativa salva. Gere um exercício e use Encerrar e salvar após a
+    tentativa.' }}
+  </p>
+  } @else {
+  <nav class="history-pagination" aria-label="Páginas do histórico de prática">
+    <button #previousPage type="button" (click)="navigate('previous')" [disabled]="page.page === 0">
+      Anterior
+    </button>
+    <span #pagePosition role="status" tabindex="-1"
+      >Página {{ page.page + 1 }} de {{ pageCount() }} · {{ page.page * page.pageSize + 1 }}–{{
+      page.page * page.pageSize + page.entries.length }} de {{ page.matchingCount }}</span
+    >
+    <button
+      #nextPage
+      type="button"
+      (click)="navigate('next')"
+      [disabled]="page.page + 1 >= pageCount()"
+    >
+      Próxima
+    </button>
+  </nav>
+
+  <ul class="history-list" aria-label="Tentativas salvas">
+    @for (item of page.entries; track item.id) {
+    <li>
+      <strong>{{ kindName(item.kind) }} · {{ keyName(item.keyId) }}</strong>
+      <span
+        ><time [attr.datetime]="item.endedAt">{{ item.endedAt | date:'dd/MM/yyyy HH:mm' }}</time> ·
+        {{ item.completed ? 'Concluída' : 'Interrompida' }}</span
+      >
+      <span
+        >{{ item.reached }}/{{ item.targets }} {{ item.kind === 'RHYTHM' ? 'pulsos' : 'notas' }} ·
+        {{ item.bpm }} BPM</span
+      >
+      @if (item.kind === 'LONG_TONE') {
+      <span
+        >{{ item.heldMs | number:'1.0-0' }} ms sustentados · {{ item.interruptions }}
+        interrupções</span
+      >
+      @if (item.stabilityCents !== null) {
+      <span>Estabilidade RMS: {{ item.stabilityCents | number:'1.1-1' }} cents</span> } }
+    </li>
+    }
+  </ul>
+  } }
+</section>

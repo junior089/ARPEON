@@ -26,16 +26,39 @@
   font-size: 11px;
 }
 .brand-mark {
-  color: var(--accent);
-  border: 1px solid var(--color-border-default);
-  padding: 0 4px;
-  font-size: 14px;
-  line-height: 20px;
-  letter-spacing: 0;
+  width: 24px;
+  height: 24px;
+}
+.brand-lockup {
+  display: block;
+  width: 142px;
+  height: auto;
+}
+.wordmark {
+  width: 158px;
+  flex-shrink: 0;
 }
 .menubar {
   display: flex;
   gap: 2px;
+}
+.menus-toggle {
+  display: none;
+}
+.preferences-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  background: var(--raised);
+  color: var(--warning);
+  font-size: var(--text-control);
+}
+.audio-error {
+  color: var(--danger);
+  font-size: var(--text-control);
+  margin: 0 0 var(--space-2);
 }
 .menu {
   position: relative;
@@ -89,39 +112,139 @@
 }
 .workspace-shell {
   display: flex;
+  flex-direction: row;
+  position: relative;
   flex: 1;
   min-height: 0;
 }
 .activity-bar {
   display: flex;
   flex-direction: column;
-  flex: 0 0 68px;
+  flex: 0 0 184px;
   border-right: 1px solid var(--border);
   background: var(--sidebar);
-  padding-top: var(--space-2);
+  padding: var(--space-4) var(--space-2);
+  gap: var(--space-1);
+  overflow-y: auto;
 }
 .activity-bar button {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
-  justify-content: center;
-  gap: 8px;
-  min-height: 64px;
+  justify-content: flex-start;
+  gap: var(--space-3);
+  min-height: 40px;
   width: 100%;
   border: 0;
   border-left: 2px solid transparent;
-  border-radius: 0;
+  border-radius: var(--radius);
   background: transparent;
   color: var(--secondary);
-  font-size: 11px;
+  font-size: var(--text-control);
 }
 .activity-bar button[aria-current] {
   color: var(--accent);
-  background: var(--raised);
+  background: var(--selection);
   border-left-color: var(--accent-fill);
 }
 .activity-bar .help-button {
+  margin-top: 0;
+  margin-left: 0;
+}
+.activity-bar .settings-button {
   margin-top: auto;
+}
+.product-dialog {
+  width: min(600px, calc(100% - 32px));
+  max-height: 85dvh;
+  padding: var(--space-5);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-dialog);
+  color: var(--primary);
+  background: var(--surface);
+}
+.product-dialog::backdrop {
+  background: var(--overlay);
+}
+.product-dialog h2 {
+  margin: 0;
+}
+.product-dialog p,
+.release-section li {
+  color: var(--secondary);
+  font-size: var(--text-control);
+}
+.preference-section,
+.release-section {
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+.preference-section h3,
+.release-section h3 {
+  margin: 0 0 var(--space-3);
+}
+.preference-row,
+.version-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-block: var(--space-3);
+}
+.preference-row button[aria-pressed='true'] {
+  color: var(--accent);
+  background: var(--selection);
+}
+.preference-row [role='group'] {
+  display: flex;
+  gap: var(--space-1);
+}
+.release-section ul {
+  padding-left: var(--space-4);
+  margin-bottom: 0;
+}
+.release-section li + li {
+  margin-top: var(--space-2);
+}
+.dialog-actions,
+.about-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-block: var(--space-4);
+}
+.dialog-footer {
+  text-align: right;
+  margin-top: var(--space-5);
+}
+.about-logo {
+  display: block;
+  width: 240px;
+  max-width: 100%;
+  margin-top: var(--space-5);
+}
+.activity-bar button span {
+  text-align: left;
+}
+.activity-bar small {
+  display: block;
+  font-size: 10px;
+  color: var(--muted);
+  font-weight: 400;
+  margin-top: 2px;
+}
+.activity-bar .import-button {
+  margin-top: var(--space-4);
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+}
+.work-area {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
 }
 main {
   overscroll-behavior: contain;
@@ -136,9 +259,11 @@ main.score-view {
   overflow: hidden;
 }
 .audio-dock {
-  border-top: 1px solid var(--border);
+  border: 1px solid var(--border);
   background: var(--surface);
-  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-panel);
+  margin: var(--space-2) var(--space-4) var(--space-3);
+  padding: var(--space-3) var(--space-4);
 }
 .statusbar {
   min-height: 26px;
@@ -211,31 +336,71 @@ main.score-view {
 }
 @media (max-width: 700px) {
   .app-header {
-    flex-wrap: wrap;
-    padding-block: 6px;
-    gap: 6px;
+    flex-shrink: 0;
+    min-height: 48px;
+    justify-content: space-between;
+    position: relative;
+  }
+  .menus-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: 36px;
   }
   .menubar {
-    width: 100%;
-    flex-wrap: wrap;
+    display: none;
+    position: absolute;
+    left: 8px;
+    right: 8px;
+    top: calc(100% + 4px);
+    padding: var(--space-2);
+    background: var(--raised);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-overlay);
+    max-height: calc(100dvh - 64px);
+    overflow: auto;
+  }
+  .menubar.compact-open {
+    display: block;
   }
   .menu-popup {
-    position: fixed;
-    left: 12px !important;
-    right: 12px !important;
-    top: 96px;
+    position: static;
+    border: 0;
+    box-shadow: none;
     min-width: 0;
   }
   .menu summary {
-    padding: 4px 6px;
-    font-size: 11px;
+    padding: var(--space-3);
+    font-size: var(--text-control);
   }
-  .menu:nth-child(n + 4) .menu-popup {
-    left: auto;
-    right: 0;
+  .menu-popup button {
+    white-space: normal;
+    min-height: 40px;
+    gap: var(--space-2);
   }
   .activity-bar {
-    flex-basis: 64px;
+    flex-basis: 56px;
+    flex-shrink: 0;
+    padding: var(--space-2) var(--space-1);
+  }
+  .activity-bar button {
+    justify-content: center;
+    padding: var(--space-2);
+    min-height: 40px;
+  }
+  .activity-bar button span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .wordmark {
+    width: auto;
+  }
+  .brand-lockup {
+    width: 128px;
   }
   .activity-bar button {
     font-size: 11px;
@@ -250,4 +415,84 @@ main.score-view {
     gap: 8px;
     flex-wrap: wrap;
   }
+  .audio-dock {
+    padding: 6px 8px;
+    margin: var(--space-2);
+    max-height: 45dvh;
+    overflow: auto;
+  }
+}
+.library-workspace {
+  max-width: 960px;
+  margin-inline: auto;
+}
+.library-workspace header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: var(--space-4);
+}
+.library-workspace h1 {
+  margin: 0;
+}
+.library-workspace button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.drop-overlay {
+  position: absolute;
+  inset: 40px var(--space-4) var(--space-4);
+  z-index: 12;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  background: var(--surface);
+  border: 1px dashed var(--accent);
+  pointer-events: none;
+}
+.drop-overlay span {
+  color: var(--secondary);
+}
+
+.update-details {
+  margin: var(--space-4) 0;
+}
+.update-details div {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--border);
+}
+.update-details dt {
+  color: var(--secondary);
+}
+.update-details dd {
+  margin: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.update-status {
+  min-height: 2.6em;
+}
+.update-preference {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin: var(--space-4) 0;
+}
+.update-preference input {
+  accent-color: var(--accent);
+  margin-top: 3px;
+}
+.update-preference small {
+  display: block;
+  color: var(--secondary);
+  margin-top: var(--space-1);
 }

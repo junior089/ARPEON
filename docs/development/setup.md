@@ -1,49 +1,75 @@
-# Setup
+# Development and Windows packaging
 
-Prerequisites: JDK 25 with `JAVA_HOME` set, Node 24.15+ in the 24.x line, npm, a desktop
-session with a default browser, and a microphone supported by Java Sound. The wrapper pins
-Gradle 9.8.1 and verifies its distribution SHA-256. Use `gradlew.bat` on Windows.
+Build prerequisites: Windows x64, JDK 25 (`JAVA_HOME`), Node 24.15+ in the 24.x
+line, npm, and a desktop session for native UI acceptance. Python 3 is optional
+for the dependency auditor and is never part of the end-user runtime. Gradle
+9.8.1, npm lockfiles, Gradle artifact verification and native SHA-256 pins fix
+dependency inputs. Network populates build caches; OMR runs offline.
 
-1. Run `npm ci` in `frontend`.
-2. Run `npm run build` there.
-3. At the repository root run `./gradlew build`.
-4. Run `./gradlew :apps:desktop:run`.
+```powershell
+cd frontend
+npm ci
+npm run build
+cd ..
+./gradlew.bat build --warning-mode=fail
+./scripts/package-windows.ps1 -SkipFrontendBuild -OutputSubdirectory dev
+```
 
-The frontend is bundled into desktop resources before running. Rebuild it after UI changes.
-The distribution ZIP/TAR is produced under `apps/desktop/build/distributions`; extract and
-run its `bin` launcher with JDK 25 installed. It includes local UI assets, licenses and source.
-There is no automatic download of application models or user content.
+The package script obtains checksum-verified WiX build tools, administratively
+extracts Audiveris during build, applies pinned security substitutions, extracts
+Chromium, includes Java and produces a per-user MSI and portable ZIP. Run the
+complete `ARPEON/ARPEON.exe` folder or install the MSI. Keep all adjacent files.
+No console, external browser or end-user runtime installation is needed.
 
-For a portable Windows executable, run `powershell -ExecutionPolicy Bypass -File
-scripts/package-windows.ps1` at the repository root. The script builds the frontend and desktop,
-then writes `apps/desktop/build/native/ARPEON/ARPEON.exe` and a ZIP beside it. Extract the
-entire ZIP before launching: the executable uses the bundled Java runtime and app libraries in
-adjacent folders. Keep its console open while using the browser interface; close it or press
-**Encerrar ARPEON** in the interface or Ctrl+C in the console stops the server. The package includes the license, third-party notices and corresponding
-source archive. The adjacent `.sha256` file records the ZIP checksum. `-SkipFrontendBuild` is
-available when the frontend bundle is already current;
-`-SkipDesktopBuild` reuses an existing desktop distribution, and `-SkipZip` skips the sharing
-archive. If an output folder already exists, use `-OutputSubdirectory rc-name` for a separate
-build; the script never replaces an existing app folder. Building requires Windows, JDK 25 and
-Node 24, while
-running the package does not require Java or Node installed. The local features work offline;
-the reviewed Wikimedia import and first-time Audiveris setup need an internet connection.
+For incremental development, rebuild the frontend and run current classes using
+previously prepared native resources:
 
-The desktop launcher allows up to 2 GiB of Java heap for large local MusicXML/OMR work;
-files near the 128 MiB MusicXML cap may also need substantial browser and Audiveris memory.
+```powershell
+./gradlew.bat :apps:desktop:run -ParpeonInstallDir=C:/absolute/path/to/dev/ARPEON
+```
 
-For OMR on 64-bit Windows, open **Importar** and choose **Configurar Audiveris automaticamente**.
-After your confirmation, ARPEON downloads the official Audiveris 5.11.0 Windows package from
-GitHub, verifies its published SHA-256, and extracts it under `%USERPROFILE%\.arpeon\tools`.
-This per-user setup does not register a machine-wide installation and needs no administrator
-approval. The first setup needs an internet connection; later recognition works offline. Other
-platforms can use an existing Audiveris installation by setting `ARPEON_AUDIVERIS_EXECUTABLE`
-before starting ARPEON. Audiveris remains a separate AGPL-3.0 program and is not bundled in the
-ARPEON package. Keep the source scan until you have reviewed the recognized score; temporary OMR
-files are removed after each run.
+This development command needs a complete native app image. Ordinary Gradle
+ZIP/TAR distributions are developer artifacts, not standalone installers.
+Windows is the only packaged platform validated locally; other systems require
+native packaging and acceptance, irrespective of the core CI matrix.
 
-Enable microphone access in your OS privacy settings if capture fails. Close applications
-holding the device exclusively. Stop capture before selecting another input or reference.
-Refresh inputs after reconnecting hardware. A refreshed browser tab reconnects to the running
-launcher and restores its open score. If the launcher has restarted, open its new browser window
-to establish a new authorized session. No machine-wide setup scripts are provided.
+`-SkipInstaller`, `-SkipZip`, `-SkipFrontendBuild` and `-SkipDesktopBuild` require
+already-current outputs. Existing app images are never replaced; choose another
+`-OutputSubdirectory`. MSI timestamps/generated IDs prevent a bit-for-bit
+reproducibility claim. Dependencies, source revision, dirty state and runtime
+versions are recorded in the package.
+
+MSI output is immutable, including test packages. Never rebuild over the source
+of an installed product: Windows SecureRepair can reject the changed unsigned
+source. For repeated local acceptance, use a new output directory and the same
+fresh `-TestRunId` on both builders and `test-msi-lifecycle.ps1 -TestIdentity`.
+Test identities have separate product/upgrade/component IDs, registry and shortcuts.
+
+`verify-package.ps1 -Package <ARPEON directory>` verifies the file inventory.
+MSI/ZIP checksums detect corruption; they do not authenticate an unsigned
+publisher. `-RequireSignature` needs `ARPEON_SIGN_CERT_THUMBPRINT`,
+`ARPEON_TIMESTAMP_URL`, a trusted code-signing certificate and `signtool.exe`.
+`-ForRelease` additionally enforces release-readiness gates. Local packaging scripts do not upload artifacts or publish releases. The separate manual release workflow is
+described in updates.md; dispatching it is a publication action.
+
+## Data and diagnostics
+
+New Windows profiles use `%LOCALAPPDATA%/ARPEON`. macOS/Linux path selection is
+unit-tested; package support is pending. Existing `%USERPROFILE%/.arpeon`
+profiles remain in place without destructive migration. `-Darpeon.dataDir=...`
+provides isolated development/acceptance profiles. Projects belong outside the
+installation. Uninstall intentionally preserves user data.
+
+Projects retain atomic writes, checksums, backups and recovery. Preferences and
+bounded histories use durable replacement. A process lock prevents simultaneous
+access by two instances sharing a profile. Logs rotate under `logs`, Chromium
+cache lives under `browser`, and temporary OMR jobs are removed after completion,
+failure or cancellation. Audiveris settings are isolated per job and text OCR
+models come from the package. `ARPEON_AUDIVERIS_EXECUTABLE` is an explicit developer
+override, not an installation prerequisite or discovery mechanism.
+
+Microphone permission is always explicit. Enable it in OS privacy settings and
+close applications holding the device exclusively. Hardware checks are in
+[testing](testing.md). Update setup is in [updates](updates.md); the committed
+configuration is inactive. Review [native licensing](../legal/native-distribution.md)
+before sharing binary packages publicly.

@@ -24,6 +24,7 @@ import org.arpeon.audio.AudioInputDevice;
 import org.arpeon.audio.AudioInputPort;
 import org.arpeon.dsp.pitch.YinPitchDetector;
 import org.arpeon.musicxml.MusicXmlImporter;
+import org.arpeon.omr.AudiverisOmrEngine;
 import org.arpeon.omr.OmrResult;
 import org.arpeon.tuner.TunerService;
 import org.junit.jupiter.api.AfterEach;
@@ -32,12 +33,115 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class DesktopServerTest {
+  @Test
+  void updatePreferencesRejectMalformedRequestsAndInactivePackages() throws Exception {
+    var status = JsonParser.parseString(get("/api/updates").body()).getAsJsonObject();
+    assertFalse(status.get("enabled").getAsBoolean());
+    assertFalse(status.get("automaticChecking").getAsBoolean());
+    for (String request :
+        List.of(
+            "{}",
+            "{\"automaticChecking\":\"true\"}",
+            "{\"automaticChecking\":true,\"endpoint\":\"https://untrusted\"}")) {
+      var response =
+          client.send(
+              request("/api/updates/preferences")
+                  .header("Content-Type", "application/json")
+                  .PUT(HttpRequest.BodyPublishers.ofString(request))
+                  .build(),
+              HttpResponse.BodyHandlers.ofString());
+      assertEquals(400, response.statusCode());
+    }
+    var response =
+        client.send(
+            request("/api/updates/preferences")
+                .header("Content-Type", "application/json")
+                .PUT(HttpRequest.BodyPublishers.ofString("{\"automaticChecking\":true}"))
+                .build(),
+            HttpResponse.BodyHandlers.ofString());
+    assertEquals(409, response.statusCode());
+  }
+
+  @Test
+  void draftNotationIsTheAcceptedScoreAndDoesNotChangeTheOpenDocument() throws Exception {
+    byte[] source =
+        Files.readAllBytes(Path.of(System.getProperty("arpeon.fixtures"), "first-notes.musicxml"));
+    assertEquals(
+        200,
+        client
+            .send(
+                request("/api/score/open")
+                    .header("Content-Type", "application/xml")
+                    .header("X-Arpeon-Filename", "first-notes.musicxml")
+                    .POST(HttpRequest.BodyPublishers.ofByteArray(source))
+                    .build(),
+                HttpResponse.BodyHandlers.ofString())
+            .statusCode());
+    String original = get("/api/score/export").body();
+    var preview =
+        client.send(
+            request("/api/import/preview")
+                .header("Content-Type", "application/octet-stream")
+                .header("X-Arpeon-Filename", "notes.txt")
+                .header("X-Arpeon-Import-Kind", "NOTES")
+                .POST(HttpRequest.BodyPublishers.ofString("C4 D#4 A4"))
+                .build(),
+            HttpResponse.BodyHandlers.ofString());
+    assertEquals(200, preview.statusCode());
+    String token =
+        JsonParser.parseString(preview.body()).getAsJsonObject().get("token").getAsString();
+    String parameters = "{\"token\":\"" + token + "\",\"fallbackOctave\":4,\"equalNoteTicks\":480";
+    var notation = post("/api/import/notation", parameters + "}");
+    assertEquals(200, notation.statusCode());
+    String xml = JsonParser.parseString(notation.body()).getAsJsonObject().get("xml").getAsString();
+    assertTrue(xml.contains("<step>D</step><alter>1</alter>"));
+    assertEquals(original, get("/api/score/export").body());
+    assertEquals(
+        200, post("/api/import/accept", parameters + ",\"acknowledge\":true}").statusCode());
+    assertEquals(xml, get("/api/score/export").body());
+  }
+
+  @Test
+  void servesVectorBrandAssetsWithTheirMediaType() throws Exception {
+    var logo = get("/brand/arpeon-logo-horizontal-dark.svg");
+    assertEquals(200, logo.statusCode());
+    assertEquals("image/svg+xml", logo.headers().firstValue("Content-Type").orElseThrow());
+    assertTrue(logo.body().contains("<svg"));
+    assertEquals(200, get("/brand/arpeon-256.png").statusCode());
+  }
+
   @TempDir Path temporary;
   private DesktopServer server;
   private HttpClient client;
   private String origin;
   private String token;
   private TestInput input;
+
+  @Test
+  void practiceHistoryPagesValidateQueriesAndRequireAuthentication() throws Exception {
+    var page = get("/api/practice/history?page=0&pageSize=20");
+    assertEquals(200, page.statusCode());
+    var result = JsonParser.parseString(page.body()).getAsJsonObject();
+    assertEquals(20, result.get("pageSize").getAsInt());
+    assertEquals(0, result.getAsJsonArray("entries").size());
+    for (var query :
+        List.of(
+            "page=-1",
+            "pageSize=5000",
+            "kind=BAD",
+            "from=bad",
+            "until=bad",
+            "page=0&page=1",
+            "unknown=1"))
+      assertEquals(400, get("/api/practice/history?" + query).statusCode(), query);
+    assertEquals(
+        401,
+        client
+            .send(
+                HttpRequest.newBuilder(URI.create(origin + "/api/practice/history")).GET().build(),
+                HttpResponse.BodyHandlers.ofString())
+            .statusCode());
+  }
 
   @Test
   void unexpectedOmrFailureReturnsJsonAndKeepsLocalServerAlive() throws Exception {
@@ -332,7 +436,12 @@ class DesktopServerTest {
     server =
         new DesktopServer(
             new TunerService(input, new YinPitchDetector()),
-            new PracticeHistory(temporary.resolve("history.json")));
+            new PracticeHistory(temporary.resolve("history.json")),
+            new ImportWorkspace(),
+            new OmrWorkspace(new AudiverisOmrEngine()),
+            new ProjectStore(temporary.resolve("projects")),
+            new PreferencesStore(temporary.resolve("preferences.json")),
+            new AudioPreferencesStore(temporary.resolve("audio-preferences.json")));
     server.start();
     var uri = server.launchUri();
     origin = "http://127.0.0.1:" + uri.getPort();
@@ -368,7 +477,109 @@ class DesktopServerTest {
   }
 
   @Test
+  void preferencesAreAuthenticatedValidatedAndRestoredAfterServerRestart() throws Exception {
+    var denied =
+        client.send(
+            HttpRequest.newBuilder(URI.create(origin + "/api/preferences")).GET().build(),
+            HttpResponse.BodyHandlers.ofString());
+    assertEquals(401, denied.statusCode());
+    var foreign =
+        client.send(
+            request("/api/preferences").header("Origin", "https://example.invalid").GET().build(),
+            HttpResponse.BodyHandlers.ofString());
+    assertEquals(403, foreign.statusCode());
+    assertEquals("null", get("/api/preferences").body());
+    var saved =
+        client.send(
+            request("/api/preferences")
+                .header("Content-Type", "application/json")
+                .PUT(
+                    HttpRequest.BodyPublishers.ofString(PreferencesStoreTest.settings().toString()))
+                .build(),
+            HttpResponse.BodyHandlers.ofString());
+    assertEquals(200, saved.statusCode());
+    var invalid =
+        client.send(
+            request("/api/preferences")
+                .header("Content-Type", "application/json")
+                .PUT(HttpRequest.BodyPublishers.ofString("{\"zoom\":999}"))
+                .build(),
+            HttpResponse.BodyHandlers.ofString());
+    assertEquals(400, invalid.statusCode());
+    server.close();
+    server =
+        new DesktopServer(
+            new TunerService(input, new YinPitchDetector()),
+            new PracticeHistory(temporary.resolve("history.json")),
+            new ImportWorkspace(),
+            new OmrWorkspace(new AudiverisOmrEngine()),
+            new ProjectStore(temporary.resolve("projects")),
+            new PreferencesStore(temporary.resolve("preferences.json")),
+            new AudioPreferencesStore(temporary.resolve("audio-preferences.json")));
+    server.start();
+    var launch = server.launchUri();
+    origin = "http://127.0.0.1:" + launch.getPort();
+    token = launch.getFragment().substring("session=".length());
+    assertEquals(
+        JsonParser.parseString(saved.body()),
+        JsonParser.parseString(get("/api/preferences").body()));
+    assertFalse(input.open);
+  }
+
+  @Test
+  void audioPreferencesRequireSessionAndDoNotRestoreConsent() throws Exception {
+    assertEquals(
+        401,
+        client
+            .send(
+                HttpRequest.newBuilder(URI.create(origin + "/api/audio/preferences")).GET().build(),
+                HttpResponse.BodyHandlers.ofString())
+            .statusCode());
+    assertEquals(
+        403,
+        client
+            .send(
+                request("/api/audio/preferences")
+                    .header("Origin", "https://example.invalid")
+                    .GET()
+                    .build(),
+                HttpResponse.BodyHandlers.ofString())
+            .statusCode());
+    assertEquals("null", get("/api/audio/preferences").body());
+    var saved =
+        client.send(
+            request("/api/audio/preferences")
+                .header("Content-Type", "application/json")
+                .PUT(
+                    HttpRequest.BodyPublishers.ofString(
+                        AudioPreferencesStoreTest.settings().toString()))
+                .build(),
+            HttpResponse.BodyHandlers.ofString());
+    assertEquals(200, saved.statusCode());
+    assertEquals(
+        JsonParser.parseString(saved.body()),
+        JsonParser.parseString(get("/api/audio/preferences").body()));
+    assertFalse(input.open);
+    var invalid = AudioPreferencesStoreTest.settings();
+    invalid.addProperty("consent", true);
+    assertEquals(
+        400,
+        client
+            .send(
+                request("/api/audio/preferences")
+                    .header("Content-Type", "application/json")
+                    .PUT(HttpRequest.BodyPublishers.ofString(invalid.toString()))
+                    .build(),
+                HttpResponse.BodyHandlers.ofString())
+            .statusCode());
+    assertFalse(input.open);
+    Files.writeString(temporary.resolve("audio-preferences.json"), "{broken");
+    assertEquals(500, get("/api/audio/preferences").statusCode());
+  }
+
+  @Test
   void scoreSnapshotsDeferEventsUntilTheRequestedMeasureIsLoaded() throws Exception {
+    assertTrue(server.canUpdate());
     byte[] source =
         Files.readAllBytes(Path.of(System.getProperty("arpeon.fixtures"), "first-notes.musicxml"));
     var opened =
@@ -380,6 +591,16 @@ class DesktopServerTest {
                 .build(),
             HttpResponse.BodyHandlers.ofString());
     assertEquals(200, opened.statusCode());
+    assertFalse(server.canUpdate());
+    assertEquals(200, post("/api/projects", "{}").statusCode());
+    assertTrue(server.canUpdate());
+    assertEquals(
+        200,
+        post(
+                "/api/score/edit/set-pitch",
+                "{\"partId\":\"P1\",\"measureIndex\":0,\"voiceId\":\"1\",\"eventIndex\":0,\"step\":\"D\",\"alter\":0,\"octave\":4}")
+            .statusCode());
+    assertFalse(server.canUpdate());
     var snapshot = JsonParser.parseString(get("/api/score").body()).getAsJsonObject();
     var firstMeasure =
         snapshot
@@ -395,10 +616,12 @@ class DesktopServerTest {
     var loaded =
         JsonParser.parseString(get("/api/score/measure-events?partId=P1&measureIndex=0").body())
             .getAsJsonObject();
-    assertEquals(0, loaded.get("revision").getAsInt());
+    assertEquals(1, loaded.get("revision").getAsInt());
     assertEquals("P1", loaded.get("partId").getAsString());
     assertEquals(0, loaded.get("index").getAsInt());
     assertTrue(loaded.getAsJsonArray("events").size() > 0);
+    assertEquals(1, loaded.get("durationNumerator").getAsInt());
+    assertEquals(1, loaded.get("durationDenominator").getAsInt());
     assertEquals(400, get("/api/score/measure-events?partId=P1&measureIndex=-1").statusCode());
   }
 
@@ -602,7 +825,11 @@ class DesktopServerTest {
     var finished = post("/api/practice/finish", "{}");
     assertEquals(200, finished.statusCode());
     assertEquals(
-        1, JsonParser.parseString(get("/api/practice/history").body()).getAsJsonArray().size());
+        1,
+        JsonParser.parseString(get("/api/practice/history").body())
+            .getAsJsonObject()
+            .getAsJsonArray("entries")
+            .size());
     assertFalse(Files.readString(temporary.resolve("history.json")).contains("frequencyHz"));
     assertEquals(200, post("/api/tuner/stop", "{}").statusCode());
   }
@@ -853,6 +1080,8 @@ class DesktopServerTest {
     var review =
         JsonParser.parseString(preview.body()).getAsJsonObject().getAsJsonObject("preview");
     assertEquals(5, review.get("changedNotes").getAsInt());
+    assertTrue(review.get("xml").getAsString().contains("<octave>5</octave>"));
+    assertTrue(get("/api/score/export").body().contains("<octave>4</octave>"));
     assertEquals(400, post("/api/score/edit/apply-preview", "{\"token\":\"wrong\"}").statusCode());
     String token = review.get("token").getAsString();
     var applied = post("/api/score/edit/apply-preview", "{\"token\":\"" + token + "\"}");
@@ -965,6 +1194,256 @@ class DesktopServerTest {
             .getAsJsonObject()
             .get("instrumentId")
             .getAsString());
+  }
+
+  @Test
+  void configuresLoopWithoutCaptureAndPreservesItAcrossEdits() throws Exception {
+    openFirstNotes();
+    String loop = "{\"startMeasureIndex\":1,\"endMeasureIndex\":1,\"enabled\":true}";
+    var applied = post("/api/transport/loop", loop);
+    assertEquals(200, applied.statusCode());
+    var range = JsonParser.parseString(applied.body()).getAsJsonObject().getAsJsonObject("loop");
+    assertEquals(1920, range.get("startTick").getAsLong());
+    assertEquals(3840, range.get("endTick").getAsLong());
+    assertEquals(
+        400,
+        post("/api/transport/loop", loop.replace("\"endMeasureIndex\":1", "\"endMeasureIndex\":0"))
+            .statusCode());
+    assertEquals(
+        400,
+        post(
+                "/api/transport/loop",
+                loop.replace("\"startMeasureIndex\":1", "\"startMeasureIndex\":1.5"))
+            .statusCode());
+    assertEquals(400, post("/api/transport/seek", "{\"tick\":0}").statusCode());
+    assertEquals(
+        200,
+        post("/api/score/edit/set-instrument", "{\"partId\":\"P1\",\"instrumentId\":\"flute\"}")
+            .statusCode());
+    assertEquals(
+        range,
+        JsonParser.parseString(get("/api/transport").body())
+            .getAsJsonObject()
+            .getAsJsonObject("loop"));
+    assertEquals(200, post("/api/transport/loop", loop.replace("true", "false")).statusCode());
+    assertEquals(200, post("/api/transport/seek", "{\"tick\":0}").statusCode());
+    assertFalse(input.open);
+  }
+
+  @Test
+  void staleCaptureCleanupCannotStopAnotherOwnerAndPlaybackIsBlockedDuringCapture()
+      throws Exception {
+    openFirstNotes();
+    String capture = "{\"deviceId\":\"test\",\"referenceHz\":440,\"consent\":true}";
+    assertEquals(200, postOwned("/api/tuner/start", capture, "first").statusCode());
+    assertEquals(409, post("/api/transport/play", "{}").statusCode());
+    assertTrue(input.open);
+    assertEquals(409, postOwned("/api/tuner/start", capture, "second").statusCode());
+    assertEquals(200, postOwned("/api/tuner/stop", "{}", "first").statusCode());
+    assertEquals(200, postOwned("/api/tuner/start", capture, "second").statusCode());
+    assertEquals(200, postOwned("/api/tuner/stop", "{}", "first").statusCode());
+    assertTrue(input.open);
+    assertEquals(200, postOwned("/api/tuner/stop", "{}", "second").statusCode());
+    assertFalse(input.open);
+  }
+
+  @Test
+  void abandonedAnalysisReleasesItsLeaseAndAllowsAnotherCapture() throws Exception {
+    openFirstNotes();
+    String analysis =
+        "{\"partId\":\"P1\",\"deviceId\":\"test\",\"referenceHz\":440,\"consent\":true,\"alignmentWindowMs\":450,\"timingToleranceMs\":120,\"pitchToleranceCents\":50,\"rhythmTolerancePercent\":20,\"latencyCompensationMs\":0}";
+    assertEquals(200, postOwned("/api/analysis/start", analysis, "closed-window").statusCode());
+    server.expireAudioLeases(System.nanoTime() + TimeUnit.SECONDS.toNanos(6));
+    assertFalse(input.open);
+    assertEquals(
+        "STOPPED",
+        JsonParser.parseString(get("/api/analysis").body())
+            .getAsJsonObject()
+            .get("status")
+            .getAsString());
+    String capture = "{\"deviceId\":\"test\",\"referenceHz\":440,\"consent\":true}";
+    assertEquals(200, postOwned("/api/tuner/start", capture, "new-window").statusCode());
+    assertTrue(input.open);
+    assertEquals(200, postOwned("/api/tuner/stop", "{}", "new-window").statusCode());
+  }
+
+  @Test
+  void concurrentCaptureStartsGrantOnlyOneOwner() throws Exception {
+    String capture = "{\"deviceId\":\"test\",\"referenceHz\":440,\"consent\":true}";
+    var attempts =
+        List.of("first", "second").stream()
+            .map(
+                owner ->
+                    client.sendAsync(
+                        request("/api/tuner/start")
+                            .header("Content-Type", "application/json")
+                            .header("X-Arpeon-Capture-Owner", owner)
+                            .POST(HttpRequest.BodyPublishers.ofString(capture))
+                            .build(),
+                        HttpResponse.BodyHandlers.ofString()))
+            .toList();
+    var responses = List.of(attempts.get(0).get(), attempts.get(1).get());
+    assertEquals(
+        List.of(200, 409), responses.stream().map(HttpResponse::statusCode).sorted().toList());
+    String owner = responses.get(0).statusCode() == 200 ? "first" : "second";
+    assertTrue(input.open);
+    assertEquals(200, postOwned("/api/tuner/stop", "{}", owner).statusCode());
+    assertFalse(input.open);
+  }
+
+  @Test
+  void practiceAttemptBlocksReferencePlaybackAndAnalysisOwnsItsCapture() throws Exception {
+    openFirstNotes();
+    String exercise =
+        "{\"kind\":\"NOTE\",\"keyId\":\"C_MAJOR\",\"octave\":4,\"scaleType\":\"MAJOR\",\"bpm\":80,\"loop\":false,\"progressiveStep\":0}";
+    assertEquals(200, post("/api/practice/create", exercise).statusCode());
+    assertEquals(200, post("/api/practice/start", "{}").statusCode());
+    assertEquals(409, post("/api/practice/playback/play", "{}").statusCode());
+    assertEquals(409, post("/api/transport/play", "{}").statusCode());
+    assertEquals(200, post("/api/practice/finish", "{}").statusCode());
+    String analysis =
+        "{\"partId\":\"P1\",\"deviceId\":\"test\",\"referenceHz\":440,\"consent\":true,\"alignmentWindowMs\":450,\"timingToleranceMs\":120,\"pitchToleranceCents\":50,\"rhythmTolerancePercent\":20,\"latencyCompensationMs\":0}";
+    assertEquals(200, postOwned("/api/analysis/start", analysis, "analysis-window").statusCode());
+    assertEquals(409, post("/api/transport/play", "{}").statusCode());
+    assertEquals(409, post("/api/practice/start", "{}").statusCode());
+    assertEquals(200, postOwned("/api/tuner/stop", "{}", "old-tuner").statusCode());
+    assertEquals(200, postOwned("/api/analysis/stop", "{}", "old-analysis").statusCode());
+    assertTrue(input.open);
+    assertEquals(
+        "COUNT_IN",
+        JsonParser.parseString(get("/api/analysis").body())
+            .getAsJsonObject()
+            .get("status")
+            .getAsString());
+    assertEquals(200, postOwned("/api/analysis/stop", "{}", "analysis-window").statusCode());
+    assertFalse(input.open);
+  }
+
+  @Test
+  void libraryOperationsPreserveTheActiveSessionAndValidateRequests() throws Exception {
+    openFirstNotes();
+    var saved = JsonParser.parseString(post("/api/projects", "{}").body()).getAsJsonObject();
+    String id = saved.get("id").getAsString();
+    String scoreBefore = get("/api/score").body();
+    String renamePath = "/api/projects/" + id + "/rename";
+    assertEquals(
+        401,
+        client
+            .send(
+                HttpRequest.newBuilder(URI.create(origin + renamePath))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString("{\"name\":\"Study\"}"))
+                    .build(),
+                HttpResponse.BodyHandlers.ofString())
+            .statusCode());
+    assertEquals(400, post(renamePath, "{\"name\":\" \"}").statusCode());
+    assertEquals(400, post(renamePath, "{\"name\":\"Study\",\"unknown\":true}").statusCode());
+    assertEquals(400, post(renamePath, "{\"name\":5}").statusCode());
+    assertEquals(200, post(renamePath, "{\"name\":\"Estudo diário\"}").statusCode());
+    assertEquals(scoreBefore, get("/api/score").body());
+    assertEquals(
+        200, post("/api/projects", "{\"id\":\"" + id + "\",\"autosave\":true}").statusCode());
+    assertEquals(
+        "Estudo diário",
+        JsonParser.parseString(get("/api/projects").body())
+            .getAsJsonArray()
+            .get(0)
+            .getAsJsonObject()
+            .get("title")
+            .getAsString());
+    var copied = post("/api/projects/" + id + "/duplicate", "{\"name\":\"Estudo lento\"}");
+    assertEquals(200, copied.statusCode());
+    String copyId = JsonParser.parseString(copied.body()).getAsJsonObject().get("id").getAsString();
+    assertFalse(id.equals(copyId));
+    assertEquals(
+        id,
+        JsonParser.parseString(get("/api/session").body())
+            .getAsJsonObject()
+            .get("projectId")
+            .getAsString());
+    assertEquals(scoreBefore, get("/api/score").body());
+    assertEquals(2, JsonParser.parseString(get("/api/projects").body()).getAsJsonArray().size());
+    assertEquals(200, post("/api/projects/" + copyId + "/open", "{}").statusCode());
+    assertFalse(input.open);
+  }
+
+  @Test
+  void studyPreparationUsesReportIdentityAndCannotStartAudioOrInterruptAnAttempt()
+      throws Exception {
+    openFirstNotes();
+    var started =
+        post(
+            "/api/analysis/start",
+            """
+            {"partId":"P1","deviceId":"test","referenceHz":440,"consent":true,
+            "alignmentWindowMs":450,"timingToleranceMs":120,"pitchToleranceCents":50,
+            "rhythmTolerancePercent":20,"latencyCompensationMs":0,"mode":"ANALYSIS"}
+            """);
+    assertEquals(200, started.statusCode());
+    var view = JsonParser.parseString(started.body()).getAsJsonObject();
+    var study = view.getAsJsonObject("study");
+    assertEquals(view.get("expectedCount").getAsInt(), study.getAsJsonArray("notes").size());
+    var preparation = new com.google.gson.JsonObject();
+    preparation.add("sha256", view.get("sha256"));
+    preparation.add("revision", view.get("revision"));
+    preparation.add("partId", view.get("partId"));
+    preparation.add("soundingSemitones", view.get("soundingSemitones"));
+    preparation.add("scoreXmlSha256", study.get("scoreXmlSha256"));
+    preparation.addProperty("expectedIndex", 0);
+    preparation.addProperty("bpm", 60);
+    preparation.addProperty("repeat", true);
+    assertEquals(409, post("/api/score/study", preparation.toString()).statusCode());
+    assertTrue(input.open);
+    assertEquals(200, post("/api/analysis/stop", "{}").statusCode());
+    assertFalse(input.open);
+    var anonymous =
+        client.send(
+            HttpRequest.newBuilder(URI.create(origin + "/api/score/study"))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(preparation.toString()))
+                .build(),
+            HttpResponse.BodyHandlers.ofString());
+    assertEquals(401, anonymous.statusCode());
+    var response = post("/api/score/study", preparation.toString());
+    assertEquals(200, response.statusCode());
+    var selected = JsonParser.parseString(response.body()).getAsJsonObject();
+    assertEquals("P1", selected.getAsJsonObject("transport").get("activePartId").getAsString());
+    assertNotEquals("PLAYING", selected.getAsJsonObject("transport").get("status").getAsString());
+    assertEquals(0, selected.getAsJsonObject("location").get("eventIndex").getAsInt());
+    assertFalse(input.open);
+    var before = get("/api/transport").body();
+    preparation.addProperty("expectedIndex", 1.5);
+    assertEquals(400, post("/api/score/study", preparation.toString()).statusCode());
+    preparation.addProperty("expectedIndex", 0);
+    preparation.addProperty("revision", 9);
+    assertEquals(409, post("/api/score/study", preparation.toString()).statusCode());
+    assertEquals(before, get("/api/transport").body());
+  }
+
+  private void openFirstNotes() throws Exception {
+    var content =
+        Files.readAllBytes(Path.of(System.getProperty("arpeon.fixtures"), "first-notes.musicxml"));
+    assertEquals(
+        200,
+        client
+            .send(
+                request("/api/score/open")
+                    .header("Content-Type", "application/xml")
+                    .header("X-Arpeon-Filename", "first-notes.musicxml")
+                    .POST(HttpRequest.BodyPublishers.ofByteArray(content))
+                    .build(),
+                HttpResponse.BodyHandlers.ofString())
+            .statusCode());
+  }
+
+  private HttpResponse<String> postOwned(String path, String body, String owner) throws Exception {
+    return client.send(
+        request(path)
+            .header("Content-Type", "application/json")
+            .header("X-Arpeon-Capture-Owner", owner)
+            .POST(HttpRequest.BodyPublishers.ofString(body))
+            .build(),
+        HttpResponse.BodyHandlers.ofString());
   }
 
   private HttpRequest.Builder request(String path) {
