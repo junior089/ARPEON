@@ -190,3 +190,20 @@ todo o perfil pessoal a partir do desinstalador. Essa ação destrutiva não foi
 improvisada em uma custom action. A validação de primeiro upgrade do MSI legado,
 recovery sem elevação, atalhos executados pelo shell, DPI/teclado/leitor de tela
 integrais, rede interrompida e VM limpa continua necessária para publicação.
+
+### Preparação da pré-release de código-fonte
+
+A publicação do código 0.1.1 é separada da distribuição dos runtimes Windows.
+README, captura real, notas de versão e scripts acompanham as fontes; MSI/ZIP
+de aplicação e feeds permanecem sujeitos aos gates acima. A verificação de
+arquivos para publicação não encontrou os padrões de chave privada, token GitHub
+ou access key AWS examinados. Essa varredura não é uma garantia universal de
+ausência de segredos.
+
+A primeira CI em ambiente limpo detectou metadados BOM do JUnit ausentes no
+inventário. Os pares POM/module foram completados com SHA-256 conferidos contra
+os checksums oficiais do Maven Central, sem desativar a verificação. O build
+Java foi repetido com GRADLE_USER_HOME vazio: aprovado em 46 segundos, 190 testes
+sem falhas/skips. Log local: `apps/desktop/build/publication-cold-gradle.log`.
+A permissão executável do wrapper Unix foi corrigida. O workflow de publicação
+usa a branch padrão real do repositório para o feed; não assume `main`.
