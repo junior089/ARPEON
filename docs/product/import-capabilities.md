@@ -17,18 +17,32 @@ Inside MXL, the standard MusicXML 4.0 public Partwise DTD declaration is strippe
 resolving it; internal subsets, entity declarations and nonstandard DTDs remain rejected. MSCZ conversion
 supports one pitched staff and one voice; layout, slurs and grace-note ornaments are omitted.
 Scores are limited to 16 parts, 2048 measures per part and 16384 total note/rest events.
-Supported: part declarations and names, a work or movement title (conflicting titles are rejected),
+Supported: part declarations and names, composer, a work or movement title (conflicting titles are rejected),
 one or more sequential voices of notes, rests and simultaneous chord heads,
 integral accidentals from double-flat through double-sharp, explicit divisions and meter,
 inherited divisions/meter, a starting `sound tempo` per measure, explicitly marked incomplete
 measures, sound/visual duration ties across same-pitch adjacent notes and measures, and one initial
 major/minor key signature per part when all parts agree. Chord heads share the preceding
 event's onset and duration. `<backup/>` and `<forward/>` preserve voice cursor movement and
-relative onsets. Multiple staves remain unsupported. When a note
+relative onsets. G/F/C/percussion clefs and their measure changes, octave clefs,
+simple non-nested tuplets with exact representable durations, General MIDI programs and
+initial instrument transposition are retained. Multiple staves remain unsupported. When a note
 type or dots are present, they must agree with the explicit duration. Missing tempo remains
 absent in the source; playback visibly defaults to 120 BPM. Errors in measure content identify
-the part, measure, voice and note position where available. Repeats,
-arbitrary directions, lyrics, clefs and unsupported semantic elements fail closed.
+the part, measure, voice and note position where available. Bounded non-nested repeats and
+contiguous pass-specific endings share one execution map. Unpitched percussion, nested
+repeats/tuplets, D.C./D.S./coda and independent staves are unsupported. Some descriptive
+engraving metadata and lyrics are omitted by the existing canonical subset.
+
+Separately exported MusicXML/MXL parts can be reviewed and appended to the open composition,
+or replace one existing part. Automatic alignment compares musical structure rather than
+printed measure labels. Explicit written-measure anchors support late entries and gaps;
+incompatible meters, pickup lengths, tempo declarations, overlaps and clipped material are
+rejected. Export the complete composition or the selected part. Notation selection and
+visibility are independent of mixer volume, mute and solo. Project schema 2 retains rehearsal
+preferences and source/anchor provenance separately from interoperable MusicXML; schema 1
+projects reopen with defaults. Playback retains its limit of 15 melodic parts and exact
+480 PPQ timing. See [rehearsal architecture](../adr/0008-multi-instrument-rehearsal.md).
 
 ## Text and pasted melodic cipher
 

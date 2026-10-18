@@ -15,6 +15,8 @@ import {
 import type { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
 import { signal } from '@angular/core';
 import { ScoreSession } from './score-session';
+import { PartImportPanel } from './part-import-panel';
+import { scoreXmlForView, performedMeasureForWritten } from './score-view';
 import { FluteFingering } from '../fingering/flute-fingering';
 import type { EventHeadView, EventView } from '../../core/score-contract';
 import { WorkspaceLayout } from '../../shared/workspace-layout';
@@ -66,7 +68,7 @@ export function eventIndexAtTimestamp(
 
 @Component({
   selector: 'app-score-workspace',
-  imports: [FluteFingering, NotationPreview],
+  imports: [FluteFingering, NotationPreview, PartImportPanel],
   templateUrl: './score-workspace.html',
   styleUrl: './score-workspace.scss',
 })
@@ -261,6 +263,7 @@ export class ScoreWorkspace implements AfterViewInit, OnDestroy {
   @ViewChild('studyNotes') private studyNotes?: ElementRef<HTMLDivElement>;
   private renderer?: OpenSheetMusicDisplay;
   private renderGeneration = 0;
+  private viewKey = '';
   private playbackCursor?: PlaybackCursor;
   private animationFrame = 0;
   private playbackAnchor = { tick: 0, time: 0, bpm: 120 };
@@ -268,7 +271,40 @@ export class ScoreWorkspace implements AfterViewInit, OnDestroy {
   private resizeObserver?: ResizeObserver;
   private resizeFrame = 0;
 
+  async setScoreView(event: Event): Promise<void> {
+    if (event.target instanceof HTMLSelectElement)
+      await this.session.edit('view-mode', { mode: event.target.value });
+  }
+
+  async chooseScorePart(event: Event): Promise<void> {
+    if (event.target instanceof HTMLSelectElement) await this.selectPart(event.target.value);
+  }
+
+  async renamePart(id: string, event: Event): Promise<void> {
+    if (event.target instanceof HTMLInputElement)
+      await this.edit('rename-part', { partId: id, name: event.target.value });
+  }
+
+  async removePart(id: string): Promise<void> {
+    if (window.confirm('Remover esta parte da composição? O arquivo original será preservado.'))
+      await this.edit('remove-part', { partId: id });
+  }
+
   constructor() {
+    effect(() => {
+      const xml = this.session.xml();
+      const active = this.session.transport()?.activePartId ?? '';
+      const rehearsal = this.session.rehearsal?.() ?? {
+        viewMode: 'full' as const,
+        hiddenParts: [],
+      };
+      const key = JSON.stringify([xml, active, rehearsal.viewMode, rehearsal.hiddenParts]);
+      if (key === this.viewKey) return;
+      this.viewKey = key;
+      untracked(() => {
+        if (this.sheet && xml) void this.render(xml);
+      });
+    });
     effect(() => {
       this.readingEnabled();
       this.readingLanguage();
@@ -428,19 +464,35 @@ export class ScoreWorkspace implements AfterViewInit, OnDestroy {
     return Number(this.textValue(event));
   }
 
-  async selectMeasure(index: number): Promise<void> {
+  async selectMeasure(index: number, seek = false): Promise<void> {
     const partId = this.activePart()?.id;
     if (!partId || !Number.isSafeInteger(index) || index < 0) return;
     this.measureIndex.set(index);
     this.studyPage.set(0);
     await this.session.loadMeasureEvents(partId, index);
     this.selectEvent(0);
+    if (seek) {
+      const state = this.session.transport();
+      const occurrence = performedMeasureForWritten(
+        this.session.score()?.measures ?? [],
+        index,
+        state?.measureIndex ?? 0,
+        state?.loop,
+      );
+      if (occurrence) await this.session.action('seek', { tick: occurrence.startTick });
+      else
+        this.session.error.set(
+          'O compasso está fora do trecho A–B. Desative a repetição para navegar até ele.',
+        );
+    }
   }
 
   async selectPart(id: string): Promise<void> {
     await this.session.action('select-part', { id });
     if (this.activePart()?.id === id) {
-      this.measureIndex.set(0);
+      this.measureIndex.set(
+        Math.min(this.measureIndex(), (this.activePart()?.measures.length ?? 1) - 1),
+      );
       await this.loadCurrentMeasure();
       this.selectEvent(0);
     }
@@ -534,9 +586,20 @@ export class ScoreWorkspace implements AfterViewInit, OnDestroy {
     }
     const selectedEvent = this.currentMeasure()?.events[eventIndex];
     // The transport contains performed occurrences; the editor contains written measures.
-    const measureStart =
-      score.measures.find((measure) => measure.number === part.measures[measureIndex]?.number)
-        ?.startTick ?? 0;
+    const state = this.session.transport();
+    const occurrence = performedMeasureForWritten(
+      score.measures,
+      measureIndex,
+      state?.measureIndex ?? 0,
+      state?.loop,
+    );
+    if (!occurrence) {
+      this.session.error.set(
+        'O compasso está fora do trecho A–B. Desative a repetição para navegar até ele.',
+      );
+      return;
+    }
+    const measureStart = occurrence.startTick;
     if (selectedEvent) {
       const onset =
         selectedEvent.onsetNumerator !== undefined && selectedEvent.onsetDenominator
@@ -636,7 +699,10 @@ export class ScoreWorkspace implements AfterViewInit, OnDestroy {
     control.value = this.activeInstrumentId();
   }
 
-  async edit(action: string, params: Record<string, string | number> = {}): Promise<void> {
+  async edit(
+    action: string,
+    params: Record<string, string | number | boolean> = {},
+  ): Promise<void> {
     const before = this.session.xml();
     if (await this.session.edit(action, params)) {
       if (action === 'apply-preview' || action === 'undo' || action === 'redo')
@@ -674,7 +740,13 @@ export class ScoreWorkspace implements AfterViewInit, OnDestroy {
         autoResize: false,
         pageFormat: 'A4_P',
       });
-      await pending.load(xml);
+      await pending.load(
+        scoreXmlForView(
+          xml,
+          this.session.transport()?.activePartId ?? '',
+          this.session.rehearsal?.() ?? { viewMode: 'full', hiddenParts: [] },
+        ),
+      );
       if (generation !== this.renderGeneration) {
         pending.clear();
         return;

@@ -23,6 +23,11 @@ public record Chord(List<Note> notes) implements ScoreEvent {
   }
 
   @Override
+  public Tuplet tuplet() {
+    return notes.getFirst().tuplet();
+  }
+
+  @Override
   public Duration duration() {
     return notes.getFirst().duration();
   }

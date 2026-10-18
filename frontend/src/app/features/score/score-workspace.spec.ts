@@ -11,6 +11,7 @@ async function emptyWorkspace(countInBeatsLeft = 0, fromReport = false) {
       {
         provide: ScoreSession,
         useValue: {
+          rehearsal: signal({ viewMode: 'full', hiddenParts: [] }),
           score: signal(
             fromReport
               ? {
@@ -197,6 +198,7 @@ describe('ScoreWorkspace editor', () => {
         {
           provide: ScoreSession,
           useValue: {
+            rehearsal: signal({ viewMode: 'full', hiddenParts: [] }),
             score: signal({
               title: 'Test',
               filename: 'test.musicxml',

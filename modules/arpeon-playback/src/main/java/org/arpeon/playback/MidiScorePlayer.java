@@ -18,7 +18,40 @@ public final class MidiScorePlayer implements AutoCloseable {
       long startTick, long endTick, int startMeasureIndex, int endMeasureIndex) {}
 
   public record PartState(
-      String id, String name, boolean mute, boolean solo, String instrumentId) {}
+      String id,
+      String name,
+      boolean mute,
+      boolean solo,
+      String instrumentId,
+      double volume,
+      double pan,
+      double effectiveGain,
+      String soundStatus,
+      String soundError) {}
+
+  public record ChannelSettings(double volume, double pan, boolean mute, boolean solo) {
+    public ChannelSettings {
+      level(volume);
+      if (!Double.isFinite(pan) || pan < -1 || pan > 1)
+        throw new IllegalArgumentException("Pan must be between -1 and 1");
+    }
+  }
+
+  public record Settings(
+      double master,
+      String activePartId,
+      Map<String, ChannelSettings> channels,
+      double bpm,
+      boolean metronome,
+      boolean countIn,
+      LoopRange loop) {
+    public Settings {
+      level(master);
+      channels = Map.copyOf(channels);
+      if (!Double.isFinite(bpm) || bpm <= 0 || bpm > 1000)
+        throw new IllegalArgumentException("Invalid study tempo");
+    }
+  }
 
   public record State(
       String status,
@@ -36,13 +69,20 @@ public final class MidiScorePlayer implements AutoCloseable {
       int countInBeatsLeft,
       String activePartId,
       List<PartState> parts,
-      LoopRange loop) {}
+      LoopRange loop,
+      double master) {}
 
   private final ScoreTimeline timeline;
   private final Map<String, InstrumentProfile> profiles;
   private Sequence sequence;
   private final boolean[] muted;
   private final boolean[] solo;
+  private final double[] volumes;
+  private final double[] pans;
+  private final String[] soundStatuses;
+  private final String[] soundErrors;
+  private double master = 1;
+  private MixerReceiver mixer;
   private final long offset;
   private Sequencer sequencer;
   private Synthesizer synthesizer;
@@ -65,6 +105,13 @@ public final class MidiScorePlayer implements AutoCloseable {
     this.sequence = MidiScoreSequence.build(timeline, profiles);
     this.muted = new boolean[timeline.score().parts().size()];
     this.solo = new boolean[muted.length];
+    this.volumes = new double[muted.length];
+    java.util.Arrays.fill(volumes, 1);
+    this.pans = new double[muted.length];
+    this.soundStatuses = new String[muted.length];
+    java.util.Arrays.fill(soundStatuses, "NOT_LOADED");
+    this.soundErrors = new String[muted.length];
+    java.util.Arrays.fill(soundErrors, "");
     this.offset = timeline.countInTicks();
     this.firstBpm = timeline.firstBpm();
   }
@@ -82,7 +129,23 @@ public final class MidiScorePlayer implements AutoCloseable {
     }
   }
 
+  MidiScorePlayer(
+      ScoreTimeline timeline,
+      Map<String, InstrumentProfile> profiles,
+      Sequencer clock,
+      Synthesizer output)
+      throws MidiUnavailableException {
+    this(timeline, profiles, clock);
+    synthesizer = output;
+    mixer = new MixerReceiver(output.getReceiver());
+    clock.getTransmitter().setReceiver(mixer);
+    loadSounds();
+    applyMixer();
+    applyTrackMute();
+  }
+
   public synchronized void play() {
+    if (status.equals("PLAYING")) return;
     try {
       openIfNeeded();
       if (loop != null && (position < loop.startTick() || position >= loop.endTick()))
@@ -93,6 +156,7 @@ public final class MidiScorePlayer implements AutoCloseable {
       else if ("STOPPED".equals(status)) sequencer.setTickPosition(offset + position);
       sequencer.start();
       status = "PLAYING";
+      resumeSustainedNotes();
     } catch (MidiUnavailableException | javax.sound.midi.InvalidMidiDataException failure) {
       closeDevices();
       throw new IllegalStateException("MIDI output unavailable", failure);
@@ -103,8 +167,7 @@ public final class MidiScorePlayer implements AutoCloseable {
     if (sequencer != null) {
       sequencer.stop();
       position = Math.max(0, Math.min(timeline.totalTicks(), sequencer.getTickPosition() - offset));
-      if (synthesizer != null)
-        for (var channel : synthesizer.getChannels()) if (channel != null) channel.allNotesOff();
+      if (synthesizer != null) silence();
     }
     if ("PLAYING".equals(status)) status = "PAUSED";
   }
@@ -130,6 +193,27 @@ public final class MidiScorePlayer implements AutoCloseable {
     loopHasWrapped = false;
     position = tick;
     if (sequencer != null) sequencer.setTickPosition(offset + tick);
+    if (status.equals("PLAYING")) resumeSustainedNotes();
+  }
+
+  private void resumeSustainedNotes() {
+    resumeSustainedNotes(-1);
+  }
+
+  private void resumeSustainedNotes(int selectedPart) {
+    if (synthesizer == null || mixer == null || loop != null && position == loop.startTick())
+      return;
+    for (var note : timeline.notes()) {
+      if (selectedPart >= 0 && note.partIndex() != selectedPart) continue;
+      if (note.startTick() >= position
+          || note.startTick() + note.durationTicks() <= position
+          || effectiveGain(note.partIndex()) == 0) continue;
+      var profile = profiles.get(timeline.score().parts().get(note.partIndex()).id());
+      int pitch =
+          note.midiNumber() + (profile == null ? 0 : profile.soundingTranspositionSemitones());
+      var channel = synthesizer.getChannels()[MidiScoreSequence.channel(note.partIndex())];
+      if (channel != null) channel.noteOn(pitch, 80);
+    }
   }
 
   public synchronized void setBpm(double bpm) {
@@ -184,7 +268,10 @@ public final class MidiScorePlayer implements AutoCloseable {
       applyLoop();
       applyTrackMute();
       sequencer.setTickPosition(offset + position);
-      if (playing) sequencer.start();
+      if (playing) {
+        sequencer.start();
+        resumeSustainedNotes();
+      }
     }
   }
 
@@ -202,7 +289,11 @@ public final class MidiScorePlayer implements AutoCloseable {
 
   private void silence() {
     if (synthesizer != null)
-      for (var channel : synthesizer.getChannels()) if (channel != null) channel.allNotesOff();
+      for (var channel : synthesizer.getChannels())
+        if (channel != null) {
+          channel.controlChange(64, 0);
+          channel.allSoundOff();
+        }
   }
 
   public synchronized void selectPart(String id) {
@@ -217,6 +308,129 @@ public final class MidiScorePlayer implements AutoCloseable {
   public synchronized void setSolo(String id, boolean enabled) {
     solo[partIndex(id)] = enabled;
     applyTrackMute();
+  }
+
+  private static void level(double value) {
+    if (!Double.isFinite(value) || value < 0 || value > 1)
+      throw new IllegalArgumentException("Volume must be between 0 and 1");
+  }
+
+  public synchronized void setVolume(String id, double volume) {
+    level(volume);
+    volumes[partIndex(id)] = volume;
+    applyMixer();
+  }
+
+  public synchronized void setPan(String id, double pan) {
+    if (!Double.isFinite(pan) || pan < -1 || pan > 1)
+      throw new IllegalArgumentException("Pan must be between -1 and 1");
+    pans[partIndex(id)] = pan;
+    applyMixer();
+  }
+
+  public synchronized void setMaster(double volume) {
+    level(volume);
+    master = volume;
+    applyMixer();
+  }
+
+  private double effectiveGain(int part) {
+    boolean anySolo = false;
+    for (boolean enabled : solo) anySolo |= enabled;
+    return muted[part] || (anySolo && !solo[part]) || soundStatuses[part].equals("ERROR")
+        ? 0
+        : master * volumes[part];
+  }
+
+  private void applyMixer() {
+    if (mixer == null) return;
+    mixer.setMaster(master);
+    for (int i = 0; i < volumes.length; i++)
+      mixer.setChannel(MidiScoreSequence.channel(i), volumes[i], pans[i]);
+  }
+
+  public synchronized Settings settings() {
+    var channels = new java.util.LinkedHashMap<String, ChannelSettings>();
+    for (int i = 0; i < volumes.length; i++)
+      channels.put(
+          timeline.score().parts().get(i).id(),
+          new ChannelSettings(volumes[i], pans[i], muted[i], solo[i]));
+    return new Settings(
+        master,
+        timeline.score().parts().get(activePart).id(),
+        channels,
+        firstBpm,
+        metronome,
+        countIn,
+        loop);
+  }
+
+  public synchronized void restore(Settings settings) {
+    if (settings == null) return;
+    setMaster(settings.master());
+    firstBpm = settings.bpm();
+    if (sequencer != null) sequencer.setTempoFactor((float) (firstBpm / timeline.firstBpm()));
+    setMetronome(settings.metronome());
+    setCountIn(settings.countIn());
+    for (var entry : settings.channels().entrySet()) {
+      if (timeline.score().parts().stream().noneMatch(p -> p.id().equals(entry.getKey()))) continue;
+      var value = entry.getValue();
+      setVolume(entry.getKey(), value.volume());
+      setPan(entry.getKey(), value.pan());
+      setMute(entry.getKey(), value.mute());
+      setSolo(entry.getKey(), value.solo());
+    }
+    if (timeline.score().parts().stream().anyMatch(p -> p.id().equals(settings.activePartId())))
+      selectPart(settings.activePartId());
+    if (settings.loop() != null && settings.loop().endMeasureIndex() < timeline.measures().size())
+      setLoop(settings.loop().startMeasureIndex(), settings.loop().endMeasureIndex(), true);
+  }
+
+  public synchronized void preset(String preset) {
+    if (!java.util.Set.of("ensemble", "practice", "listen", "reset").contains(preset))
+      throw new IllegalArgumentException("Unknown rehearsal preset");
+    for (int i = 0; i < volumes.length; i++) {
+      muted[i] = preset.equals("practice") && i == activePart;
+      solo[i] = preset.equals("listen") && i == activePart;
+      if (preset.equals("reset")) {
+        volumes[i] = 1;
+        pans[i] = 0;
+      }
+    }
+    if (preset.equals("reset")) master = 1;
+    applyMixer();
+    applyTrackMute();
+  }
+
+  public synchronized void retrySounds() {
+    if (synthesizer != null) {
+      loadSounds();
+      applyTrackMute();
+    }
+  }
+
+  private void loadSounds() {
+    for (int i = 0; i < volumes.length; i++) {
+      var profile = profiles.get(timeline.score().parts().get(i).id());
+      int program = profile == null ? 0 : profile.midiProgram();
+      soundStatuses[i] = "ERROR";
+      soundErrors[i] =
+          "Timbre indisponível no sintetizador local. Escolha outro instrumento ou tente"
+              + " novamente.";
+      for (var instrument : synthesizer.getAvailableInstruments()) {
+        if (instrument.getPatch().getBank() != 0 || instrument.getPatch().getProgram() != program)
+          continue;
+        try {
+          if (synthesizer.loadInstrument(instrument)) {
+            soundStatuses[i] = "READY";
+            soundErrors[i] = "";
+          }
+        } catch (IllegalArgumentException failure) {
+          soundErrors[i] = "Não foi possível carregar o timbre: " + failure.getMessage();
+        }
+        break;
+      }
+    }
   }
 
   private int partIndex(String id) {
@@ -238,7 +452,12 @@ public final class MidiScorePlayer implements AutoCloseable {
               part.name(),
               muted[i],
               solo[i],
-              profile == null ? "concert" : profile.id()));
+              profile == null ? "concert" : profile.id(),
+              volumes[i],
+              pans[i],
+              effectiveGain(i),
+              soundStatuses[i],
+              soundErrors[i]));
     }
     int remaining = 0;
     if ("PLAYING".equals(status) && sequencer != null && sequencer.getTickPosition() < offset) {
@@ -281,7 +500,8 @@ public final class MidiScorePlayer implements AutoCloseable {
         remaining,
         timeline.score().parts().get(activePart).id(),
         List.copyOf(parts),
-        loop);
+        loop,
+        master);
   }
 
   static long audibleTick(
@@ -311,11 +531,14 @@ public final class MidiScorePlayer implements AutoCloseable {
     try {
       synth.open();
       seq.open();
-      seq.getTransmitter().setReceiver(synth.getReceiver());
+      mixer = new MixerReceiver(synth.getReceiver());
+      seq.getTransmitter().setReceiver(mixer);
       seq.setSequence(sequence);
       seq.setTempoFactor((float) (firstBpm / timeline.firstBpm()));
       synthesizer = synth;
       sequencer = seq;
+      loadSounds();
+      applyMixer();
       applyLoop();
       applyTrackMute();
     } catch (MidiUnavailableException
@@ -332,10 +555,20 @@ public final class MidiScorePlayer implements AutoCloseable {
     boolean anySolo = false;
     for (boolean enabled : solo) anySolo |= enabled;
     for (int i = 0; i < muted.length; i++) {
-      boolean silence = muted[i] || (anySolo && !solo[i]);
+      boolean silence = muted[i] || (anySolo && !solo[i]) || soundStatuses[i].equals("ERROR");
+      boolean wasSilent = sequencer.getTrackMute(i + 1);
       sequencer.setTrackMute(i + 1, silence);
-      if (silence && synthesizer != null)
-        synthesizer.getChannels()[MidiScoreSequence.channel(i)].allNotesOff();
+      if (wasSilent && !silence && status.equals("PLAYING")) {
+        updatePosition();
+        resumeSustainedNotes(i);
+      }
+      if (silence && synthesizer != null) {
+        var channel = synthesizer.getChannels()[MidiScoreSequence.channel(i)];
+        if (channel != null) {
+          channel.controlChange(64, 0);
+          channel.allSoundOff();
+        }
+      }
     }
     sequencer.setTrackMute(muted.length + 1, !metronome);
   }
@@ -345,6 +578,8 @@ public final class MidiScorePlayer implements AutoCloseable {
     if (synthesizer != null) synthesizer.close();
     sequencer = null;
     synthesizer = null;
+    mixer = null;
+    java.util.Arrays.fill(soundStatuses, "NOT_LOADED");
   }
 
   @Override

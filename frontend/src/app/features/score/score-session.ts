@@ -2,6 +2,9 @@ import { computed, inject, Injectable, OnDestroy, signal } from '@angular/core';
 import { LOCAL_FETCH, SESSION_TOKEN } from '../../core/local-session';
 import {
   isMeasureEventsPage,
+  isPartImportReview,
+  PartImportReview,
+  RehearsalView,
   isTransport,
   isWorkspace,
   PreviewView,
@@ -75,6 +78,8 @@ export class ScoreSession implements OnDestroy {
   readonly transport = signal<TransportState | null>(null);
   readonly xml = signal('');
   readonly preview = signal<PreviewView | null>(null);
+  readonly rehearsal = signal<RehearsalView>({ viewMode: 'full', hiddenParts: [] });
+  private readonly preferencesDirty = signal(false);
   readonly busy = signal(false);
   readonly opening = signal(false);
   readonly savingProject = signal(false);
@@ -87,7 +92,9 @@ export class ScoreSession implements OnDestroy {
   readonly projectDirty = computed(
     () =>
       !!this.score() &&
-      (this.projectId() === null || this.savedRevision() !== this.score()?.revision),
+      (this.preferencesDirty() ||
+        this.projectId() === null ||
+        this.savedRevision() !== this.score()?.revision),
   );
   private timer: ReturnType<typeof setTimeout> | undefined;
   private projectSaveTimer: ReturnType<typeof setTimeout> | undefined;
@@ -114,6 +121,7 @@ export class ScoreSession implements OnDestroy {
       this.transport.set(result.transport);
       this.xml.set(result.xml);
       this.preview.set(result.preview);
+      this.rehearsal.set(result.rehearsal ?? { viewMode: 'full', hiddenParts: [] });
       this.projectId.set(state.projectId || null);
       this.savedRevision.set(state.projectId ? result.score.revision : null);
       this.projectSaveError.set('');
@@ -150,7 +158,9 @@ export class ScoreSession implements OnDestroy {
       this.transport.set(result.transport);
       this.xml.set(result.xml);
       this.preview.set(result.preview);
+      this.rehearsal.set(result.rehearsal ?? { viewMode: 'full', hiddenParts: [] });
       this.projectId.set(null);
+      this.preferencesDirty.set(false);
       this.savedRevision.set(null);
       this.projectSaveError.set('');
       return true;
@@ -182,7 +192,9 @@ export class ScoreSession implements OnDestroy {
       this.transport.set(result.transport);
       this.xml.set(result.xml);
       this.preview.set(result.preview);
+      this.rehearsal.set(result.rehearsal ?? { viewMode: 'full', hiddenParts: [] });
       this.projectId.set(null);
+      this.preferencesDirty.set(false);
       this.savedRevision.set(null);
       this.projectSaveError.set('');
       return true;
@@ -260,7 +272,9 @@ export class ScoreSession implements OnDestroy {
       this.transport.set(result.transport);
       this.xml.set(result.xml);
       this.preview.set(result.preview);
+      this.rehearsal.set(result.rehearsal ?? { viewMode: 'full', hiddenParts: [] });
       this.projectId.set(null);
+      this.preferencesDirty.set(false);
       this.savedRevision.set(null);
       this.projectSaveError.set('');
       return true;
@@ -285,6 +299,36 @@ export class ScoreSession implements OnDestroy {
     this.openController?.abort();
   }
 
+  async stageParts(file: File): Promise<PartImportReview | null> {
+    if (!this.score() || this.busy()) return null;
+    if (!/\.(musicxml|xml|mxl|mscz)$/i.test(file.name) || file.size > 128 * 1024 * 1024) {
+      this.error.set('Use MusicXML ou MXL de até 128 MiB.');
+      return null;
+    }
+    this.busy.set(true);
+    this.error.set('');
+    try {
+      const compressed = /\.(mxl|mscz)$/i.test(file.name);
+      const result = await this.request('/api/score/parts/import', {
+        method: 'POST',
+        headers: {
+          'Content-Type': compressed ? 'application/octet-stream' : 'application/xml',
+          'X-Arpeon-Filename': encodeURIComponent(file.name),
+        },
+        body: file,
+      });
+      if (!isPartImportReview(result))
+        throw new Error('Resposta da identificação de partes inválida.');
+      return result;
+    } catch (failure: unknown) {
+      this.showError(failure);
+      return null;
+    } finally {
+      this.busy.set(false);
+      this.scheduleProjectSave();
+    }
+  }
+
   async edit(
     name: string,
     params: Record<string, string | number | boolean> = {},
@@ -303,9 +347,11 @@ export class ScoreSession implements OnDestroy {
       if (!isWorkspace(result)) throw new Error('Resposta da edição inválida.');
       if (this.disposed || generation !== this.generation) return false;
       this.installScore(result.score);
+      if (['view-mode', 'part-visibility'].includes(name)) this.preferencesDirty.set(true);
       this.transport.set(result.transport);
       this.xml.set(result.xml);
       this.preview.set(result.preview);
+      this.rehearsal.set(result.rehearsal ?? { viewMode: 'full', hiddenParts: [] });
       return true;
     } catch (failure: unknown) {
       this.showError(failure);
@@ -322,23 +368,26 @@ export class ScoreSession implements OnDestroy {
     }
   }
 
-  async export(): Promise<void> {
+  async export(partId?: string): Promise<void> {
     if (!this.score() || this.busy() || !this.token) return;
     this.busy.set(true);
     this.error.set('');
     try {
-      const response = await this.fetch('/api/score/export', {
-        headers: { 'X-Arpeon-Session': this.token },
-        signal: AbortSignal.timeout(60_000),
-        cache: 'no-store',
-        credentials: 'omit',
-      });
+      const response = await this.fetch(
+        '/api/score/export' + (partId ? '?partId=' + encodeURIComponent(partId) : ''),
+        {
+          headers: { 'X-Arpeon-Session': this.token },
+          signal: AbortSignal.timeout(60_000),
+          cache: 'no-store',
+          credentials: 'omit',
+        },
+      );
       if (!response.ok) throw new Error('Não foi possível exportar o MusicXML.');
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = 'arpeon-editado.musicxml';
+      link.download = partId ? 'arpeon-parte.musicxml' : 'arpeon-editado.musicxml';
       link.click();
       setTimeout(() => URL.revokeObjectURL(url), 60_000);
     } catch (failure: unknown) {
@@ -375,6 +424,7 @@ export class ScoreSession implements OnDestroy {
       if (!isSavedProject(result)) throw new Error('Resposta ao salvar projeto inválida.');
       this.projectId.set(result.id);
       this.savedRevision.set(this.score()?.revision ?? null);
+      this.preferencesDirty.set(false);
       this.projectSaveError.set('');
       await this.refreshProjects();
       return true;
@@ -412,8 +462,10 @@ export class ScoreSession implements OnDestroy {
       this.transport.set(result.view.transport);
       this.xml.set(result.view.xml);
       this.preview.set(null);
+      this.rehearsal.set(result.view.rehearsal ?? { viewMode: 'full', hiddenParts: [] });
       this.projectId.set(id);
       this.savedRevision.set(result.view.score.revision);
+      this.preferencesDirty.set(false);
       this.projectSaveError.set('');
       return true;
     } catch (failure: unknown) {
@@ -462,6 +514,7 @@ export class ScoreSession implements OnDestroy {
         throw new Error('Resposta ao excluir projeto inválida.');
       if (this.projectId() === id) {
         this.projectId.set(null);
+        this.preferencesDirty.set(false);
         this.savedRevision.set(null);
       }
       this.projects.update((projects) => projects.filter((project) => project.id !== id));
@@ -550,10 +603,13 @@ export class ScoreSession implements OnDestroy {
       if (!isTransport(result)) throw new Error('Resposta do transporte inválida.');
       if (this.disposed || generation !== this.generation) return;
       this.transport.set(result);
+      if (!['play', 'pause', 'stop', 'seek', 'retry-sounds'].includes(name))
+        this.preferencesDirty.set(true);
     } catch (failure: unknown) {
       this.showError(failure);
     } finally {
       this.busy.set(false);
+      this.scheduleProjectSave();
       if (
         !this.disposed &&
         generation === this.generation &&

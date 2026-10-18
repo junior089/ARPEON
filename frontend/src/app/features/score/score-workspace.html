@@ -1,6 +1,7 @@
 <section
   class="score-workspace"
   [class.play-mode]="layout.mode() === 'play'"
+  [class.focus-mode]="session.rehearsal().viewMode === 'focus'"
   aria-labelledby="score-heading"
 >
   <div class="score-heading">
@@ -8,7 +9,8 @@
       <h1 id="score-heading">{{ session.score()?.title || 'Partitura' }}</h1>
       @if (session.score(); as score) {
       <p class="source">
-        {{ score.filename }} · {{ score.parts[0]?.measures?.length }} compassos escritos
+        {{ score.composer ? score.composer + ' · ' : '' }}{{ score.parts.length }} instrumentos · {{
+        score.filename }} · {{ score.parts[0]?.measures?.length }} compassos escritos
       </p>
       @if (score.sourceKind !== 'MUSICXML') {
       <p class="source">Rascunho de {{ score.sourceKind }}</p>
@@ -110,6 +112,41 @@
   <p class="error workspace-error" role="alert">{{ session.error() }}</p>
   } @if (session.busy()) {
   <div class="workspace-progress" role="status">Processando operação local…</div>
+  } @if (session.score()) {
+  <div
+    class="score-view-controls"
+    [class.rehearsal-focus]="session.rehearsal().viewMode === 'focus'"
+  >
+    <label
+      >Estou estudando<select
+        [value]="session.transport()?.activePartId"
+        (change)="chooseScorePart($event)"
+        [disabled]="session.busy()"
+      >
+        @for (part of session.score()?.parts ?? []; track part.id) {
+        <option [value]="part.id">{{ part.name }}</option>
+        }
+      </select></label
+    >
+    <label
+      >Visualização<select
+        [value]="session.rehearsal().viewMode"
+        (change)="setScoreView($event)"
+        [disabled]="session.busy()"
+      >
+        <option value="full">Partitura completa</option>
+        <option value="individual">Parte individual</option>
+        <option value="focus">Foco de ensaio</option>
+      </select></label
+    >
+    <button
+      type="button"
+      (click)="session.export(session.transport()?.activePartId)"
+      [disabled]="session.busy()"
+    >
+      Exportar parte
+    </button>
+  </div>
   }
   <div
     class="score-layout"
@@ -150,7 +187,8 @@
 
       <aside [hidden]="!session.score()" class="parts" aria-label="Partes da partitura">
         <h2 class="section-label">Partes</h2>
-        @for (part of session.transport()?.parts ?? []; track part.id) {
+        @defer (on idle) { <app-part-import-panel /> } @for (part of session.transport()?.parts ??
+        []; track part.id; let partIndex = $index) {
         <div class="part" [class.active]="session.transport()?.activePartId === part.id">
           <button
             class="part-name"
@@ -161,6 +199,15 @@
             {{ part.name }}
           </button>
           <div class="part-controls">
+            <button
+              type="button"
+              [attr.aria-pressed]="!session.rehearsal().hiddenParts.includes(part.id)"
+              [attr.aria-label]="'Mostrar ' + part.name + ' na partitura completa'"
+              (click)="session.edit('part-visibility', {partId: part.id, visible: session.rehearsal().hiddenParts.includes(part.id)})"
+              [disabled]="session.busy()"
+            >
+              Ver
+            </button>
             <button
               [attr.aria-pressed]="part.mute"
               (click)="session.action('mute', {id: part.id, enabled: !part.mute})"
@@ -179,6 +226,40 @@
             </button>
           </div>
         </div>
+        <details class="part-management">
+          <summary>Configurar {{ part.name }}</summary>
+          <label
+            >Nome<input
+              type="text"
+              maxlength="120"
+              [value]="part.name"
+              (change)="renamePart(part.id, $event)"
+              [disabled]="session.busy()"
+          /></label>
+          <div class="part-order-controls">
+            <button
+              type="button"
+              (click)="edit('move-part', {partId: part.id, index: partIndex - 1})"
+              [disabled]="session.busy() || partIndex === 0"
+            >
+              Subir
+            </button>
+            <button
+              type="button"
+              (click)="edit('move-part', {partId: part.id, index: partIndex + 1})"
+              [disabled]="session.busy() || partIndex === (session.transport()?.parts?.length ?? 1) - 1"
+            >
+              Descer
+            </button>
+            <button
+              type="button"
+              (click)="removePart(part.id)"
+              [disabled]="session.busy() || (session.transport()?.parts?.length ?? 1) === 1"
+            >
+              Remover
+            </button>
+          </div>
+        </details>
         } @if (activePart()) {
         <label class="editor-label" for="instrument-profile">Timbre da parte ativa</label>
         <select
@@ -327,7 +408,7 @@
               <button
                 type="button"
                 aria-label="Compasso anterior"
-                (click)="selectMeasure(measureIndex() - 1)"
+                (click)="selectMeasure(measureIndex() - 1, true)"
                 [disabled]="measureIndex() === 0"
               >
                 ←
@@ -337,7 +418,7 @@
                 <select
                   id="study-measure-select"
                   [value]="measureIndex()"
-                  (change)="selectMeasure(numberValue($event))"
+                  (change)="selectMeasure(numberValue($event), true)"
                 >
                   @for (measure of part.measures; track measure.index) {
                   <option [value]="measure.index" [selected]="measureIndex() === measure.index">
@@ -349,7 +430,7 @@
               <button
                 type="button"
                 aria-label="Próximo compasso"
-                (click)="selectMeasure(measureIndex() + 1)"
+                (click)="selectMeasure(measureIndex() + 1, true)"
                 [disabled]="measureIndex() >= part.measures.length - 1"
               >
                 →
@@ -446,7 +527,7 @@
         <div class="selection-location">
           <label
             >Compasso
-            <select [value]="measureIndex()" (change)="selectMeasure(numberValue($event))">
+            <select [value]="measureIndex()" (change)="selectMeasure(numberValue($event), true)">
               @for (measure of activePart()?.measures ?? []; track measure.index) {
               <option [value]="measure.index" [selected]="measureIndex() === measure.index">
                 {{ measure.number }}

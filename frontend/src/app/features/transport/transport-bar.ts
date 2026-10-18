@@ -1,15 +1,17 @@
 import { Component, computed, effect, inject, signal } from '@angular/core';
+import { InstrumentMixer } from './instrument-mixer';
 import { Icon } from '../../shared/icon';
 import { ScoreSession } from '../score/score-session';
 
 @Component({
   selector: 'app-transport-bar',
-  imports: [Icon],
+  imports: [Icon, InstrumentMixer],
   templateUrl: './transport-bar.html',
   styleUrl: './transport-bar.scss',
 })
 export class TransportBar {
   readonly session = inject(ScoreSession);
+  readonly mixerOpen = signal(false);
   readonly seeking = signal(false);
   readonly pendingTick = signal(0);
   readonly draftBpm = signal<number | null>(null);

@@ -17,7 +17,12 @@ public final class ScoreTimeline {
   public static final int TICKS_PER_QUARTER = 480;
 
   public record MeasurePosition(
-      int index, String number, long startTick, long durationTicks, TimeSignature meter) {}
+      int index,
+      String number,
+      long startTick,
+      long durationTicks,
+      TimeSignature meter,
+      int writtenIndex) {}
 
   public record NotePosition(int partIndex, long startTick, long durationTicks, int midiNumber) {}
 
@@ -77,8 +82,7 @@ public final class ScoreTimeline {
       for (var part : score.parts()) {
         var measure = part.measures().get(writtenIndex);
         long partLength = measureLength(measure);
-        if (!measure.number().equals(reference.number())
-            || !measure.timeSignature().equals(reference.timeSignature())
+        if (!measure.timeSignature().equals(reference.timeSignature())
             || measure.pickup() != reference.pickup()
             || partLength != length)
           throw new IllegalArgumentException("Parts have incompatible measure timelines");
@@ -90,7 +94,8 @@ public final class ScoreTimeline {
         else tempoPositions.add(new TempoPosition(tick, bpm));
       }
       positions.add(
-          new MeasurePosition(i, reference.number(), tick, length, reference.timeSignature()));
+          new MeasurePosition(
+              i, reference.number(), tick, length, reference.timeSignature(), writtenIndex));
       for (int partIndex = 0; partIndex < score.parts().size(); partIndex++) {
         var partTies = new LinkedHashMap<String, Map<Pitch, Integer>>();
         Map<String, Map<Pitch, Integer>> priorPartTies = previousTieIndexes.get(partIndex);

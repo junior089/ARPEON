@@ -39,6 +39,13 @@ are cross-checked against Yamaha's published guide. No Yamaha artwork is distrib
 | Eclipse Temurin runtime | 25.0.4.1+1 | GPLv2 with Classpath/Assembly exceptions; module-specific notices | Bundled in Windows portable package; https://adoptium.net/temurin/releases/?version=25 |
 | Flute fingering chart | 2014 file | CC0 1.0 | Offline reference image; https://commons.wikimedia.org/wiki/File:Flute_fingering_chart.jpg |
 
+The instrument mixer uses the JDK's Java Sound synthesizer and its local General MIDI
+bank. OpenJDK's Gervill implementation and emergency soundbank generator are part of
+`java.desktop`, under GPL-2.0-only with the Classpath exception; the distributed runtime
+retains its own license texts in `runtime/legal`. No external soundbank, sample pack
+or proprietary recording is added or downloaded by this feature. Available patches
+are checked at runtime, rather than assumed from the recognized instrument name.
+
 Frontend development dependencies and their transitive licenses are recorded in
 [npm-dependencies.json](docs/legal/npm-dependencies.json), generated from the installed
 lockfile by `node scripts/check-licenses.mjs --write`. Re-run the check after installing

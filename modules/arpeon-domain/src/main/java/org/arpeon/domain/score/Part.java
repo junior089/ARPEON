@@ -5,11 +5,19 @@ import java.util.List;
 import java.util.Map;
 import org.arpeon.domain.pitch.Pitch;
 
-public record Part(String id, String name, List<Measure> measures) {
+public record Part(String id, String name, List<Measure> measures, Map<Integer, Clef> clefs) {
+  public Part(String id, String name, List<Measure> measures) {
+    this(id, name, measures, Map.of());
+  }
+
   public Part {
     if (id == null || id.isBlank() || name == null || name.isBlank())
       throw new IllegalArgumentException("Part identity required");
     measures = List.copyOf(measures);
+    clefs = Map.copyOf(clefs);
+    for (int measureIndex : clefs.keySet())
+      if (measureIndex < 0 || measureIndex >= measures.size())
+        throw new IllegalArgumentException("Clef outside part");
     if (measures.isEmpty()) throw new IllegalArgumentException("Part must contain measures");
     Map<String, Map<Pitch, Note>> previousTies = Map.of();
     for (Measure measure : measures) {
