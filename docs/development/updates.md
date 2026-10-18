@@ -2,8 +2,10 @@
 
 Windows uses WinSparkle 0.9.4, a maintained native updater, through JDK 25's
 Foreign Function and Memory API. Download and version comparison belong to
-WinSparkle; the installation transaction belongs to MSI. ARPEON authors its WiX
-installer, not a custom file-replacement protocol. Authenticity is checked by Ed25519
+WinSparkle; the installation transaction belongs to MSI, launched by the signed
+ARPEON Setup executable. Setup owns recovery if an MSI upgrade fails after the
+older product is removed. Public appcasts therefore point to the complete Setup
+executable, not the embedded MSI. Authenticity is checked by Ed25519
 signatures; HTTPS protects the appcast and download transport. Authenticode
 serves a separate Windows publisher-trust purpose and does not replace Ed25519.
 The appcast itself is not a separately signed document verified by WinSparkle.
@@ -38,11 +40,12 @@ numeric field is rejected because MSI would ignore it during upgrades.
    Keep private keys in a protected secret store; never commit them. Back them up
    securely and document rotation before relying on updates for recovery.
 3. Configure real feed/public-key values for a release build. The committed
-   default stays inactive. Build and Authenticode-sign the **complete MSI** using
-   `package-windows.ps1 -ForRelease`. Sign before creating the appcast.
+   default stays inactive. Build and Authenticode-sign the **complete Setup.exe**
+   using `package-windows.ps1 -ForRelease`. Sign before creating the appcast.
 4. Run `new-update-appcast.ps1` with installer, numeric version, actual HTTPS
-   download/release-note URLs, private-key file, channel and output. It signs and
-   verifies locally, records the installer checksum, and uploads nothing.
+    download/release-note URLs, private-key file, channel and output. It signs and
+    verifies locally, records the Setup checksum, validates the embedded MSI,
+    and uploads nothing.
 5. Test the testing channel with trusted HTTPS, a disposable Windows profile,
    two installer versions and real projects/preferences. Verify cancellation,
    invalid signatures, interrupted downloads, installation failure, restart and
@@ -59,27 +62,30 @@ numeric field is rejected because MSI would ignore it during upgrades.
 
 Example arguments intentionally have no operational-looking sample URL: supply
 `-DownloadUrl` and `-ReleaseNotesUrl` from the actual release being prepared.
-MSI updates use `/passive /norestart`, showing installation progress. The stable
-appcast generator refuses unresolved release gates. Package build arguments
+WinSparkle launches Setup with `--install --autolaunch`; Setup shows progress and
+restarts ARPEON only after a successful install. The stable appcast generator
+refuses unresolved release gates. Package build arguments
 -UpdateChannel, -UpdateFeedUrl and -UpdatePublicKey enable only the built image,
 leaving the committed defaults inactive. The appcast generator validates the
-MSI product/version; stable also requires Windows-trusted Authenticode.
-Updates pass ARPEON_AUTOLAUNCH=1 to restart only after successful InstallFinalize.
+Setup and embedded MSI identity/version; stable also requires Windows-trusted
+Authenticode on the complete Setup executable.
 
 Native initialization/cleanup and offline signature verification can be tested
-without a feed. They do **not** prove network update or MSI recovery. Rollback
-after Windows Installer failure is delegated to MSI; ARPEON project recovery
+without a feed. They do **not** prove network update or MSI recovery. Failed
+upgrades restore the verified cached previous MSI through Setup. MSI removes the
+previous product before beginning the new install because its per-user
+registration rollback is unreliable on affected Windows hosts. Release feeds
+must never bypass Setup by serving the MSI directly. ARPEON project recovery
 uses existing atomic writes/backups. Full packages are intentional: this
 WinSparkle/MSI distribution has no validated differential-update protocol.
 The installer must not migrate user data. Before introducing a new database or
 project schema, require compatibility tests and a backup before first write;
 binary rollback must not automatically downgrade migrated user data.
-The current per-user fault-injection test restored binaries but failed internal
-Windows Installer registry rollback on this non-elevated host. The
-`installerRecovery` release gate remains false. An exact product/version marker
-allows a matching MSI to offer recovery at the registered directory, but this
-does not certify recovery from arbitrary registry corruption or bypass Windows
-SecureRepair. See production-validation.md for logs and the upstream report.
+The isolated fault-injection acceptance now verifies failed-upgrade recovery of
+the previous product registration, marker and every inventoried payload file.
+It does not certify a clean Windows VM, network update, arbitrary registry
+corruption or Windows SecureRepair behavior. See production-validation.md for
+the result and remaining release gates.
 Compatibility with future schema migrations must be tested for each release.
 macOS Sparkle and Linux package mechanisms are
 future work; neither is claimed supported.

@@ -20,6 +20,8 @@ namespace Arpeon.Setup
     {
         private readonly InstallerEngine engine;
         private readonly Window window;
+        private readonly bool automaticInstall;
+        private readonly bool autoLaunch;
         private readonly Brush gold = new SolidColorBrush(Color.FromRgb(230, 201, 137));
         private readonly Brush muted = new SolidColorBrush(Color.FromRgb(172, 175, 179));
         private readonly Brush error = new SolidColorBrush(Color.FromRgb(239, 167, 151));
@@ -47,9 +49,9 @@ namespace Arpeon.Setup
         private readonly string[] names = { "Inicialização", "Boas-vindas", "Verificação", "Personalização", "Preparação", "Instalação", "Validação", "Conclusão" };
         internal Window Window { get { return window; } }
 
-        internal InstallerWindow(InstallerEngine installer, bool uninstall = false)
+        internal InstallerWindow(InstallerEngine installer, bool uninstall = false, bool install = false, bool launchAfterInstall = false)
         {
-            engine = installer;
+            engine = installer; automaticInstall = install; autoLaunch = launchAfterInstall;
             window = (Window)XamlReader.Parse(InstallerEngine.ResourceText("Installer.xaml"));
             window.Width = Math.Min(window.Width, SystemParameters.WorkArea.Width - 24);
             window.Height = Math.Min(window.Height, SystemParameters.WorkArea.Height - 24);
@@ -78,7 +80,7 @@ namespace Arpeon.Setup
             window.Closed += delegate { brandTimer.Stop(); };
             SetStage(1, "Afinando os primeiros detalhes", "Inicializando o instalador e lendo os componentes do pacote.");
             SetNext("Inicializando…", null);
-            window.Loaded += async delegate { await Task.Yield(); if (uninstall) RemovalWelcome(); else Welcome(); };
+            window.Loaded += async delegate { await Task.Yield(); if (uninstall) RemovalWelcome(); else if (automaticInstall) RunChecks(); else Welcome(); };
         }
         private T Find<T>(string name) where T : class { return (T)window.FindName(name); }
         private void SetStage(int number, string title, string description)
@@ -247,7 +249,7 @@ namespace Arpeon.Setup
                     engine.Log(checks[i].Item1 + ": " + result);
                 }
                 busy = false;
-                if (remove) StartInstall(); else Options();
+                if (remove || automaticInstall) StartInstall(); else Options();
             } catch (OperationCanceledException) { Cancelled(); }
             catch (Exception ex) { Failure(ex, delegate { RunChecks(); }, false); }
         }
@@ -308,10 +310,10 @@ namespace Arpeon.Setup
                 await Task.Run((Action)engine.Prepare);
                 SetStage(6, remove ? "Desinstalando o Arpeon" : operationMode == "update" ? "Atualizando o Arpeon." : operationMode == "repair" ? "Reparando o Arpeon." : "Sua música está chegando.", "Acompanhe as operações do Windows Installer. O progresso corresponde à fase em execução.");
                 ProgressContent("Preparando componentes"); SetNext(remove ? "Desinstalando…" : operationMode == "update" ? "Atualizando…" : operationMode == "repair" ? "Reparando…" : "Instalando…", null); secondary.Children.Add(Button("Cancelar", RequestClose));
-                uint code = await Task.Run(delegate { return engine.Install(remove); });
+                uint code = await Task.Run(delegate { return engine.Install(remove, automaticInstall && autoLaunch); });
                 StopMotion();
                 if (code == 1602) { Cancelled(); return; }
-                if (code != 0 && code != 3010) throw new IOException(ErrorMessage(code) + (engine.LastError.Length == 0 ? "" : "\n" + engine.LastError));
+                if (code != 0 && code != 3010) throw new IOException(ErrorMessage(code) + (engine.LastError.Length == 0 ? "" : "\n" + engine.LastError) + (engine.PreviousRecoveryMessage.Length == 0 ? "" : "\n" + engine.PreviousRecoveryMessage));
                 engine.CancelRequested = false;
                 if (remove) {
                     if (engine.Installed) throw new IOException("A remoção não foi confirmada pelo Windows.");
@@ -370,7 +372,8 @@ namespace Arpeon.Setup
         private void Cancelled()
         {
             busy = false; terminalResult = "cancelled"; StopMotion(); engine.Log("Operation cancelled by user; MSI returned before closing UI.");
-            SetStage(8, remove ? "Desinstalação interrompida." : operationMode == "update" ? "Atualização interrompida." : operationMode == "repair" ? "Reparação interrompida." : "Instalação interrompida.", "A operação foi encerrada. Consulte o registro se precisar conferir a recuperação realizada pelo Windows Installer.");
+            string recovery = operationMode == "update" ? " " + engine.PreviousRecoveryMessage : "";
+            SetStage(8, remove ? "Desinstalação interrompida." : operationMode == "update" ? "Atualização interrompida." : operationMode == "repair" ? "Reparação interrompida." : "Instalação interrompida.", "A operação foi encerrada. " + (String.IsNullOrWhiteSpace(engine.PreviousRecoveryMessage) ? "Consulte o registro se precisar conferir a recuperação realizada pelo Windows Installer." : recovery.Trim()));
             content.Children.Add(Text("Seus projetos e preferências foram preservados.", 15, gold));
             SetNext(remove ? "Voltar à manutenção" : "Tentar novamente", Welcome); secondary.Children.Add(Button("Fechar", Close));
         }
@@ -489,7 +492,9 @@ namespace Arpeon.Setup
         public static int Main(string[] args)
         {
             bool uninstall = Array.IndexOf(args, "--uninstall") >= 0;
+            bool install = Array.IndexOf(args, "--install") >= 0;
             bool quiet = Array.IndexOf(args, "--quiet") >= 0;
+            bool autoLaunch = Array.IndexOf(args, "--autolaunch") >= 0;
             bool hasPayload;
             using (var payload = Assembly.GetExecutingAssembly().GetManifestResourceStream("payload.msi")) hasPayload = payload != null;
             // Run the small cached maintenance executable from TEMP so removal can delete its cache.
@@ -514,13 +519,14 @@ namespace Arpeon.Setup
                             if (result == 0 || result == 3010) engine.RemoveMaintenanceCache();
                             return (int)result;
                         }
+                        if (quiet && install) return (int)engine.InstallQuiet(autoLaunch);
                         var app = new Application();
                         app.DispatcherUnhandledException += delegate(object sender, DispatcherUnhandledExceptionEventArgs failure) {
                             engine.Log(failure.Exception.ToString());
                             MessageBox.Show("O instalador encontrou uma falha. Consulte o registro em:\n" + engine.SessionLog, "ARPEON", MessageBoxButton.OK, MessageBoxImage.Error);
                             failure.Handled = true;
                         };
-                        return app.Run(new InstallerWindow(engine, uninstall).Window);
+                        return app.Run(new InstallerWindow(engine, uninstall, install, autoLaunch).Window);
                     }
                 } catch (Exception ex) { if (!quiet) MessageBox.Show("Não foi possível iniciar o instalador.\n" + ex.Message, "ARPEON", MessageBoxButton.OK, MessageBoxImage.Error); return 1603; }
             }

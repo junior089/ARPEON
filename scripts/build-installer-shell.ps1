@@ -33,6 +33,7 @@ try {
     $version = Read-MsiValue 'SELECT `Value` FROM `Property` WHERE `Property`=''ProductVersion'''
     $productName = Read-MsiValue 'SELECT `Value` FROM `Property` WHERE `Property`=''ProductName'''
     $productCode = Read-MsiValue 'SELECT `Value` FROM `Property` WHERE `Property`=''ProductCode'''
+    $upgradeCode = Read-MsiValue 'SELECT `Value` FROM `Property` WHERE `Property`=''UpgradeCode'''
     $folder = Read-MsiValue 'SELECT `DefaultDir` FROM `Directory` WHERE `Directory`=''INSTALLDIR'''
     $registry = Read-MsiValue 'SELECT `Key` FROM `Registry` WHERE `Name`=''InstallLocation'''
 } finally {
@@ -44,7 +45,7 @@ $inventory = @(Get-Content -LiteralPath $inventoryFile -Raw | ConvertFrom-Json)
 $buildInfo = Get-Content -LiteralPath (Join-Path $root 'BUILD-INFO.json') -Raw | ConvertFrom-Json
 if ($buildInfo.version -ne $version) { throw 'The MSI version and application image version must match.' }
 @{
-    Version = $version; ProductCode = $productCode; ProductName = $productName
+    Version = $version; ProductCode = $productCode; UpgradeCode = $upgradeCode; ProductName = $productName
     InstallFolder = ($folder -split '\|')[-1]; RegistryRoot = $registry -replace '\\Installation$', ''
     MsiHash = (Get-FileHash -LiteralPath $msi -Algorithm SHA256).Hash.ToLowerInvariant()
     MsiSize = (Get-Item -LiteralPath $msi).Length
@@ -97,7 +98,7 @@ Copy-Item -LiteralPath (Join-Path $repoRoot 'packaging/arpeon.ico') -Destination
 $sourceBrand = Join-Path $sourceRoot 'frontend/public/brand'
 New-Item -ItemType Directory -Path $sourceBrand -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $repoRoot 'frontend/public/brand/arpeon-256.png') -Destination $sourceBrand
-foreach ($script in @('build-installer-shell.ps1','build-windows-installer.ps1','verify-package.ps1','test-installer-shell.ps1','test-installer-transactions.ps1','new-failing-test-msi.ps1')) {
+foreach ($script in @('build-installer-shell.ps1','build-windows-installer.ps1','verify-package.ps1','test-installer-shell.ps1','test-installer-transactions.ps1','test-installer-recovery.ps1','new-failing-test-msi.ps1')) {
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot $script) -Destination $sourceScripts
 }
 Copy-Item -LiteralPath (Join-Path $repoRoot 'LICENSE') -Destination $sourceRoot

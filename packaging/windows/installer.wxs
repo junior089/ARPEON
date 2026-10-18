@@ -98,8 +98,9 @@
       <Custom Action="RejectSameVersion" After="RejectDowngrade">ARPEON_SAME AND NOT Installed</Custom>
       <Custom Action="RejectDuplicate" After="AppSearch">(ARPEON_OLDER &gt;&lt; ";") OR (ARPEON_SAME &gt;&lt; ";") OR (ARPEON_OLDER AND ARPEON_SAME) OR (ARPEON_NEWER AND ARPEON_OLDER) OR (ARPEON_EXISTING_DIR AND ARPEON_LEGACY_DIR AND ARPEON_EXISTING_DIR &lt;&gt; ARPEON_LEGACY_DIR)</Custom>
       <Custom Action="RejectUnknownLocation" After="SetARPEON_RECOVERY">NOT REMOVE AND ((ARPEON_OLDER AND NOT ARPEON_EXISTING_DIR AND NOT ARPEON_LEGACY_DIR) OR (ARPEON_EXISTING_DIR AND NOT Installed AND NOT ARPEON_OLDER AND NOT ARPEON_SAME AND NOT ARPEON_NEWER AND NOT ARPEON_RECOVERY))</Custom>
-      <!-- Native rollback covers removal; actual registry recovery remains a release gate. -->
-      <RemoveExistingProducts After="InstallInitialize" />
+      <!-- Per-user MSI registration cannot be trusted after rolling back PublishProduct on affected Windows hosts.
+           Commit removal of the old product before the new execute transaction; the Setup shell restores its cached MSI on failure. -->
+      <RemoveExistingProducts After="InstallValidate" />
       <Custom Action="RejectDataDirectory" Before="InstallInitialize">NOT REMOVE AND ((INSTALLDIR ~&lt;&lt; ARPEON_DATA_PATH) OR (INSTALLDIR ~&lt;&lt; ARPEON_LEGACY_DATA_PATH))</Custom>
       <Custom Action="LaunchArpeon" After="InstallFinalize">ARPEON_AUTOLAUNCH = "1" AND NOT REMOVE = "ALL"</Custom>
     </InstallExecuteSequence>

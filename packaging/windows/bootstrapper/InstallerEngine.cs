@@ -18,6 +18,7 @@ namespace Arpeon.Setup
         public string Version { get; set; }
         public string ProductName { get; set; }
         public string ProductCode { get; set; }
+        public string UpgradeCode { get; set; }
         public string RegistryRoot { get; set; }
         public string InstallFolder { get; set; }
         public string MsiHash { get; set; }
@@ -61,6 +62,12 @@ namespace Arpeon.Setup
         internal delegate int RecordHandler(IntPtr context, uint messageType, uint record);
         [DllImport("msi.dll", CharSet = CharSet.Unicode)] internal static extern uint MsiInstallProduct(string package, string properties);
         [DllImport("msi.dll", CharSet = CharSet.Unicode)] internal static extern uint MsiConfigureProductEx(string product, int level, int state, string properties);
+        [DllImport("msi.dll", CharSet = CharSet.Unicode)] internal static extern uint MsiGetProductInfo(string product, string property, StringBuilder value, ref uint size);
+        [DllImport("msi.dll", CharSet = CharSet.Unicode)] internal static extern uint MsiOpenDatabase(string path, IntPtr persist, out uint database);
+        [DllImport("msi.dll", CharSet = CharSet.Unicode)] internal static extern uint MsiDatabaseOpenView(uint database, string query, out uint view);
+        [DllImport("msi.dll")] internal static extern uint MsiViewExecute(uint view, uint record);
+        [DllImport("msi.dll")] internal static extern uint MsiViewFetch(uint view, out uint record);
+        [DllImport("msi.dll")] internal static extern uint MsiCloseHandle(uint handle);
         [DllImport("msi.dll")] internal static extern uint MsiSetInternalUI(uint level, IntPtr owner);
         [DllImport("msi.dll")] internal static extern uint MsiSetExternalUIRecord(RecordHandler handler, uint filter, IntPtr context, out IntPtr previous);
         [DllImport("msi.dll", CharSet = CharSet.Unicode)] internal static extern uint MsiEnableLog(uint mode, string file, uint attributes);
@@ -93,6 +100,18 @@ namespace Arpeon.Setup
         internal volatile bool CanCancel = true;
         internal bool Committed;
         internal bool Removing;
+        internal bool PreviousRecoveryAttempted;
+        internal bool PreviousRecoverySucceeded;
+        internal bool PreviousStillInstalled;
+        internal string PreviousRecoveryMessage
+        {
+            get {
+                if (PreviousRecoverySucceeded) return "A versão anterior foi restaurada e confirmada pelo Windows.";
+                if (PreviousStillInstalled) return "A versão anterior continua instalada.";
+                if (PreviousRecoveryAttempted) return "A restauração automática da versão anterior falhou. Consulte o registro técnico em " + SessionLog;
+                return "";
+            }
+        }
         internal string LastError = "";
         internal Action<string, int?, string> Progress;
         private string staging, package;
@@ -263,9 +282,40 @@ namespace Arpeon.Setup
             using (var algorithm = SHA256.Create()) using (var stream = File.OpenRead(path))
                 return BitConverter.ToString(algorithm.ComputeHash(stream)).Replace("-", "").ToLowerInvariant();
         }
-        internal uint Install(bool remove)
+        internal uint Install(bool remove, bool autoLaunch = false)
         {
             ThrowIfCancelled(); LastError = ""; CanCancel = true;
+            PreviousRecoveryAttempted = PreviousRecoverySucceeded = PreviousStillInstalled = false;
+            string properties = "REBOOT=ReallySuppress ARPEON_AUTOLAUNCH=" + (autoLaunch ? "1" : "0");
+            if (Info.HasMaintenance) properties += " ARPSYSTEMCOMPONENT=1";
+            if (!remove) {
+                properties += " INSTALLDIR=\"" + Target + "\" INSTALLDESKTOPSHORTCUT=" + (Desktop ? "1" : "0") + " INSTALLMENUSHORTCUT=" + (Menu ? "1" : "0");
+                if (Installed) properties += " REINSTALL=ALL REINSTALLMODE=vamus";
+            }
+            Log("MSI begin; remove=" + remove + "; target=" + Target);
+            uint code = ExecuteMsi(package, remove, properties);
+            Log("MSI returned " + code); Committed = code == 0 || code == 3010;
+            if (!remove && !Committed && IsUpdate) RestorePreviousVersion();
+            return code;
+        }
+        internal uint InstallQuiet(bool autoLaunch)
+        {
+            try {
+                Prepare();
+                uint code = Install(false, autoLaunch);
+                if (code != 0 && code != 3010) return code;
+                RegisterMaintenance();
+                ValidateInstallation();
+                CleanupObsoleteMaintenance();
+                if (autoLaunch && code != 3010) Launch();
+                return code;
+            } catch (Exception ex) {
+                Log("Quiet installation failed: " + ex);
+                return 1603;
+            } finally { Dispose(); }
+        }
+        private uint ExecuteMsi(string msiPath, bool remove, string properties)
+        {
             MsiLog = Path.Combine(Path.GetTempPath(), "ArpeonMsi-" + Guid.NewGuid().ToString("N") + ".log");
             uint previousLevel = Msi.MsiSetInternalUI(2, IntPtr.Zero);
             IntPtr previous;
@@ -275,16 +325,7 @@ namespace Arpeon.Setup
             try {
                 uint logging = Msi.MsiEnableLog(0x1fff, MsiLog, 1);
                 if (logging != 0) throw new IOException("Não foi possível criar o registro técnico da instalação (" + logging + ").");
-                string properties = "REBOOT=ReallySuppress ARPEON_AUTOLAUNCH=0";
-                if (Info.HasMaintenance) properties += " ARPSYSTEMCOMPONENT=1";
-                if (!remove) {
-                    properties += " INSTALLDIR=\"" + Target + "\" INSTALLDESKTOPSHORTCUT=" + (Desktop ? "1" : "0") + " INSTALLMENUSHORTCUT=" + (Menu ? "1" : "0");
-                    if (Installed) properties += " REINSTALL=ALL REINSTALLMODE=vamus";
-                }
-                Log("MSI begin; remove=" + remove + "; target=" + Target);
-                uint code = remove ? Msi.MsiConfigureProductEx(Info.ProductCode, 0, 2, properties) : Msi.MsiInstallProduct(package, properties);
-                Log("MSI returned " + code); Committed = code == 0 || code == 3010;
-                return code;
+                return remove ? Msi.MsiConfigureProductEx(Info.ProductCode, 0, 2, properties) : Msi.MsiInstallProduct(msiPath, properties);
             } finally {
                 Msi.MsiEnableLog(0, null, 0); Msi.MsiSetExternalUIRecord(null, 0, IntPtr.Zero, out previous);
                 Msi.MsiSetInternalUI(previousLevel, IntPtr.Zero); GC.KeepAlive(callback);
@@ -294,6 +335,107 @@ namespace Arpeon.Setup
                     catch (IOException) { Log("MSI log retained at " + MsiLog); }
                 }
                 CanCancel = true;
+            }
+        }
+        private void RestorePreviousVersion()
+        {
+            if (Msi.MsiQueryProductState(ExistingProduct) == 5) {
+                PreviousStillInstalled = true;
+                Log("Failed update left the previous product registered; no reinstall was needed.");
+                return;
+            }
+            PreviousRecoveryAttempted = true;
+            string originalError = LastError;
+            bool originalCancel = CancelRequested;
+            string previousMsi = null;
+            CanCancel = false; CancelRequested = false;
+            try {
+                string previousSource = FindPreviousMsi();
+                previousMsi = Path.Combine(staging, "ARPEON-Previous.msi");
+                File.Copy(previousSource, previousMsi, false);
+                if (!String.Equals(Hash(previousMsi), Hash(previousSource), StringComparison.OrdinalIgnoreCase)) throw new IOException("A cópia temporária do pacote anterior não passou pela verificação de integridade.");
+                string restoreProperties = "REBOOT=ReallySuppress ARPEON_AUTOLAUNCH=0 ARPSYSTEMCOMPONENT=1 INSTALLDIR=\"" + Target + "\" INSTALLDESKTOPSHORTCUT=" + (Desktop ? "1" : "0") + " INSTALLMENUSHORTCUT=" + (Menu ? "1" : "0");
+                Log("Restoring previous version " + ExistingVersion + " from its verified MSI cache.");
+                uint restored = ExecuteMsi(previousMsi, false, restoreProperties);
+                string version, location;
+                ReadInstalledIdentity(out version, out location);
+                PreviousRecoverySucceeded = (restored == 0 || restored == 3010) && Msi.MsiQueryProductState(ExistingProduct) == 5 &&
+                    version == ExistingVersion && String.Equals(Path.GetFullPath(location).TrimEnd('\\'), Target.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase);
+                if (!PreviousRecoverySucceeded) throw new IOException("O Windows não confirmou o retorno à versão " + ExistingVersion + " (código " + restored + ").");
+                Log("Previous version recovery verified.");
+            } catch (Exception ex) {
+                Log("Previous version recovery failed: " + ex);
+                LastError = originalError + (originalError.Length == 0 ? "" : " ") + "A restauração automática da versão " + ExistingVersion + " falhou. " + ex.Message + " Consulte o registro técnico: " + SessionLog;
+            } finally {
+                if (previousMsi != null && File.Exists(previousMsi)) {
+                    try { File.Delete(previousMsi); } catch (IOException ex) { Log("Previous MSI staging cleanup deferred: " + ex.Message); }
+                }
+                CanCancel = true; CancelRequested = originalCancel;
+            }
+        }
+        private string FindPreviousMsi()
+        {
+            Guid code;
+            if (!Guid.TryParse(ExistingProduct, out code)) throw new IOException("O código da instalação anterior não é válido.");
+            string root = Info.RegistryRoot.Replace("Software\\", "");
+            string cache = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), root, "InstallerCache", code.ToString("B").ToUpperInvariant());
+            ValidateCachePath(cache);
+            string cachedMsi = Path.Combine(cache, "ARPEON.msi");
+            string marker = Path.Combine(cache, "bundle.json");
+            if (File.Exists(cachedMsi) && File.Exists(marker)) {
+                var json = new JavaScriptSerializer { MaxJsonLength = 16 * 1024 * 1024 };
+                var previous = json.Deserialize<BundleInfo>(File.ReadAllText(marker, Encoding.UTF8));
+                if (previous != null && previous.HasMaintenance && String.Equals(previous.ProductCode, ExistingProduct, StringComparison.OrdinalIgnoreCase) &&
+                    previous.Version == ExistingVersion && previous.RegistryRoot == Info.RegistryRoot && previous.UpgradeCode == Info.UpgradeCode &&
+                    previous.MsiSize == new FileInfo(cachedMsi).Length && String.Equals(previous.MsiHash, Hash(cachedMsi), StringComparison.OrdinalIgnoreCase)) {
+                    ValidatePreviousMsi(cachedMsi); return cachedMsi;
+                }
+                Log("Cached maintenance metadata did not match the installed previous product; checking the protected Windows Installer cache.");
+            }
+            StringBuilder localPackage = new StringBuilder(32768); uint size = (uint)localPackage.Capacity;
+            uint result = Msi.MsiGetProductInfo(ExistingProduct, "LocalPackage", localPackage, ref size);
+            if (result == 234) { localPackage = new StringBuilder((int)size + 1); size++; result = Msi.MsiGetProductInfo(ExistingProduct, "LocalPackage", localPackage, ref size); }
+            if (result != 0 || String.IsNullOrWhiteSpace(localPackage.ToString())) throw new IOException("O cache de manutenção anterior não está disponível e o Windows não encontrou o pacote local (" + result + ").");
+            string local = Path.GetFullPath(localPackage.ToString());
+            string windowsInstaller = Path.GetFullPath(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Installer")) + Path.DirectorySeparatorChar;
+            if (!local.StartsWith(windowsInstaller, StringComparison.OrdinalIgnoreCase) || !File.Exists(local) || (File.GetAttributes(local) & FileAttributes.ReparsePoint) != 0)
+                throw new IOException("O pacote da instalação anterior não está no cache protegido do Windows Installer.");
+            ValidatePreviousMsi(local); return local;
+        }
+        private void ValidatePreviousMsi(string path)
+        {
+            if (!File.Exists(path) || new FileInfo(path).Length == 0 || (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+                throw new IOException("O pacote da instalação anterior não está íntegro.");
+            if (!String.Equals(MsiProperty(path, "ProductCode"), ExistingProduct, StringComparison.OrdinalIgnoreCase) ||
+                MsiProperty(path, "ProductVersion") != ExistingVersion ||
+                !String.Equals(MsiProperty(path, "UpgradeCode"), Info.UpgradeCode, StringComparison.OrdinalIgnoreCase))
+                throw new IOException("A identidade do pacote em cache não corresponde à instalação anterior.");
+        }
+        private static string MsiProperty(string path, string property)
+        {
+            uint database = 0, view = 0, record = 0;
+            try {
+                uint result = Msi.MsiOpenDatabase(path, IntPtr.Zero, out database);
+                if (result != 0) throw new IOException("Não foi possível abrir o MSI em cache (" + result + ").");
+                result = Msi.MsiDatabaseOpenView(database, "SELECT `Value` FROM `Property` WHERE `Property`='" + property.Replace("'", "''") + "'", out view);
+                if (result != 0 || Msi.MsiViewExecute(view, 0) != 0 || Msi.MsiViewFetch(view, out record) != 0) throw new IOException("O pacote em cache não contém " + property + ".");
+                uint size = 4096; var value = new StringBuilder((int)size);
+                result = Msi.MsiRecordGetString(record, 1, value, ref size);
+                if (result == 234) { value = new StringBuilder((int)size + 1); size++; result = Msi.MsiRecordGetString(record, 1, value, ref size); }
+                if (result != 0) throw new IOException("Não foi possível ler " + property + " do pacote em cache.");
+                return value.ToString();
+            } finally {
+                if (record != 0) Msi.MsiCloseHandle(record);
+                if (view != 0) Msi.MsiCloseHandle(view);
+                if (database != 0) Msi.MsiCloseHandle(database);
+            }
+        }
+        private void ReadInstalledIdentity(out string version, out string location)
+        {
+            using (var root = RegistryKey.OpenBaseKey(RegistryHive.CurrentUser, RegistryView.Registry64))
+            using (var key = root.OpenSubKey(Info.RegistryRoot + "\\Installation")) {
+                version = key == null ? "" : Convert.ToString(key.GetValue("Version", ""));
+                location = key == null ? "" : Convert.ToString(key.GetValue("InstallLocation", ""));
             }
         }
         private int OnMsiMessage(IntPtr context, uint messageType, uint record)
