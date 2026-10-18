@@ -79,7 +79,10 @@ class AudiverisProcessTest {
 
   public static final class Probe {
     public static void main(String[] args) throws Exception {
-      Files.writeString(Path.of(args[1]), Long.toString(ProcessHandle.current().pid()));
+      Path marker = Path.of(args[1]);
+      Path ready = marker.resolveSibling(marker.getFileName() + ".ready");
+      Files.writeString(ready, Long.toString(ProcessHandle.current().pid()));
+      Files.move(ready, marker, java.nio.file.StandardCopyOption.ATOMIC_MOVE);
       if (args[0].equals("fail")) {
         System.err.println("x".repeat(65536));
         System.err.println("PROBE_FAILURE_DETAIL");
