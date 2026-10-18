@@ -165,6 +165,15 @@ button:hover:not(:disabled) {
 button:active:not(:disabled) {
   background: var(--active);
 }
+.primary-action:not(:disabled) {
+  color: var(--on-accent);
+  background: var(--accent-fill);
+  border-color: var(--accent-fill);
+}
+.primary-action:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+  border-color: var(--color-accent-hover);
+}
 button:disabled,
 input:disabled,
 select:disabled,
@@ -187,6 +196,31 @@ input[type='checkbox'] {
   width: 16px;
   height: 16px;
   flex: 0 0 auto;
+}
+select {
+  appearance: none;
+  padding-right: 28px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%23b0b2ad' stroke-width='1.5' viewBox='0 0 16 16'%3E%3Cpath d='m4 6 4 4 4-4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 7px center;
+  text-overflow: ellipsis;
+}
+:root[data-theme='light'] select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%23555952' stroke-width='1.5' viewBox='0 0 16 16'%3E%3Cpath d='m4 6 4 4 4-4'/%3E%3C/svg%3E");
+}
+select:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+option,
+optgroup {
+  background: var(--raised);
+  color: var(--primary);
+}
+@media (forced-colors: active) {
+  select {
+    appearance: auto;
+    background-image: none;
+  }
 }
 select,
 textarea,

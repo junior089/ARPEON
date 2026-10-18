@@ -250,21 +250,9 @@
   <p class="practice-error" role="alert">{{ session.error() || microphone.error() }}</p>
   }
   <div class="practice-grid secondary">
-    <section class="practice-card" aria-labelledby="finger-title">
+    <section class="practice-card fingering-reference" aria-labelledby="finger-title">
       <h2 id="finger-title">Referência de digitação</h2>
-      <p>
-        O diagrama acompanha a nota escolhida. As alternativas verificadas aparecem no seletor de
-        digitação.
-      </p>
-      <details>
-        <summary>Consultar carta completa</summary>
-        <a href="/flute-fingering-cc0.jpg" target="_blank" rel="noopener"
-          >Carta CC0 para flauta transversal</a
-        >
-        <p class="aside-note">
-          Fonte e checksum nos avisos de terceiros. Esquema Boehm com pé em Dó.
-        </p>
-      </details>
+      <app-flute-fingering [pitch]="guidePitch()" [referenceGuide]="true" />
     </section>
     <app-practice-history class="practice-card" />
   </div>

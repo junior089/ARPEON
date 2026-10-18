@@ -1,4 +1,4 @@
-import { Component, computed, effect, inject, signal } from '@angular/core';
+import { Component, computed, effect, HostListener, inject, signal } from '@angular/core';
 import { Icon } from '../../shared/icon';
 import { ScoreSession } from '../score/score-session';
 
@@ -14,6 +14,7 @@ export class TransportBar {
   readonly pendingTick = signal(0);
   readonly draftBpm = signal<number | null>(null);
   readonly settingsOpen = signal(false);
+  readonly tempoOpen = signal(false);
   readonly loopOpen = signal(false);
   readonly draftLoopStart = signal<number | null>(null);
   readonly draftLoopEnd = signal<number | null>(null);
@@ -110,5 +111,19 @@ export class TransportBar {
     if (bpm === null || !Number.isFinite(bpm) || bpm < 30 || bpm > 300) return;
     await this.session.action('bpm', { bpm });
     if (!this.session.error()) this.draftBpm.set(null);
+  }
+
+  async nudgeBpm(amount: number): Promise<void> {
+    if (this.session.busy()) return;
+    const bpm = this.draftBpm() ?? this.session.transport()?.startingBpm;
+    if (bpm === undefined || !Number.isFinite(bpm)) return;
+    this.draftBpm.set(Math.max(30, Math.min(300, bpm + amount)));
+    await this.applyBpm();
+  }
+
+  @HostListener('keydown.escape')
+  closePanels(): void {
+    this.tempoOpen.set(false);
+    this.settingsOpen.set(false);
   }
 }

@@ -75,10 +75,10 @@ export class App {
     {
       title: 'Melhorias desta revisão',
       items: [
-        'Kit vetorial ARPEON, menus por tarefa e player compacto.',
-        'Importação unificada e comparação visual do reconhecimento.',
-        'Nomes das notas, digitação vetorial e símbolos contextuais.',
-        'Prévia musical de transposição.',
+        'Metrônomo e contagem no player; BPM exato e ajustes de 1 ou 5 BPM.',
+        'Guia de flauta com mapa das chaves, mãos e diagramas por nota.',
+        'Avisos de extensão com acesso à nota, voz e cabeça de acorde.',
+        'Seletores e ações nos temas Ouro e Carvão.',
       ],
     },
     {

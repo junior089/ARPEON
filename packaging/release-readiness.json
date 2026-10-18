@@ -1,5 +1,5 @@
 {
-  "version": "0.1.1",
+  "version": "0.1.2",
   "gates": {
     "redistributionLicenses": { "passed": false, "evidence": "docs/legal/native-distribution.md" },
     "cleanWindowsInstall": { "passed": false, "evidence": "" },

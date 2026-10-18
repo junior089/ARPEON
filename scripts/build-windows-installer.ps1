@@ -3,6 +3,7 @@ param(
     [Parameter(Mandatory)][string]$Version,
     [Parameter(Mandatory)][string]$OutputDirectory,
     [switch]$TestIdentity,
+    [switch]$SkipBootstrapper,
     [ValidatePattern('^[a-z0-9-]{0,24}$')][string]$TestRunId = ''
 )
 $ErrorActionPreference = 'Stop'
@@ -106,3 +107,6 @@ $msi = Join-Path $output "ARPEON-$Version.msi"
 & (Join-Path $wix 'light.exe') -nologo -ext WixUIExtension -cultures:pt-br -sice:ICE91 -cc (Join-Path $output 'cabinet-cache') -reusecab -out $msi (Join-Path $stage 'installer.wixobj') (Join-Path $stage 'ui.wixobj') (Join-Path $stage 'files.wixobj')
 if ($LASTEXITCODE -ne 0) { throw 'WiX linking or MSI validation failed.' }
 Write-Host "Windows installer: $msi"
+if (-not $SkipBootstrapper) {
+    & (Join-Path $PSScriptRoot 'build-installer-shell.ps1') -Installer $msi -Package $root -Output (Join-Path $output "ARPEON-$Version-Setup.exe")
+}

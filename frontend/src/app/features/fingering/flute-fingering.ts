@@ -3,197 +3,39 @@ import { FLUTE_KEYS, fluteFingerings, FluteKey } from './flute-data';
 
 @Component({
   selector: 'app-flute-fingering',
-  template: `
-    <section class="fingering" aria-label="Como tocar a nota na flauta transversal">
-      <div class="fingering-heading">
-        <h3>Digitação · flauta</h3>
-        <span>Boehm · pé em Dó</span>
-      </div>
-      @if (position(); as chart) {
-        <div class="pitch-row">
-          <strong>{{ chart.label }}</strong>
-          @if (chart.variants.length > 1) {
-            <select
-              aria-label="Digitação da flauta"
-              [value]="variant()"
-              (change)="variant.set($any($event.target).value)"
-            >
-              @for (item of chart.variants; track item.id) {
-                <option [value]="item.id">{{ item.name }}</option>
-              }
-            </select>
-          }
-        </div>
-        <svg
-          viewBox="0 0 424 95"
-          class="diagram"
-          role="group"
-          [attr.aria-label]="'Chaves para ' + chart.label"
-        >
-          <path class="tube" d="M16 19h390v24H16z M46 43v8h285v-8" />
-          <path class="mechanism" d="M59 16h247 M60 49h247" />
-          @for (key of keys; track key.id) {
-            <g
-              role="button"
-              tabindex="0"
-              [attr.aria-label]="key.label + ': ' + (pressed(key.id) ? 'pressionada' : 'aberta')"
-              (click)="inspect(key.id)"
-              (keydown.enter)="inspect(key.id)"
-              (keydown.space)="$event.preventDefault(); inspect(key.id)"
-            >
-              <title>{{ key.label }}: {{ pressed(key.id) ? 'pressionada' : 'aberta' }}</title>
-              <rect
-                class="hit-target"
-                [attr.x]="key.x - 16"
-                [attr.y]="key.y - 16"
-                width="32"
-                height="32"
-              />
-              <circle
-                [attr.cx]="key.x"
-                [attr.cy]="key.y"
-                r="11"
-                [class.pressed]="pressed(key.id)"
-                [class.inspected]="inspected() === key.id"
-              />
-              <text
-                [attr.x]="key.x"
-                [attr.y]="key.y + 4"
-                text-anchor="middle"
-                [class.pressed-label]="pressed(key.id)"
-              >
-                {{
-                  key.id === 'Gs' ? 'G♯' : key.id === 'Cs' ? 'C♯' : key.id === 'Bb' ? 'B♭' : key.id
-                }}
-              </text>
-            </g>
-          }
-          <text x="103" y="92" text-anchor="middle" class="hand">Mão esquerda</text>
-          <text x="263" y="92" text-anchor="middle" class="hand">Mão direita</text>
-        </svg>
-        <p class="key-status" aria-live="polite">
-          {{ inspectedLabel() || 'Dourado: pressionada · contorno: aberta' }}
-        </p>
-        @if (current()?.note) {
-          <p class="variant-note">{{ current()?.note }}</p>
-        }
-      } @else {
-        <p class="unavailable">
-          Selecione uma nota entre Dó4 e Fá6. Não há digitação verificada fora dessa extensão.
-        </p>
-      }
-      <details>
-        <summary>Fonte e leitura do diagrama</summary>
-        <p>
-          Esquema das chaves acionadas pelos dedos, não dos mecanismos internos. T: polegar em Si;
-          B♭: alavanca Si bemol. Fonte: carta CC0 e guia Yamaha. A resposta varia com o instrumento
-          e a embocadura.
-        </p>
-        <a href="/flute-fingering-cc0.jpg" target="_blank" rel="noopener"
-          >Consultar carta de referência</a
-        >
-      </details>
-    </section>
-  `,
-  styles: `
-    .fingering {
-      padding-block: var(--space-3);
-      border-block: 1px solid var(--border);
-      min-width: 0;
-    }
-    .fingering-heading,
-    .pitch-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: var(--space-2);
-      flex-wrap: wrap;
-    }
-    h3 {
-      margin: 0;
-    }
-    .fingering-heading span,
-    p,
-    details {
-      color: var(--secondary);
-      font-size: var(--text-small);
-    }
-    .pitch-row {
-      margin-block: var(--space-2);
-    }
-    .pitch-row strong {
-      font-size: var(--text-section);
-    }
-    .diagram {
-      display: block;
-      width: 100%;
-      max-width: 540px;
-      overflow: visible;
-    }
-    .tube {
-      fill: var(--surface);
-      stroke: var(--control-border);
-    }
-    .mechanism {
-      stroke: var(--control-border);
-      fill: none;
-    }
-    circle {
-      fill: var(--color-key-open);
-      stroke: var(--secondary);
-      stroke-width: 1.5;
-    }
-    .hit-target {
-      fill: transparent;
-      pointer-events: all;
-    }
-    circle.pressed {
-      fill: var(--color-key-pressed);
-      stroke: var(--accent);
-    }
-    circle.inspected {
-      stroke-width: 3;
-    }
-    text {
-      fill: var(--primary);
-      font: 10px var(--ui);
-      pointer-events: none;
-    }
-    text.pressed-label {
-      fill: var(--on-accent);
-    }
-    .hand {
-      fill: var(--secondary);
-    }
-    g[role='button'] {
-      cursor: pointer;
-    }
-    g:focus-visible {
-      outline: none;
-    }
-    g:focus-visible circle {
-      stroke: var(--color-focus);
-      stroke-width: 3;
-    }
-    .key-status {
-      min-height: 18px;
-      margin: var(--space-2) 0;
-    }
-    details p {
-      margin: var(--space-2) 0;
-    }
-    .variant-note,
-    .unavailable {
-      margin: var(--space-2) 0;
-    }
-  `,
+  templateUrl: './flute-fingering.html',
+  styleUrl: './flute-fingering.scss',
 })
 export class FluteFingering {
   readonly pitch = input<string | null>(null);
-  readonly position = computed(() => fluteFingerings(this.pitch()));
+  readonly referenceGuide = input(false);
+  readonly referencePitch = signal<string | null>(null);
+  readonly position = computed(() =>
+    fluteFingerings(this.referencePitch() ?? this.pitch() ?? (this.referenceGuide() ? 'C4' : null)),
+  );
   readonly keys = FLUTE_KEYS;
   readonly variant = signal('standard');
   readonly inspected = signal<FluteKey | null>(null);
+  readonly basicNotes = [
+    { pitch: 'C4', name: 'Dó', letter: 'C' },
+    { pitch: 'C#4', name: 'Dó♯', letter: 'C♯' },
+    { pitch: 'D4', name: 'Ré', letter: 'D' },
+    { pitch: 'D#4', name: 'Ré♯', letter: 'D♯' },
+    { pitch: 'E4', name: 'Mi', letter: 'E' },
+    { pitch: 'F4', name: 'Fá', letter: 'F' },
+    { pitch: 'F#4', name: 'Fá♯', letter: 'F♯' },
+    { pitch: 'G4', name: 'Sol', letter: 'G' },
+    { pitch: 'G#4', name: 'Sol♯', letter: 'G♯' },
+    { pitch: 'A4', name: 'Lá', letter: 'A' },
+    { pitch: 'A#4', name: 'Lá♯', letter: 'A♯' },
+    { pitch: 'B4', name: 'Si', letter: 'B' },
+    { pitch: 'C5', name: 'Dó', letter: 'C · 5' },
+  ].map((note, index) => ({
+    ...note,
+    midi: 60 + index,
+    staffY: [30, 30, 27.5, 27.5, 25, 22.5, 22.5, 20, 20, 17.5, 17.5, 15, 12.5][index],
+    pressed: fluteFingerings(note.pitch)?.variants[0]?.pressed ?? [],
+  }));
   readonly current = computed(
     () =>
       this.position()?.variants.find((v) => v.id === this.variant()) ??
@@ -208,6 +50,10 @@ export class FluteFingering {
   constructor() {
     effect(() => {
       this.pitch();
+      this.referencePitch.set(null);
+    });
+    effect(() => {
+      this.position();
       this.variant.set('standard');
       this.inspected.set(null);
     });
@@ -217,5 +63,41 @@ export class FluteFingering {
   }
   inspect(key: FluteKey): void {
     this.inspected.set(key);
+  }
+  keyName(key: FluteKey): string {
+    return key === 'Gs'
+      ? 'G♯'
+      : key === 'Cs'
+        ? 'C♯'
+        : key === 'Bb'
+          ? 'B♭'
+          : key === 'Eb'
+            ? 'E♭'
+            : key;
+  }
+  rightHand(key: FluteKey): boolean {
+    return ['R1', 'R2', 'R3', 'Eb', 'Cs', 'C'].includes(key);
+  }
+  diagramX(key: FluteKey): number {
+    return {
+      L1: 28,
+      L2: 68,
+      L3: 108,
+      T: 28,
+      Bb: 68,
+      Gs: 108,
+      R1: 180,
+      R2: 220,
+      R3: 260,
+      Eb: 180,
+      Cs: 220,
+      C: 260,
+    }[key];
+  }
+  diagramY(key: FluteKey): number {
+    return ['L1', 'L2', 'L3', 'R1', 'R2', 'R3'].includes(key) ? 45 : 96;
+  }
+  chooseReference(pitch: string): void {
+    this.referencePitch.set(pitch);
   }
 }

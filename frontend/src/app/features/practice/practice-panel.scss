@@ -31,6 +31,9 @@
 .practice-card {
   min-width: 0;
 }
+.fingering-reference {
+  grid-column: 1 / -1;
+}
 .practice-card h2 {
   margin: 0 0 var(--space-4);
 }
