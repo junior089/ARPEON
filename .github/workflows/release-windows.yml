@@ -89,7 +89,7 @@ jobs:
             ./scripts/package-windows.ps1 -SkipFrontendBuild -ForRelease -OutputSubdirectory release -UpdateChannel $env:RELEASE_CHANNEL -UpdateFeedUrl $env:ARPEON_UPDATE_FEED_URL -UpdatePublicKey $publicKey
             ./scripts/verify-package.ps1 -Package apps/desktop/build/native/release/ARPEON
             $base = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/v$env:RELEASE_VERSION-$env:RELEASE_CHANNEL"
-            ./scripts/new-update-appcast.ps1 -Installer "apps/desktop/build/native/release/ARPEON-$env:RELEASE_VERSION.msi" -Version $env:RELEASE_VERSION -DownloadUrl "$base/ARPEON-$env:RELEASE_VERSION.msi" -ReleaseNotesUrl "$base/RELEASE-NOTES.md" -PrivateKeyFile $key -Channel $env:RELEASE_CHANNEL -Output apps/desktop/build/native/release/appcast.xml
+            ./scripts/new-update-appcast.ps1 -Installer "apps/desktop/build/native/release/ARPEON-$env:RELEASE_VERSION-Setup.exe" -Version $env:RELEASE_VERSION -DownloadUrl "$base/ARPEON-$env:RELEASE_VERSION-Setup.exe" -ReleaseNotesUrl "$base/RELEASE-NOTES.md" -PrivateKeyFile $key -Channel $env:RELEASE_CHANNEL -Output apps/desktop/build/native/release/appcast.xml
           } finally {
             if ($certificate) { Remove-Item -LiteralPath "Cert:\CurrentUser\My\$($certificate.Thumbprint)" }
             foreach ($secretFile in @($pfx, $key)) { if (Test-Path -LiteralPath $secretFile) { Remove-Item -LiteralPath $secretFile } }
@@ -111,7 +111,7 @@ jobs:
             $previousVersion = $feed.rss.channel.item.SelectSingleNode("*[local-name()='version']").InnerText
             if ([Version]$env:RELEASE_VERSION -le [Version]$previousVersion) { throw 'Channel publication must increase its version.' }
           }
-          $artifacts = @((Join-Path $root "ARPEON-$env:RELEASE_VERSION.msi"), (Join-Path $root "ARPEON-$env:RELEASE_VERSION.msi.sha256"), (Join-Path $root "ARPEON-$env:RELEASE_VERSION-windows-x64.zip"), (Join-Path $root "ARPEON-$env:RELEASE_VERSION-windows-x64.zip.sha256"))
+          $artifacts = @((Join-Path $root "ARPEON-$env:RELEASE_VERSION-Setup.exe"), (Join-Path $root "ARPEON-$env:RELEASE_VERSION-Setup.exe.sha256"), (Join-Path $root "ARPEON-$env:RELEASE_VERSION-windows-x64.zip"), (Join-Path $root "ARPEON-$env:RELEASE_VERSION-windows-x64.zip.sha256"))
           foreach ($file in @('source.zip','RELEASE-NOTES.md','BUILD-INFO.json','FILES-SHA256.json','THIRD_PARTY_NOTICES.md')) {
             Copy-Item -LiteralPath (Join-Path "$root/ARPEON" $file) -Destination (Join-Path $root $file)
             $artifacts += Join-Path $root $file

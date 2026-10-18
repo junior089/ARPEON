@@ -4,7 +4,7 @@
     "redistributionLicenses": { "passed": false, "evidence": "docs/legal/native-distribution.md" },
     "cleanWindowsInstall": { "passed": false, "evidence": "" },
     "signedUpdateEndToEnd": { "passed": false, "evidence": "" },
-    "installerRecovery": { "passed": false, "evidence": "docs/development/production-validation.md" },
+    "installerRecovery": { "passed": true, "evidence": "docs/development/installer-recovery-acceptance-20261018.json" },
     "audioHardware": { "passed": false, "evidence": "" }
   }
 }

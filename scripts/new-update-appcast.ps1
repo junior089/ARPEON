@@ -20,23 +20,48 @@ $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $tool = Join-Path $repoRoot 'apps/desktop/build/native-resources/build-tools/winsparkle-tool.exe'
 if (-not (Test-Path -LiteralPath $tool)) { throw 'Run scripts/prepare-windows-runtime.ps1 first.' }
 $artifact = Get-Item -LiteralPath $Installer
-if ($artifact.Extension -ne '.msi') { throw 'Windows updates require the complete MSI installer.' }
-$windowsInstaller = New-Object -ComObject WindowsInstaller.Installer
-$database = $windowsInstaller.OpenDatabase($artifact.FullName, 0)
+$payloadFile = Join-Path ([IO.Path]::GetTempPath()) ('Arpeon-Appcast-' + [Guid]::NewGuid().ToString('N') + '.msi')
+$setup = $null; $bundleStream = $null; $payloadStream = $null; $database = $null; $windowsInstaller = $null
 try {
-    foreach ($property in @('ProductVersion', 'UpgradeCode')) {
+    if ($artifact.Extension -ne '.exe') { throw 'Windows updates require the complete ARPEON Setup executable, which performs automatic recovery.' }
+    $setup = [Reflection.Assembly]::LoadFile($artifact.FullName)
+    $bundleStream = $setup.GetManifestResourceStream('bundle.json')
+    $payloadStream = $setup.GetManifestResourceStream('payload.msi')
+    if (-not $bundleStream -or -not $payloadStream) { throw 'Update executable is not a complete ARPEON Setup package.' }
+    $reader = [IO.StreamReader]::new($bundleStream, [Text.Encoding]::UTF8)
+    try { $bundle = $reader.ReadToEnd() | ConvertFrom-Json } finally { $reader.Dispose(); $bundleStream = $null }
+    $outputStream = [IO.File]::Create($payloadFile)
+    try { $payloadStream.CopyTo($outputStream) } finally { $outputStream.Dispose(); $payloadStream.Dispose(); $payloadStream = $null }
+    if ((Get-Item -LiteralPath $payloadFile).Length -ne [long]$bundle.MsiSize -or
+        (Get-FileHash -LiteralPath $payloadFile -Algorithm SHA256).Hash -ne $bundle.MsiHash.ToUpperInvariant()) { throw 'Embedded MSI does not match the Setup integrity metadata.' }
+    $windowsInstaller = New-Object -ComObject WindowsInstaller.Installer
+    $database = $windowsInstaller.OpenDatabase($payloadFile, 0)
+    foreach ($property in @('ProductVersion', 'ProductCode', 'UpgradeCode')) {
         $query = 'SELECT {0}Value{0} FROM {0}Property{0} WHERE {0}Property{0}=''{1}''' -f [char]96, $property
         $view = $database.OpenView($query)
+        $record = $null
         try {
             $view.Execute() | Out-Null
             $record = $view.Fetch()
+            if (-not $record) { throw "Embedded MSI is missing property $property." }
             $value = $record.GetType().InvokeMember('StringData', 'GetProperty', $null, $record, @(1))
             if (($property -eq 'ProductVersion' -and $value -ne $Version) -or
-                ($property -eq 'UpgradeCode' -and $value -ne '{8F73BCEE-0F37-4776-A07E-0BE97DD65F23}')) { throw 'Installer identity/version does not match this ARPEON release.' }
-        } finally { $view.Close() | Out-Null }
+                ($property -eq 'ProductCode' -and $value -ne $bundle.ProductCode) -or
+                ($property -eq 'UpgradeCode' -and $value -ne $bundle.UpgradeCode)) { throw "Setup identity/version does not match $property." }
+        } finally {
+            $view.Close() | Out-Null
+            if ($record -and [Runtime.InteropServices.Marshal]::IsComObject($record)) { [Runtime.InteropServices.Marshal]::FinalReleaseComObject($record) | Out-Null }
+            if ($view -and [Runtime.InteropServices.Marshal]::IsComObject($view)) { [Runtime.InteropServices.Marshal]::FinalReleaseComObject($view) | Out-Null }
+        }
     }
-} finally { [Runtime.InteropServices.Marshal]::FinalReleaseComObject($database) | Out-Null }
-if ($Channel -eq 'stable' -and (Get-AuthenticodeSignature -LiteralPath $artifact.FullName).Status -ne 'Valid') { throw 'Stable appcasts require a Windows-trusted Authenticode signature.' }
+} finally {
+    if ($database) { [Runtime.InteropServices.Marshal]::FinalReleaseComObject($database) | Out-Null }
+    if ($windowsInstaller) { [Runtime.InteropServices.Marshal]::FinalReleaseComObject($windowsInstaller) | Out-Null }
+    if ($bundleStream) { $bundleStream.Dispose() }
+    if ($payloadStream) { $payloadStream.Dispose() }
+    if (Test-Path -LiteralPath $payloadFile) { Remove-Item -LiteralPath $payloadFile -Force }
+}
+if ($Channel -eq 'stable' -and (Get-AuthenticodeSignature -LiteralPath $artifact.FullName).Status -ne 'Valid') { throw 'Stable appcasts require a Windows-trusted Authenticode signature on the complete Setup executable.' }
 $key = Get-Item -LiteralPath $PrivateKeyFile
 $publicOutput = & $tool public-key --private-key-file $key.FullName
 if ($LASTEXITCODE -ne 0) { throw 'Cannot read the update signing key.' }
@@ -71,7 +96,7 @@ try {
     $writer.WriteAttributeString('type','application/octet-stream')
     $writer.WriteAttributeString('sparkle','os',$sparkle,'windows-x64')
     $writer.WriteAttributeString('sparkle','edSignature',$sparkle,$signature)
-    $writer.WriteAttributeString('sparkle','installerArguments',$sparkle,'/passive /norestart ARPEON_AUTOLAUNCH=1')
+    $writer.WriteAttributeString('sparkle','installerArguments',$sparkle,'--install --autolaunch')
     $writer.WriteEndElement(); $writer.WriteEndElement(); $writer.WriteEndElement(); $writer.WriteEndElement()
     $writer.WriteEndDocument()
 } finally { $writer.Dispose() }
