@@ -16,11 +16,15 @@ foreach ($entry in $files) {
     if (-not $path.StartsWith($root + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'Manifest path escapes the package.' }
     $parent = [IO.Path]::GetDirectoryName($path)
     while ($parent -ne $root) {
-        if ((Get-Item -LiteralPath $parent -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Package directory is a reparse point.' }
+        if ([IO.File]::GetAttributes($parent) -band [IO.FileAttributes]::ReparsePoint) { throw 'Package directory is a reparse point.' }
         $parent = [IO.Path]::GetDirectoryName($parent)
     }
-    $file = Get-Item -LiteralPath $path -Force
+    $file = [IO.FileInfo]::new($path)
     if ($file.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Package file is a reparse point.' }
-    if ($file.Length -ne $entry.size -or (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() -ne $entry.sha256) { throw "Package integrity failed: $($entry.path)" }
+    $stream = [IO.File]::OpenRead($path)
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try { $hash = [Convert]::ToHexString($sha.ComputeHash($stream)).ToLowerInvariant() }
+    finally { $sha.Dispose(); $stream.Dispose() }
+    if ($file.Length -ne $entry.size -or $hash -ne $entry.sha256) { throw "Package integrity failed: $($entry.path)" }
 }
 Write-Host "Verified $($files.Count) packaged files. A checksum is not a publisher signature."

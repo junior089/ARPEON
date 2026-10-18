@@ -73,6 +73,7 @@ async function emptyWorkspace(countInBeatsLeft = 0, fromReport = false) {
               : null,
           ),
           loadMeasureEvents: vi.fn().mockResolvedValue(true),
+          busy: signal(false),
           xml: signal(''),
           reconnect: vi.fn().mockResolvedValue(false),
           refreshProjects: vi.fn(),
@@ -120,6 +121,50 @@ describe('ScoreWorkspace editor', () => {
     expect(renderer.render).toHaveBeenCalled();
     expect(cursor.hide).toHaveBeenCalled();
     expect(cursor.show).not.toHaveBeenCalled();
+  });
+
+  it('opens the warned chord head in the correct voice instead of the same index in another voice', async () => {
+    const fixture = await emptyWorkspace(0, true);
+    await fixture.whenStable();
+    const component = fixture.componentInstance;
+    component.session.score.update((score) =>
+      score
+        ? {
+            ...score,
+            parts: score.parts.map((part) => ({
+              ...part,
+              measures: part.measures.map((measure) => ({
+                ...measure,
+                events: measure.events.map((event, index) =>
+                  index === 1
+                    ? {
+                        ...event,
+                        kind: 'CHORD',
+                        voiceId: '2',
+                        eventIndex: 0,
+                        heads: [
+                          { index: 0, pitch: 'D#4', tieStart: false, tieStop: false },
+                          { index: 1, pitch: 'F#4', tieStart: false, tieStop: false },
+                        ],
+                      }
+                    : { ...event, voiceId: '1', eventIndex: 0 },
+                ),
+              })),
+            })),
+          }
+        : null,
+    );
+    await component.inspectRangeWarning({
+      partId: 'P1',
+      measureIndex: 0,
+      voiceId: '2',
+      eventIndex: 0,
+      pitch: 'F#4',
+      kind: 'OUTSIDE_RANGE',
+    });
+    expect(component.eventIndex()).toBe(1);
+    expect(component.selectedHead()?.pitch).toBe('F#4');
+    expect(component.warningPitch('F#4')).toBe('Fá♯4');
   });
 
   it('indicates the dominant visible page instead of a trailing fragment of the previous page', async () => {

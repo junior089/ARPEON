@@ -50,6 +50,8 @@ describe('TransportBar', () => {
     const fixture = TestBed.createComponent(TransportBar);
     await fixture.whenStable();
     const root: HTMLElement = fixture.nativeElement as HTMLElement;
+    root.querySelector<HTMLButtonElement>('[aria-label="Ajustes da reprodução"]')?.click();
+    fixture.detectChanges();
     Array.from(root.querySelectorAll('button'))
       .find((b) => b.textContent?.trim() === 'Trecho A–B')
       ?.click();
@@ -129,6 +131,9 @@ describe('TransportBar', () => {
     }).compileComponents();
     const fixture = TestBed.createComponent(TransportBar);
     fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    root.querySelector<HTMLButtonElement>('[aria-label="Ajustar andamento"]')?.click();
+    fixture.detectChanges();
     const input = fixture.nativeElement.querySelector('#starting-bpm') as HTMLInputElement;
     input.value = '96';
     input.dispatchEvent(new Event('input'));
@@ -136,10 +141,39 @@ describe('TransportBar', () => {
     expect(action).not.toHaveBeenCalled();
     const apply = Array.from(
       fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>,
-    ).find((button) => button.textContent === 'Aplicar');
+    ).find((button) => button.textContent?.trim() === 'Aplicar');
     expect(apply?.disabled).toBe(false);
     apply?.click();
     await fixture.whenStable();
     expect(action).toHaveBeenCalledWith('bpm', { bpm: 96 });
+
+    root.querySelector<HTMLButtonElement>('[aria-label="Metrônomo"]')?.click();
+    await fixture.whenStable();
+    expect(action).toHaveBeenLastCalledWith('metronome', { enabled: true });
+    root.querySelector<HTMLButtonElement>('[aria-label="Contagem inicial"]')?.click();
+    await fixture.whenStable();
+    expect(action).toHaveBeenLastCalledWith('count-in', { enabled: true });
+
+    input.value = '299';
+    input.dispatchEvent(new Event('input'));
+    root.querySelector<HTMLButtonElement>('[aria-label="Aumentar 5 BPM"]')?.click();
+    await fixture.whenStable();
+    expect(action).toHaveBeenLastCalledWith('bpm', { bpm: 300 });
+    input.value = '31';
+    input.dispatchEvent(new Event('input'));
+    root.querySelector<HTMLButtonElement>('[aria-label="Diminuir 5 BPM"]')?.click();
+    await fixture.whenStable();
+    expect(action).toHaveBeenLastCalledWith('bpm', { bpm: 30 });
+    action.mockClear();
+    input.value = '';
+    input.dispatchEvent(new Event('input'));
+    await fixture.componentInstance.nudgeBpm(1);
+    await fixture.componentInstance.applyBpm();
+    expect(action).not.toHaveBeenCalled();
+    root
+      .querySelector('.transport')
+      ?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    fixture.detectChanges();
+    expect(fixture.componentInstance.tempoOpen()).toBe(false);
   });
 });

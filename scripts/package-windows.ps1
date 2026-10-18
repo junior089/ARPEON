@@ -222,7 +222,7 @@ if ($signingRequested) {
 & (Join-Path $PSScriptRoot 'write-package-manifest.ps1') -Package $imageDir -Version $appVersion -PublicDistributionApproved:$ForRelease
 
 if (-not $SkipInstaller) {
-    & (Join-Path $PSScriptRoot 'build-windows-installer.ps1') -Package $imageDir -Version $appVersion -OutputDirectory $outputDir
+    & (Join-Path $PSScriptRoot 'build-windows-installer.ps1') -Package $imageDir -Version $appVersion -OutputDirectory $outputDir -SkipBootstrapper
     $msiPath = Join-Path $outputDir "ARPEON-$appVersion.msi"
     if ($signingRequested) {
         & $signToolCommand.Source sign /sha1 $certificateThumbprint /s My /fd SHA256 /tr $timestampUrl /td SHA256 $msiPath
@@ -233,6 +233,17 @@ if (-not $SkipInstaller) {
     $msiHash = (Get-FileHash -LiteralPath $msiPath -Algorithm SHA256).Hash.ToLowerInvariant()
     Set-Content -LiteralPath "$msiPath.sha256" -Value "$msiHash  $(Split-Path -Leaf $msiPath)" -Encoding ascii
     Write-Host "Windows installer: $msiPath"
+    $setupPath = Join-Path $outputDir "ARPEON-$appVersion-Setup.exe"
+    # Embed the final signed MSI so its integrity hash matches the distributed payload.
+    & (Join-Path $PSScriptRoot 'build-installer-shell.ps1') -Installer $msiPath -Package $imageDir -Output $setupPath
+    if ($signingRequested) {
+        & $signToolCommand.Source sign /sha1 $certificateThumbprint /s My /fd SHA256 /tr $timestampUrl /td SHA256 $setupPath
+        if ($LASTEXITCODE -ne 0) { throw 'Setup signing failed.' }
+        & $signToolCommand.Source verify /pa /v $setupPath
+        if ($LASTEXITCODE -ne 0) { throw 'Setup signature verification failed.' }
+    }
+    $setupHash = (Get-FileHash -LiteralPath $setupPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    Set-Content -LiteralPath "$setupPath.sha256" -Value "$setupHash  $(Split-Path -Leaf $setupPath)" -Encoding ascii
 }
 
 if (-not $SkipZip) {

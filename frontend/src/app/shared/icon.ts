@@ -15,6 +15,8 @@ export type IconName =
   | 'save'
   | 'menu'
   | 'settings'
+  | 'metronome'
+  | 'warning'
   | 'edit'
   | 'study'
   | 'previous'
@@ -22,6 +24,8 @@ export type IconName =
   | 'rewind'
   | 'forward';
 const PATHS: Record<IconName, string> = {
+  metronome: 'M6 3h8l4 14H2z M10 14l5-12 M6 12h8 M7 17v1 M13 17v1',
+  warning: 'M10 2l9 16H1z M10 7v5 M10 15v.1',
   edit: 'M3 14l-1 4 4-1L17 6l-3-3z M11 6l3 3',
   study: 'M1 7l9-5 9 5-9 5z M4 9v6c4 3 8 3 12 0V9 M19 7v8',
   previous: 'M4 3v14 M16 3l-10 7 10 7z',

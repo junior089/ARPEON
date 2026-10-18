@@ -428,8 +428,7 @@
 .transform-controls button {
   text-align: left;
 }
-.preview,
-.range-warnings {
+.preview {
   border-left: 1px solid var(--warning);
   background: var(--raised);
   padding: 12px;
@@ -522,12 +521,101 @@
   background: var(--selection);
 }
 .preview ul,
-.range-warnings ul {
+.import-diagnostics ul {
   max-height: 170px;
   overflow: auto;
   padding-left: 16px;
   font-size: var(--text-small);
   color: var(--secondary);
+}
+.range-warnings {
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+.range-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--warning);
+}
+.range-heading h3 {
+  display: block;
+  flex: 1;
+  margin: 0;
+  color: var(--primary);
+  font-size: var(--text-control);
+}
+.warning-count {
+  min-width: 24px;
+  padding: 1px 6px;
+  text-align: center;
+  font: 12px var(--mono);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.range-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-block: var(--space-2) var(--space-3);
+  color: var(--warning);
+  font-size: 11px;
+}
+.range-summary .outside {
+  color: var(--danger);
+}
+.range-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.range-list li + li {
+  border-top: 1px solid var(--border);
+}
+.range-note {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-2) 4px;
+  text-align: left;
+  background: transparent;
+  border-color: transparent;
+}
+.range-note > strong {
+  flex: 0 0 44px;
+  color: var(--warning);
+  font-size: var(--text-section);
+  font-weight: 500;
+}
+.outside .range-note > strong {
+  color: var(--danger);
+}
+.range-note > span {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  gap: 2px;
+}
+.range-kind {
+  font-size: var(--text-small);
+}
+.range-note small {
+  color: var(--secondary);
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+.range-note app-icon {
+  width: 12px;
+  color: var(--secondary);
+}
+.range-help {
+  margin-bottom: 0;
+  color: var(--secondary);
+  font-size: 11px;
 }
 .empty-state {
   max-width: 800px;

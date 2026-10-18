@@ -1,0 +1,223 @@
+<section
+  class="fingering"
+  [class.reference-guide]="referenceGuide()"
+  aria-label="Como tocar a nota na flauta transversal"
+>
+  <div class="fingering-heading">
+    <h3>{{ referenceGuide() ? 'Guia de digitação' : 'Digitação · flauta' }}</h3>
+    <span>Boehm · pé em Dó</span>
+  </div>
+  @if (referenceGuide()) {
+  <p class="guide-intro">Conheça as chaves e escolha uma nota para ver a posição dos dedos.</p>
+  }
+  <details class="anatomy" [open]="referenceGuide()">
+    <summary>Mapa das chaves</summary>
+    <div
+      class="anatomy-scroll"
+      tabindex="0"
+      role="region"
+      aria-label="Mapa horizontal da flauta e posição das mãos"
+    >
+      <svg
+        viewBox="0 0 424 155"
+        class="flute-map"
+        role="img"
+        aria-label="Flauta transversal esquemática: bocal à esquerda, mão esquerda no corpo central e mão direita junto ao pé"
+      >
+        <path class="hand-bracket left-hand" d="M56 31v-7h132v7" />
+        <path class="hand-bracket right-hand" d="M204 31v-7h198v7" />
+        <text class="hand-label" x="122" y="17" text-anchor="middle">Mão esquerda</text>
+        <text class="hand-label" x="303" y="17" text-anchor="middle">Mão direita</text>
+        <rect class="flute-body" x="4" y="65" width="414" height="19" rx="5" />
+        <path
+          class="flute-joints"
+          d="M50 65v19 M193 65v19 M334 65v19 M410 65v19 M58 78h343 M61 70h267"
+        />
+        <rect class="lip-plate" x="13" y="61" width="26" height="27" rx="10" />
+        <ellipse class="embouchure" cx="26" cy="74" rx="6" ry="4" />
+        @for (key of keys; track key.id) {
+        <g [class.right-hand]="rightHand(key.id)" [class.left-hand]="!rightHand(key.id)">
+          <path
+            class="key-stem"
+            [attr.d]="'M' + key.x + ' ' + (key.y === 30 ? '59v-13' : '85v17')"
+          />
+          <circle
+            class="map-key"
+            [attr.cx]="key.x"
+            [attr.cy]="key.y === 30 ? 71 : 79"
+            r="7"
+            [class.pressed]="pressed(key.id)"
+          />
+          <text [attr.x]="key.x" [attr.y]="key.y === 30 ? 41 : 117" text-anchor="middle">
+            {{ keyName(key.id) }}
+          </text>
+        </g>
+        }
+        <text class="map-caption" x="8" y="146">Bocal</text>
+        <text class="map-caption" x="372" y="146">Pé em Dó</text>
+      </svg>
+    </div>
+    <p class="map-help">T e B♭ ficam atrás do corpo. Role o mapa para ver todas as chaves.</p>
+  </details>
+  @if (referenceGuide()) {
+  <nav class="basic-notes" aria-label="Digitação básica · Dó4 a Dó5">
+    @for (note of basicNotes; track note.pitch) {
+    <button
+      type="button"
+      [attr.aria-label]="'Consultar digitação de ' + note.name + (note.pitch === 'C5' ? '5' : '4')"
+      [attr.aria-pressed]="position()?.midi === note.midi"
+      (click)="chooseReference(note.pitch)"
+    >
+      <strong>{{ note.name }}</strong><span>{{ note.letter }}</span>
+      <svg class="mini-chart" viewBox="0 0 112 84" aria-hidden="true">
+        <path class="mini-staff" d="M10 5h92 M10 10h92 M10 15h92 M10 20h92 M10 25h92" />
+        @if (note.staffY === 30) {
+        <path class="mini-staff" d="M45 30h22" />
+        }
+        <ellipse class="mini-note" cx="56" [attr.cy]="note.staffY" rx="5" ry="3" />
+        @if (note.pitch.includes('#')) {
+        <text x="40" [attr.y]="(note.staffY ?? 0) + 4">♯</text>
+        }
+        <g transform="translate(8, 43) scale(.33)">
+          @for (key of keys; track key.id) {
+          <circle
+            class="touch-key"
+            [class.right-hand]="rightHand(key.id)"
+            [class.left-hand]="!rightHand(key.id)"
+            [attr.cx]="diagramX(key.id)"
+            [attr.cy]="diagramY(key.id)"
+            r="12"
+            [class.pressed]="note.pressed.includes(key.id)"
+          />
+          }
+        </g>
+      </svg>
+    </button>
+    }
+  </nav>
+  } @if (position(); as chart) {
+  <div class="pitch-row">
+    <strong>{{ chart.label }}</strong>
+    @if (chart.variants.length > 1) {
+    <select
+      aria-label="Digitação da flauta"
+      [value]="variant()"
+      (change)="variant.set($any($event.target).value)"
+    >
+      @for (item of chart.variants; track item.id) {
+      <option [value]="item.id">{{ item.name }}</option>
+      }
+    </select>
+    } @else { <span>Digitação padrão</span> }
+  </div>
+  <div class="position-layout">
+    <div class="key-chart">
+      <svg
+        viewBox="0 0 288 125"
+        class="diagram"
+        role="group"
+        [attr.aria-label]="'Chaves para ' + chart.label"
+      >
+        <path class="hand-bracket left-hand" d="M12 25v-7h112v7" />
+        <path class="hand-bracket right-hand" d="M164 25v-7h112v7" />
+        <text class="hand-label" x="68" y="11" text-anchor="middle">Mão esquerda</text>
+        <text class="hand-label" x="220" y="11" text-anchor="middle">Mão direita</text>
+        <path
+          class="key-rail"
+          d="M12 68h112 M164 68h112 M28 61v19 M68 61v19 M108 61v19 M180 61v19 M220 61v19 M260 61v19"
+        />
+        @for (key of keys; track key.id) {
+        <g
+          role="button"
+          tabindex="0"
+          [class.right-hand]="rightHand(key.id)"
+          [class.left-hand]="!rightHand(key.id)"
+          [attr.aria-label]="key.label + ': ' + (pressed(key.id) ? 'pressionada' : 'aberta')"
+          [attr.aria-pressed]="pressed(key.id)"
+          (click)="inspect(key.id)"
+          (keydown.enter)="inspect(key.id)"
+          (keydown.space)="$event.preventDefault(); inspect(key.id)"
+        >
+          <title>{{ key.label }}: {{ pressed(key.id) ? 'pressionada' : 'aberta' }}</title>
+          <rect
+            class="hit-target"
+            [attr.x]="diagramX(key.id) - 18"
+            [attr.y]="diagramY(key.id) - 18"
+            width="36"
+            height="36"
+          />
+          <circle
+            class="touch-key"
+            [attr.cx]="diagramX(key.id)"
+            [attr.cy]="diagramY(key.id)"
+            r="13"
+            [class.pressed]="pressed(key.id)"
+            [class.inspected]="inspected() === key.id"
+          />
+          <text
+            [attr.x]="diagramX(key.id)"
+            [attr.y]="diagramY(key.id) + 4"
+            text-anchor="middle"
+            [class.pressed-label]="pressed(key.id)"
+          >
+            {{ keyName(key.id) }}
+          </text>
+        </g>
+        }
+      </svg>
+      <div class="state-legend">
+        <span><i class="filled-key"></i>Pressionada</span
+        ><span><i class="open-key"></i>Aberta</span>
+      </div>
+      <p class="key-status" aria-live="polite">
+        {{ inspectedLabel() || 'Selecione uma chave para identificar o dedo.' }}
+      </p>
+    </div>
+    <div class="key-legend" [class.full-legend]="referenceGuide()">
+      @if (referenceGuide()) { @for (key of keys; track key.id) {
+      <span
+        ><b [class.right-hand]="rightHand(key.id)" [class.left-hand]="!rightHand(key.id)"
+          >{{ keyName(key.id) }}</b
+        >{{ key.label }}</span
+      >
+      } } @else {
+      <span><b class="left-hand">L1–3</b>Indicador, médio e anelar esquerdos</span>
+      <span><b class="right-hand">R1–3</b>Indicador, médio e anelar direitos</span>
+      <span><b>T / B♭</b>Polegar esquerdo</span>
+      <span><b>G♯ / E♭</b>Mínimos esquerdo / direito</span>
+      <span><b>C♯ / C</b>Mínimo direito · rodízio</span>
+      }
+    </div>
+  </div>
+  @if (current()?.note) {
+  <p class="variant-note">{{ current()?.note }}</p>
+  } } @else {
+  <p class="unavailable">
+    Selecione uma nota entre Dó4 e Fá6. Não há digitação verificada fora dessa extensão.
+  </p>
+  }
+  <details class="source-details">
+    <summary>Como ler e fontes</summary>
+    <p>
+      Preenchimento: chave pressionada. Contorno: chave aberta. L1/R1: indicador; L2/R2: médio;
+      L3/R3: anelar. Não é preciso acionar as chaves na tela para mudar a digitação.
+    </p>
+    <p>
+      T: polegar em Si; B♭: alavanca Si bemol. Esquema das chaves acionadas pelos dedos, não dos
+      mecanismos internos. Fonte: carta CC0 e guia Yamaha. A resposta varia com o instrumento e a
+      embocadura.
+    </p>
+    <a href="/flute-fingering-cc0.jpg" target="_blank" rel="noopener"
+      >Consultar carta de referência</a
+    >
+  </details>
+  @if (referenceGuide()) {
+  <div class="playing-tips">
+    <strong>Ao tocar</strong>
+    <p>
+      Mantenha os dedos curvados e relaxados. Pressione sem tensão e confira a afinação ao
+      experimentar uma alternativa.
+    </p>
+  </div>
+  }
+</section>
