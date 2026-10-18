@@ -9,65 +9,45 @@
   gap: var(--space-3);
   flex-wrap: wrap;
 }
-.transport-settings {
-  display: none;
-  flex-basis: 100%;
-  padding-top: var(--space-3);
-  border-top: 1px solid var(--border);
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--space-3);
+.transport-document {
+  display: grid;
+  gap: 2px;
+  max-width: 200px;
+  min-width: 100px;
+  color: var(--secondary);
+  font-size: 11px;
+  border-right: 1px solid var(--border);
+  padding-right: var(--space-3);
 }
-.settings-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  background: transparent;
-  border-color: transparent;
+.transport-document strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  color: var(--primary);
 }
 .compact-document {
   display: none;
 }
-.loop-controls {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: end;
-  gap: var(--space-3);
-  flex-basis: 100%;
-  grid-column: 1 / -1;
-  padding-top: var(--space-2);
-  border-top: 1px solid var(--border);
-}
-.loop-controls label {
-  display: grid;
-  gap: var(--space-1);
-  min-width: 0;
-  font-size: var(--text-small);
-}
-.loop-controls select {
-  max-width: 100%;
-}
-.loop-hint {
-  flex-basis: 100%;
-  margin: 0;
-  color: var(--secondary);
-  font-size: var(--text-small);
-}
-.loop-active {
-  color: var(--accent);
-  border-color: var(--accent-fill);
-  background: var(--selection);
-}
 .playback-buttons {
   display: flex;
-  gap: 4px;
+  gap: var(--space-2);
+  align-items: center;
 }
 .playback-buttons button {
   display: inline-flex;
-  justify-content: center;
   align-items: center;
-  width: 36px;
+  justify-content: center;
+  width: 28px;
+  min-height: 28px;
   padding: 0;
+  background: transparent;
+  border-color: transparent;
+}
+.playback-buttons .main-play {
+  width: 42px;
+  min-height: 42px;
+  border-radius: 50%;
 }
 .playback-buttons button.main-play:not(:disabled) {
   color: var(--on-accent);
@@ -77,8 +57,8 @@
 .seek {
   display: flex;
   flex-direction: column;
-  min-width: 140px;
-  flex: 1 1 160px;
+  min-width: 100px;
+  flex: 1 1 140px;
   gap: 0;
   font: 11px var(--mono);
   color: var(--secondary);
@@ -86,67 +66,152 @@
 .seek input {
   width: 100%;
   margin: 0;
-  accent-color: var(--accent-fill);
+}
+.quick-controls,
+.metronome-control {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.quick-controls {
+  padding-left: var(--space-2);
+  border-left: 1px solid var(--border);
+}
+.icon-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  min-height: 32px;
+  padding: 0;
+  background: transparent;
+  border-color: transparent;
+  color: var(--secondary);
+}
+.icon-toggle[aria-pressed='true'],
+.icon-toggle[aria-expanded='true'],
+.loop-active {
+  color: var(--accent);
+  background: var(--selection);
+  border-color: var(--accent);
+}
+.count-toggle {
+  font: 600 12px var(--mono);
+  letter-spacing: -0.06em;
+}
+.tempo-toggle {
+  display: grid;
+  gap: 0;
+  min-width: 44px;
+  padding: 2px 4px;
+  background: transparent;
+  border-color: transparent;
+  font: 12px var(--mono);
+  line-height: 1.2;
+}
+.tempo-toggle span {
+  color: var(--secondary);
+  font-size: 9px;
+}
+.tempo-panel,
+.transport-settings {
+  display: flex;
+  flex-basis: 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-3);
+}
+.panel-heading {
+  display: flex;
+  flex-basis: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-size: var(--text-small);
+}
+.panel-heading span,
+.panel-hint {
+  color: var(--secondary);
+  font-size: var(--text-small);
+}
+.panel-hint {
+  margin: 0;
+  flex-basis: 100%;
 }
 .bpm {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
 }
 .bpm label {
-  font-size: var(--text-small);
   color: var(--secondary);
+  font-size: var(--text-small);
 }
 .bpm input {
-  width: 64px;
-  background: var(--background);
-  font: 12px var(--mono);
+  width: 68px;
+  font: 13px var(--mono);
 }
-.bpm button,
-.toggle {
+.bpm button {
   font-size: var(--text-small);
 }
-.toggle[aria-pressed='true'] {
-  background: var(--selection);
-  border-color: var(--accent-fill);
-  color: var(--accent);
-}
 .transport-state {
-  font: 11px var(--mono);
+  margin-left: auto;
   color: var(--secondary);
-  min-width: 82px;
+  font-size: var(--text-small);
+}
+.loop-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--space-3);
+  flex-basis: 100%;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+.loop-controls label {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+  flex: 1 1 180px;
+  color: var(--secondary);
+  font-size: var(--text-small);
+}
+.loop-controls select {
+  width: 100%;
+}
+.loop-hint {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--secondary);
+  font-size: var(--text-small);
+}
+.loop-hint.error {
+  color: var(--danger);
 }
 .transport-empty {
   color: var(--secondary);
   font-size: var(--text-small);
 }
-.transport-document {
-  display: grid;
-  gap: 2px;
-  max-width: 150px;
-  color: var(--secondary);
-  font-size: 11px;
-  border-right: 1px solid var(--border);
-  padding-right: 12px;
-}
-.transport-document strong {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-weight: 500;
-  color: var(--primary);
+@media (max-width: 1050px) {
+  .transport-document {
+    display: none;
+  }
+  .transport {
+    gap: var(--space-2);
+  }
 }
 @media (max-width: 700px) {
   .transport {
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr) 36px;
-    gap: 8px;
-  }
-  .transport-document {
-    display: none;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 6px;
   }
   .seek {
     min-width: 0;
+    font-size: 10px;
   }
   .compact-document {
     display: block;
@@ -155,79 +220,20 @@
     text-overflow: ellipsis;
     color: var(--primary);
   }
-  .settings-toggle {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0;
-    width: 36px;
-    min-height: 36px;
+  .quick-controls {
+    padding-left: 4px;
+    gap: 2px;
   }
-  .transport-settings {
-    display: none;
-    grid-column: 1 / -1;
-    padding-top: var(--space-2);
-    border-top: 1px solid var(--border);
+  .metronome-control {
+    gap: 0;
   }
-  .transport-settings.expanded {
-    display: flex;
+  .icon-toggle {
+    width: 30px;
+    min-height: 32px;
   }
-  .transport-settings:not(.expanded) + .loop-controls {
-    display: none;
-  }
-  .loop-controls {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: var(--space-2);
-  }
-  .loop-controls button {
-    font-size: var(--text-small);
-  }
-  .loop-hint {
-    grid-column: 1 / -1;
-  }
-  .transport-empty {
-    grid-column: 2 / -1;
-  }
-}
-
-.transport-settings.expanded {
-  display: flex;
-}
-.playback-buttons {
-  gap: var(--space-2);
-  align-items: center;
-}
-.playback-buttons button {
-  background: transparent;
-  border-color: transparent;
-  width: 28px;
-  min-height: 28px;
-}
-.playback-buttons .main-play {
-  width: 42px;
-  min-height: 42px;
-  border-radius: 50%;
-}
-.transport-document {
-  max-width: 200px;
-  min-width: 100px;
-}
-.player-tempo {
-  font: var(--text-small) var(--mono);
-  white-space: nowrap;
-}
-@media (max-width: 900px) {
-  .transport-document {
-    display: none;
-  }
-  .transport {
-    gap: var(--space-2);
-  }
-}
-@media (max-width: 700px) {
-  .player-tempo {
-    display: none;
+  .tempo-toggle {
+    min-width: 34px;
+    font-size: 11px;
   }
   .playback-buttons {
     gap: 2px;
@@ -237,5 +243,24 @@
   }
   .playback-buttons button:last-child {
     display: none;
+  }
+  .tempo-panel,
+  .transport-settings {
+    grid-column: 1 / -1;
+  }
+  .transport-empty {
+    grid-column: 2 / -1;
+  }
+}
+@media (max-width: 450px) {
+  .transport {
+    grid-template-columns: 1fr auto;
+  }
+  .seek {
+    grid-row: 2;
+    grid-column: 1 / -1;
+  }
+  .quick-controls {
+    justify-self: end;
   }
 }

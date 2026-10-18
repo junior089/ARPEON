@@ -926,19 +926,46 @@
           </button>
         </div>
         } @if (score.rangeWarnings.length) {
-        <div class="range-warnings" role="status">
-          <h3>Avisos de extensão</h3>
-          <ul>
+        <section class="range-warnings" aria-labelledby="range-warning-title">
+          <div class="range-heading">
+            <app-icon name="warning" />
+            <h3 id="range-warning-title">Extensão instrumental</h3>
+            <span class="warning-count">{{ score.rangeWarnings.length }}</span>
+          </div>
+          <div class="range-summary" role="status">
+            @if (outsideRangeCount()) {
+            <span class="outside">{{ outsideRangeCount() }} fora da extensão</span> } @if
+            (score.rangeWarnings.length > outsideRangeCount()) {
+            <span
+              >{{ score.rangeWarnings.length - outsideRangeCount() }} fora da zona confortável</span
+            >
+            }
+          </div>
+          <ul class="range-list" aria-label="Notas para revisar">
             @for (warning of score.rangeWarnings; track warning.partId + '-' + warning.measureIndex
-            + '-' + warning.voiceId + '-' + warning.eventIndex) {
-            <li>
-              {{ warning.pitch }} · compasso {{ warning.measureIndex + 1 }} · voz {{ warning.voiceId
-              ?? '1' }} · {{ warning.kind === 'OUTSIDE_RANGE' ? 'fora da extensão' : 'acima da zona
-              confortável' }}
+            + '-' + warning.voiceId + '-' + warning.eventIndex + '-' + warning.pitch) {
+            <li [class.outside]="warning.kind === 'OUTSIDE_RANGE'">
+              <button
+                type="button"
+                class="range-note"
+                [disabled]="session.busy()"
+                (click)="inspectRangeWarning(warning)"
+                [attr.aria-label]="'Revisar ' + warningPitch(warning.pitch) + ', ' + warningLocation(warning) + ', ' + (warning.kind === 'OUTSIDE_RANGE' ? 'fora da extensão' : 'fora da zona confortável')"
+              >
+                <strong>{{ warningPitch(warning.pitch) }}</strong>
+                <span
+                  ><span class="range-kind"
+                    >{{ warning.kind === 'OUTSIDE_RANGE' ? 'Fora da extensão' : 'Zona de atenção'
+                    }}</span
+                  ><small>{{ warningLocation(warning) }}</small></span
+                >
+                <app-icon name="next" />
+              </button>
             </li>
             }
           </ul>
-        </div>
+          <p class="range-help">Selecione uma nota para conferir a posição e a digitação.</p>
+        </section>
         }
       </details>
     </aside>

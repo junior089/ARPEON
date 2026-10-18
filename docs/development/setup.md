@@ -45,6 +45,11 @@ source. For repeated local acceptance, use a new output directory and the same
 fresh `-TestRunId` on both builders and `test-msi-lifecycle.ps1 -TestIdentity`.
 Test identities have separate product/upgrade/component IDs, registry and shortcuts.
 
+Interactive installation uses `ARPEON-<version>-Setup.exe`, the custom WPF shell
+with the complete MSI embedded. The separate MSI retains native maintenance and
+silent installation support. See [installer design and acceptance](installer-design.md)
+for building the shell alone and running its isolated lifecycle tests.
+
 `verify-package.ps1 -Package <ARPEON directory>` verifies the file inventory.
 MSI/ZIP checksums detect corruption; they do not authenticate an unsigned
 publisher. `-RequireSignature` needs `ARPEON_SIGN_CERT_THUMBPRINT`,

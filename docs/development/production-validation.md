@@ -207,3 +207,23 @@ Java foi repetido com GRADLE_USER_HOME vazio: aprovado em 46 segundos, 190 teste
 sem falhas/skips. Log local: `apps/desktop/build/publication-cold-gradle.log`.
 A permissão executável do wrapper Unix foi corrigida. O workflow de publicação
 usa a branch padrão real do repositório para o feed; não assume `main`.
+
+## Recuperação automática do instalador — 18/10/2026
+
+O ciclo de upgrade com falha foi corrigido no Setup. O MSI remove o produto
+anterior antes da transação que instala a versão nova; se a instalação falha,
+Setup valida e reinstala a cópia MSI em cache, confirma ProductState, versão,
+localização e conteúdo, e informa o resultado. Os feeds públicos apontam para o
+Setup completo, pois distribuir o MSI diretamente ignoraria essa recuperação.
+
+`scripts/test-installer-recovery.ps1` construiu duas identidades MSI isoladas,
+instalou a versão anterior por usuário, guardou seu MSI e manifesto no cache,
+e injetou uma falha depois da remoção do produto antigo. O resultado foi
+aprovado com 9 verificações: falha detectada, MSI anterior reinstalado,
+registro e marcador recuperados, arquivos comparados por tamanho e SHA-256, e
+produto removido ao final via Windows Installer. O resultado JSON está versionado
+em `installer-recovery-acceptance-20261018.json`; a execução completa permanece
+em `apps/desktop/build/installer-recovery-acceptance11-20261018`.
+`installerRecovery` agora está aprovado para este cenário isolado. Isso não
+substitui instalação limpa em VM nem a atualização assinada de ponta a ponta;
+esses gates seguem pendentes.

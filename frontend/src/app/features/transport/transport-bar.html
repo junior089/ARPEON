@@ -77,35 +77,88 @@
       [attr.aria-valuetext]="'Compasso ' + state.measureNumber"
     />
   </label>
-  <button
-    type="button"
-    class="settings-toggle"
-    aria-label="Ajustes da reprodução"
-    aria-controls="transport-settings"
-    [attr.aria-expanded]="settingsOpen()"
-    (click)="settingsOpen.set(!settingsOpen())"
-  >
-    <app-icon name="settings" /><span class="player-tempo">{{ state.bpm }} BPM</span>
-  </button>
-  <button
-    type="button"
-    aria-controls="instrument-mixer"
-    [attr.aria-expanded]="mixerOpen()"
-    (click)="mixerOpen.set(!mixerOpen())"
-  >
-    Mixer
-  </button>
-  <div id="transport-settings" class="transport-settings" [class.expanded]="settingsOpen()">
+  <div class="quick-controls" role="group" aria-label="Ajustes rápidos da reprodução">
     <button
       type="button"
-      aria-controls="score-loop-controls"
-      [attr.aria-expanded]="loopOpen()"
-      [class.loop-active]="!!state.loop"
-      (click)="loopOpen.set(!loopOpen())"
+      aria-controls="instrument-mixer"
+      [attr.aria-expanded]="mixerOpen()"
+      (click)="mixerOpen.set(!mixerOpen())"
     >
-      {{ state.loop ? 'A–B ativo' : 'Trecho A–B' }}
+      Mixer
     </button>
+    <div class="metronome-control">
+      <button
+        type="button"
+        class="icon-toggle"
+        aria-label="Metrônomo"
+        [title]="state.metronome ? 'Desativar metrônomo' : 'Ativar metrônomo'"
+        [attr.aria-pressed]="state.metronome"
+        [disabled]="session.busy()"
+        (click)="session.action('metronome', {enabled: !state.metronome})"
+      >
+        <app-icon name="metronome" />
+      </button>
+      <button
+        type="button"
+        class="tempo-toggle"
+        aria-label="Ajustar andamento"
+        title="Ajustar andamento · 30 a 300 BPM"
+        aria-controls="transport-tempo"
+        [attr.aria-expanded]="tempoOpen()"
+        (click)="tempoOpen.set(!tempoOpen()); settingsOpen.set(false)"
+      >
+        {{ state.bpm }}<span>BPM</span>
+      </button>
+    </div>
+    <button
+      type="button"
+      class="icon-toggle count-toggle"
+      aria-label="Contagem inicial"
+      [title]="state.countIn ? 'Desativar contagem inicial' : 'Ativar contagem inicial'"
+      [attr.aria-pressed]="state.countIn"
+      [disabled]="session.busy()"
+      (click)="session.action('count-in', {enabled: !state.countIn})"
+    >
+      <span aria-hidden="true">123</span>
+    </button>
+    <button
+      type="button"
+      class="icon-toggle settings-toggle"
+      aria-label="Ajustes da reprodução"
+      title="Ajustes da reprodução · trecho A–B"
+      aria-controls="transport-settings"
+      [class.loop-active]="!!state.loop"
+      [attr.aria-expanded]="settingsOpen()"
+      (click)="settingsOpen.set(!settingsOpen()); tempoOpen.set(false)"
+    >
+      <app-icon name="settings" />
+    </button>
+  </div>
+  <div
+    id="transport-tempo"
+    class="tempo-panel"
+    [hidden]="!tempoOpen()"
+    role="group"
+    aria-label="Andamento do metrônomo"
+  >
+    <div class="panel-heading"><strong>Andamento</strong><span>30–300 BPM</span></div>
     <div class="bpm">
+      <button
+        type="button"
+        (click)="nudgeBpm(-5)"
+        [disabled]="session.busy()"
+        aria-label="Diminuir 5 BPM"
+      >
+        −5
+      </button>
+      <button
+        type="button"
+        (click)="nudgeBpm(-1)"
+        [disabled]="session.busy()"
+        aria-label="Diminuir 1 BPM"
+      >
+        −1
+      </button>
       <label for="starting-bpm">BPM inicial</label>
       <input
         id="starting-bpm"
@@ -115,79 +168,106 @@
         step="1"
         [value]="draftBpm() ?? state.startingBpm"
         (input)="setDraftBpm($event)"
+        (keydown.enter)="applyBpm()"
         [disabled]="session.busy()"
       />
-      <button (click)="applyBpm()" [disabled]="session.busy() || !canApplyBpm()">Aplicar</button>
+      <button
+        type="button"
+        (click)="nudgeBpm(1)"
+        [disabled]="session.busy()"
+        aria-label="Aumentar 1 BPM"
+      >
+        +1
+      </button>
+      <button
+        type="button"
+        (click)="nudgeBpm(5)"
+        [disabled]="session.busy()"
+        aria-label="Aumentar 5 BPM"
+      >
+        +5
+      </button>
+      <button
+        type="button"
+        class="primary-action"
+        (click)="applyBpm()"
+        [disabled]="session.busy() || !canApplyBpm()"
+      >
+        Aplicar
+      </button>
+    </div>
+    <p class="panel-hint">
+      Os botões ajustam na hora. Para um valor exato, digite e pressione Enter.
+    </p>
+  </div>
+  <div id="transport-settings" class="transport-settings" [hidden]="!settingsOpen()">
+    <div class="panel-heading">
+      <strong>Ajustes da reprodução</strong
+      ><span>{{ state.loop ? 'Repetição ativa' : 'Sem repetição' }}</span>
     </div>
     <button
-      class="toggle"
-      [attr.aria-pressed]="state.metronome"
-      (click)="session.action('metronome', {enabled: !state.metronome})"
-      [disabled]="session.busy()"
+      type="button"
+      aria-controls="score-loop-controls"
+      [attr.aria-expanded]="loopOpen()"
+      [class.loop-active]="!!state.loop"
+      (click)="loopOpen.set(!loopOpen())"
     >
-      Metrônomo
-    </button>
-    <button
-      class="toggle"
-      [attr.aria-pressed]="state.countIn"
-      (click)="session.action('count-in', {enabled: !state.countIn})"
-      [disabled]="session.busy()"
-    >
-      Contagem
+      {{ state.loop ? 'A–B ativo' : 'Trecho A–B' }}
     </button>
     <span class="transport-state" role="status">
       @if (state.countInBeatsLeft > 0) { Contagem: {{ state.countInBeatsLeft }} } @else if
       (state.status === 'PLAYING') { Reproduzindo } @else if (state.status === 'PAUSED') { Pausado }
       @else { Parado }
     </span>
-  </div>
-  @if (loopOpen()) {
-  <div
-    id="score-loop-controls"
-    class="loop-controls"
-    role="group"
-    aria-label="Repetição de trecho A–B"
-  >
-    <label
-      >A · início<select
-        [value]="loopStart()"
-        (change)="setLoopPoint('start', $event)"
-        [disabled]="session.busy()"
-      >
-        @for (measure of session.score()?.measures ?? []; track measure.index) {
-        <option [value]="measure.index">
-          Posição {{ measure.index + 1 }} · compasso {{ measure.number }}
-        </option>
-        }
-      </select></label
+    @if (loopOpen()) {
+    <div
+      id="score-loop-controls"
+      class="loop-controls"
+      role="group"
+      aria-label="Repetição de trecho A–B"
     >
-    <label
-      >B · fim<select
-        [value]="loopEnd()"
-        (change)="setLoopPoint('end', $event)"
-        [disabled]="session.busy()"
+      <label
+        >A · início<select
+          [value]="loopStart()"
+          (change)="setLoopPoint('start', $event)"
+          [disabled]="session.busy()"
+        >
+          @for (measure of session.score()?.measures ?? []; track measure.index) {
+          <option [value]="measure.index">
+            Posição {{ measure.index + 1 }} · compasso {{ measure.number }}
+          </option>
+          }
+        </select></label
       >
-        @for (measure of session.score()?.measures ?? []; track measure.index) {
-        <option [value]="measure.index">
-          Posição {{ measure.index + 1 }} · compasso {{ measure.number }}
-        </option>
-        }
-      </select></label
-    >
-    <button type="button" (click)="applyLoop(true)" [disabled]="session.busy() || !validLoop()">
-      {{ state.loop ? 'Aplicar A–B' : 'Repetir trecho' }}
-    </button>
-    @if (state.loop) {
-    <button type="button" (click)="applyLoop(false)" [disabled]="session.busy()">
-      Desativar repetição
-    </button>
+      <label
+        >B · fim<select
+          [value]="loopEnd()"
+          (change)="setLoopPoint('end', $event)"
+          [disabled]="session.busy()"
+        >
+          @for (measure of session.score()?.measures ?? []; track measure.index) {
+          <option [value]="measure.index">
+            Posição {{ measure.index + 1 }} · compasso {{ measure.number }}
+          </option>
+          }
+        </select></label
+      >
+      <button type="button" (click)="applyLoop(true)" [disabled]="session.busy() || !validLoop()">
+        {{ state.loop ? 'Aplicar A–B' : 'Repetir trecho' }}
+      </button>
+      @if (state.loop) {
+      <button type="button" (click)="applyLoop(false)" [disabled]="session.busy()">
+        Desativar repetição
+      </button>
+      }
+      <p class="loop-hint" [class.error]="!validLoop()" role="status">
+        {{ validLoop() ? 'Inclui A e B. Posições seguem a execução, com repetições. Contagem inicial
+        só ao partir do início da partitura.' : 'Escolha B na mesma posição de A ou depois dela.' }}
+      </p>
+    </div>
     }
-    <p class="loop-hint" [class.error]="!validLoop()" role="status">
-      {{ validLoop() ? 'Inclui A e B. Posições seguem a execução, com repetições. Contagem inicial
-      só ao partir do início da partitura.' : 'Escolha B na mesma posição de A ou depois dela.' }}
-    </p>
   </div>
-  } } @else {
+  } @else {
   <div class="playback-buttons" aria-label="Transporte sem partitura">
     <button disabled aria-label="Reproduzir"><app-icon name="play" /></button
     ><button disabled aria-label="Pausar"><app-icon name="pause" /></button

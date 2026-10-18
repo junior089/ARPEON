@@ -18,7 +18,8 @@ import { ScoreSession } from './score-session';
 import { PartImportPanel } from './part-import-panel';
 import { scoreXmlForView, performedMeasureForWritten } from './score-view';
 import { FluteFingering } from '../fingering/flute-fingering';
-import type { EventHeadView, EventView } from '../../core/score-contract';
+import type { EventHeadView, EventView, RangeWarning } from '../../core/score-contract';
+import { Icon } from '../../shared/icon';
 import { WorkspaceLayout } from '../../shared/workspace-layout';
 import { PlaybackCursor } from '../../shared/playback-cursor';
 import { DesktopPreferences, WorkspaceMode } from '../../core/desktop-preferences';
@@ -68,7 +69,7 @@ export function eventIndexAtTimestamp(
 
 @Component({
   selector: 'app-score-workspace',
-  imports: [FluteFingering, NotationPreview, PartImportPanel],
+  imports: [FluteFingering, NotationPreview, PartImportPanel, Icon],
   templateUrl: './score-workspace.html',
   styleUrl: './score-workspace.scss',
 })
@@ -85,6 +86,11 @@ export class ScoreWorkspace implements AfterViewInit, OnDestroy {
   readonly tone = inject(ReferenceTone);
   readonly audio = inject(AudioSettings);
   readonly pitchLabel = pitchLabel;
+  readonly outsideRangeCount = computed(
+    () =>
+      this.session.score()?.rangeWarnings.filter((item) => item.kind === 'OUTSIDE_RANGE').length ??
+      0,
+  );
   readonly selectedPitch = computed(() => parsePitch(this.selectedHead()?.pitch ?? null));
   readonly soundingPitch = computed(() => {
     const pitch = this.selectedPitch();
@@ -513,6 +519,34 @@ export class ScoreWorkspace implements AfterViewInit, OnDestroy {
         this.octave = selected.octave;
       }
     }
+  }
+
+  warningPitch(text: string): string {
+    const pitch = parsePitch(text);
+    return pitch ? pitchLabel(pitch, 'portuguese') : text;
+  }
+
+  warningLocation(warning: RangeWarning): string {
+    const part = this.session.score()?.parts.find((item) => item.id === warning.partId);
+    const measure = part?.measures[warning.measureIndex];
+    return `${part?.name ?? warning.partId} · c. ${measure?.number ?? warning.measureIndex + 1} · voz ${warning.voiceId ?? '1'}`;
+  }
+
+  async inspectRangeWarning(warning: RangeWarning): Promise<void> {
+    if (this.session.busy()) return;
+    if (this.activePart()?.id !== warning.partId) await this.selectPart(warning.partId);
+    if (this.activePart()?.id !== warning.partId) return;
+    if (!(await this.session.loadMeasureEvents(warning.partId, warning.measureIndex))) return;
+    this.measureIndex.set(warning.measureIndex);
+    const event = this.currentMeasure()?.events.find(
+      (item) =>
+        (item.voiceId ?? '1') === (warning.voiceId ?? '1') &&
+        (item.eventIndex ?? item.index) === warning.eventIndex,
+    );
+    if (!event) return;
+    this.selectEvent(event.index);
+    const head = event.heads?.find((item) => item.pitch === warning.pitch);
+    if (head) this.selectHead(head.index);
   }
 
   selectHead(index: number): void {

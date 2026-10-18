@@ -5,7 +5,7 @@ with Java and Angular, with a native desktop window and local audio processing.
 
 [![Build and test](https://github.com/junior089/ARPEON/actions/workflows/build.yml/badge.svg)](https://github.com/junior089/ARPEON/actions/workflows/build.yml)
 [![License: AGPL v3](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue)](LICENSE)
-[![Version 0.1.1](https://img.shields.io/badge/version-0.1.1-gold)](https://github.com/junior089/ARPEON/releases/tag/v0.1.1)
+[![Version 0.1.2](https://img.shields.io/badge/version-0.1.2-gold)](docs/releases/0.1.2-windows.md)
 
 ![ARPEON score editor, notation and MIDI transport](docs/assets/score-editor.png)
 
@@ -44,7 +44,7 @@ on request. Wikimedia imports and configured update checks use the network.
 | Authenticated loopback HTTP | Session-scoped communication; bounded requests, restrictive origin checks and no exposed JavaScript-to-Java bridge |
 | JCEF / Chromium | Dedicated desktop window with the frontend and renderer shipped together |
 | Audiveris CLI | Isolated recognition jobs, bundled runtime, progress, timeout and process-tree cancellation |
-| jpackage / WiX / WinSparkle | Windows launcher, installer ownership, maintenance and signed update integration |
+| jpackage / WiX / WPF / WinSparkle | Windows launcher, custom eight-stage setup, installer ownership, maintenance and signed update integration |
 
 The musical modules remain independent of the UI and native packaging. Chords,
 voices and bounded repeats are preserved instead of silently flattened.
@@ -54,6 +54,17 @@ separate lifecycles; installer updates do not migrate or delete personal data.
 Read the [architecture](docs/architecture/overview.md),
 [module boundaries](docs/architecture/module-boundaries.md) and
 [desktop distribution decision](docs/adr/0006-native-desktop-distribution.md).
+
+## Current local build: 0.1.2
+
+Quick metronome/count-in controls, precise BPM adjustment, a schematic flute
+guide and actionable instrument-range warnings are included in the current
+local Windows build. See the [0.1.2 notes](docs/releases/0.1.2-windows.md).
+Public binary release gates remain open.
+
+The Windows build also produces `ARPEON-0.1.2-Setup.exe`: an offline, dark
+installer with native MSI progress, system checks and file integrity validation.
+See [installer architecture and tests](docs/development/installer-design.md).
 
 ## Version 0.1.1 and validation
 

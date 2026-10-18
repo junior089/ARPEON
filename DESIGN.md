@@ -26,10 +26,15 @@ Foco visível, menus por setas/Escape, divisão ajustável por teclado e ponteir
 
 ## Instalação e manutenção
 
-- Instalação em uma única tela de decisão: pasta do aplicativo e atalhos.
-- Banner Ouro e Carvão (#E6C989 / #141416); instalador nativo com Segoe UI e controles do sistema para DPI e tecnologias assistivas.
+- Setup WPF próprio, em oito etapas, com uma tela de decisão para pasta e atalhos; MSI nativo preservado como autoridade transacional, inclusive na reparação, atualização e remoção.
+- Janela Ouro e Carvão (#E6C989 / #101214), painel de marca #191C1F, símbolo vetorial original e Segoe UI nativa. Identidade à esquerda, operação à direita; esta composição pertence ao instalador, sem substituir o sistema visual do aplicativo.
+- Ondas Bézier com pontos de controle animados, barras harmônicas nas verificações, anéis na preparação e na conclusão bem-sucedida; mensagens contextuais rotativas distinguem instalação, atualização, reparação e remoção. Movimento decorativo respeita a preferência de animação do Windows; texto e estado continuam disponíveis sem animação.
+- A manutenção e o desinstalador usam a mesma interface própria, com confirmação da remoção, foco visível, nomes acessíveis e DPI PerMonitorV2. Acessibilidade implementada não equivale a homologação com leitor de tela ou monitores físicos.
 - Progresso do instalador medido pelo MSI; sem percentuais fictícios ou conclusão antecipada.
+- Extração por bytes e SHA-256 antes da instalação; validação dos arquivos, registro e destinos dos atalhos antes de confirmar sucesso. Percentual por fase do MSI; fase estimada sem percentual, cancelamento confirmado e retorno nativo aguardado.
+- Arquitetura, estados e roteiro de validação em `docs/development/installer-design.md`.
 - Na mesma versão instalada, oferecer abrir, reparar ou desinstalar com confirmação; preservar projetos e preferências.
+- Aplicativos do Windows abre a manutenção própria por uma entrada HKCU com `WindowsInstaller=0`; somente a entrada nativa do MSI fica oculta. Cache dedicado conserva o MSI completo para reparação offline e um executável pequeno de manutenção. A remoção usa o produto registrado e limpa apenas cache e registro próprios após confirmação nativa; o host temporário pode permanecer para reutilização ou limpeza do Windows.
 - Manutenção no frontend acessível por Preferências, seguindo a tipografia, os tokens e o comportamento responsivo existentes.
 - Verificação diária somente por adesão explícita; download e instalação por escolha do usuário. Feed inativo deve ser informado com clareza e desabilitar a verificação.
 - Exibir estados reais de consulta e atualização; erros de operação ou preferência ficam separados do resultado atual, sem encobri-lo.

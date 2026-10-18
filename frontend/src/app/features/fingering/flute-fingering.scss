@@ -1,0 +1,292 @@
+:host {
+  display: block;
+  min-width: 0;
+}
+.fingering {
+  padding-block: var(--space-3);
+  border-block: 1px solid var(--border);
+  min-width: 0;
+}
+.fingering-heading,
+.pitch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+h3 {
+  margin: 0;
+}
+.fingering-heading span,
+.pitch-row > span,
+p,
+details {
+  color: var(--secondary);
+  font-size: var(--text-small);
+}
+.pitch-row {
+  margin-block: var(--space-3);
+}
+.pitch-row strong {
+  color: var(--accent);
+  font-size: var(--text-title);
+  font-weight: 500;
+}
+.pitch-row select {
+  max-width: 100%;
+}
+.anatomy {
+  margin-top: var(--space-3);
+}
+.anatomy summary,
+.source-details summary {
+  padding-block: var(--space-1);
+}
+.anatomy-scroll {
+  overflow-x: auto;
+  margin-block: var(--space-2);
+  background: var(--background);
+  border-radius: var(--radius);
+}
+.flute-map {
+  display: block;
+  width: 100%;
+  min-width: 420px;
+}
+.flute-body {
+  fill: var(--raised);
+  stroke: var(--control-border);
+}
+.flute-joints,
+.key-stem,
+.hand-bracket,
+.key-rail {
+  fill: none;
+  stroke: var(--control-border);
+  stroke-width: 1;
+}
+.lip-plate {
+  fill: var(--surface);
+  stroke: var(--control-border);
+}
+.embouchure {
+  fill: var(--background);
+  stroke: var(--secondary);
+}
+.diagram {
+  display: block;
+  width: 100%;
+  max-width: 360px;
+  margin-inline: auto;
+}
+.left-hand {
+  --hand-color: var(--accent);
+  color: var(--accent);
+}
+.right-hand {
+  --hand-color: var(--color-info);
+  color: var(--color-info);
+}
+.hand-bracket {
+  stroke: var(--hand-color);
+}
+.touch-key,
+.map-key {
+  fill: var(--color-key-open);
+  stroke: var(--hand-color);
+  stroke-width: 1.5;
+}
+.hit-target {
+  fill: transparent;
+  pointer-events: all;
+}
+.pressed {
+  fill: var(--hand-color);
+}
+.touch-key.inspected {
+  stroke-width: 3;
+}
+text {
+  fill: var(--primary);
+  font: 11px var(--ui);
+  pointer-events: none;
+}
+text.pressed-label {
+  fill: var(--on-accent);
+  font-weight: 600;
+}
+.hand-label,
+.map-caption {
+  fill: var(--secondary);
+  font-size: 10px;
+}
+g[role='button'] {
+  cursor: pointer;
+}
+g:focus-visible {
+  outline: none;
+}
+g:focus-visible circle {
+  stroke: var(--color-focus);
+  stroke-width: 3;
+}
+.position-layout,
+.key-chart {
+  min-width: 0;
+}
+.state-legend {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-4);
+  font-size: 11px;
+  color: var(--secondary);
+}
+.state-legend span {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+.state-legend i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1px solid var(--secondary);
+}
+.filled-key {
+  background: var(--primary);
+}
+.key-status {
+  min-height: 36px;
+  margin: var(--space-2) 0;
+  text-align: center;
+}
+.key-legend {
+  display: grid;
+  gap: 6px;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border);
+}
+.key-legend > span {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  color: var(--secondary);
+  font-size: 11px;
+}
+.key-legend b {
+  flex: 0 0 54px;
+  font: 500 11px var(--mono);
+  color: var(--primary);
+}
+.key-legend b.left-hand,
+.key-legend b.right-hand {
+  color: var(--hand-color);
+}
+.source-details {
+  margin-top: var(--space-3);
+}
+details p,
+.variant-note,
+.unavailable {
+  margin: var(--space-2) 0;
+}
+.variant-note {
+  padding: var(--space-2);
+  background: var(--selection);
+  color: var(--accent);
+  border-radius: var(--radius);
+}
+.map-help {
+  margin: 0 0 var(--space-2);
+}
+.reference-guide {
+  border: 0;
+  padding: 0;
+}
+.reference-guide .flute-map {
+  max-width: 760px;
+  margin-inline: auto;
+}
+.reference-guide .position-layout {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) minmax(0, 1fr);
+  gap: var(--space-5);
+  align-items: start;
+}
+.reference-guide .key-legend {
+  border-top: 0;
+}
+.guide-intro {
+  margin: var(--space-2) 0;
+}
+.basic-notes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-block: var(--space-4);
+}
+.basic-notes button {
+  display: grid;
+  gap: 2px;
+  flex: 1 0 74px;
+  padding: 6px;
+  text-align: center;
+}
+.mini-chart {
+  width: 100%;
+  max-width: 112px;
+  justify-self: center;
+}
+.mini-staff {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 0.6;
+}
+.mini-note {
+  fill: var(--primary);
+}
+.mini-chart .touch-key {
+  stroke-width: 2;
+}
+.basic-notes strong {
+  font-size: var(--text-small);
+  font-weight: 500;
+}
+.basic-notes button > span {
+  color: var(--secondary);
+  font: 10px var(--mono);
+}
+.basic-notes button[aria-pressed='true'] {
+  background: var(--selection);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.full-legend {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+.full-legend b {
+  flex-basis: 26px;
+}
+.playing-tips {
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+.playing-tips > strong {
+  font-size: var(--text-small);
+}
+.playing-tips p {
+  margin: var(--space-1) 0 0;
+}
+@media (max-width: 500px) {
+  .full-legend {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 700px) {
+  .reference-guide .position-layout {
+    grid-template-columns: 1fr;
+  }
+}
