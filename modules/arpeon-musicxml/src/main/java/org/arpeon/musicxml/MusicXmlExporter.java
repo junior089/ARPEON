@@ -31,6 +31,10 @@ public final class MusicXmlExporter {
       xml.append("<work><work-title>")
           .append(escape(score.title()))
           .append("</work-title></work>\n");
+    if (!score.composer().isBlank())
+      xml.append("<identification><creator type=\"composer\">")
+          .append(escape(score.composer()))
+          .append("</creator></identification>\n");
     xml.append("<part-list>\n");
     for (int p = 0; p < score.parts().size(); p++) {
       var part = score.parts().get(p);
@@ -70,6 +74,7 @@ public final class MusicXmlExporter {
         xml.append(">\n");
         appendBarline(xml, score, index, "left");
         if (index == 0
+            || part.clefs().containsKey(index)
             || !measure.timeSignature().equals(part.measures().get(index - 1).timeSignature())) {
           xml.append("<attributes><divisions>").append(DIVISIONS).append("</divisions>");
           if (index == 0 && writtenKey != null)
@@ -84,9 +89,24 @@ public final class MusicXmlExporter {
               .append(measure.timeSignature().beatUnit())
               .append("</beat-type></time>");
           if (index == 0 && profile != null && profile.soundingTranspositionSemitones() != 0) {
-            if (!profile.id().equals("bb-clarinet"))
-              throw new IllegalArgumentException("Unsupported MusicXML instrument transposition");
-            xml.append("<transpose><diatonic>-1</diatonic><chromatic>-2</chromatic></transpose>");
+            xml.append("<transpose><diatonic>")
+                .append(org.arpeon.domain.instrument.InstrumentCatalog.diatonic(profile))
+                .append("</diatonic><chromatic>")
+                .append(profile.soundingTranspositionSemitones())
+                .append("</chromatic></transpose>");
+          }
+          var clef = part.clefs().get(index);
+          if (clef != null) {
+            xml.append("<clef><sign>")
+                .append(clef.sign())
+                .append("</sign><line>")
+                .append(clef.line())
+                .append("</line>");
+            if (clef.octaveChange() != 0)
+              xml.append("<clef-octave-change>")
+                  .append(clef.octaveChange())
+                  .append("</clef-octave-change>");
+            xml.append("</clef>");
           }
           xml.append("</attributes>\n");
         }
@@ -207,7 +227,12 @@ public final class MusicXmlExporter {
           .append("</duration><voice>")
           .append(escape(voiceId))
           .append("</voice>");
-      appendType(xml, event.duration());
+      appendType(xml, event.duration(), event.tuplet());
+      if (event.tuplet() != null && (event.tuplet().start() || event.tuplet().stop())) {
+        xml.append("<notations>");
+        appendTupletMarkers(xml, event.tuplet());
+        xml.append("</notations>");
+      }
       xml.append("</note>\n");
     }
   }
@@ -227,17 +252,33 @@ public final class MusicXmlExporter {
     if (note.tieStop()) xml.append("<tie type=\"stop\"/>");
     if (note.tieStart()) xml.append("<tie type=\"start\"/>");
     xml.append("<voice>").append(escape(voiceId)).append("</voice>");
-    appendType(xml, note.duration());
-    if (note.tieStart() || note.tieStop()) {
+    appendType(xml, note.duration(), note.tuplet());
+    if (note.tieStart()
+        || note.tieStop()
+        || note.tuplet() != null && (note.tuplet().start() || note.tuplet().stop())) {
       xml.append("<notations>");
       if (note.tieStop()) xml.append("<tied type=\"stop\"/>");
       if (note.tieStart()) xml.append("<tied type=\"start\"/>");
+      appendTupletMarkers(xml, note.tuplet());
       xml.append("</notations>");
     }
     xml.append("</note>\n");
   }
 
-  private static void appendType(StringBuilder xml, Duration duration) {
+  private static void appendTupletMarkers(
+      StringBuilder xml, org.arpeon.domain.score.Tuplet tuplet) {
+    if (tuplet == null) return;
+    if (tuplet.stop()) xml.append("<tuplet type=\"stop\"/>");
+    if (tuplet.start()) xml.append("<tuplet type=\"start\"/>");
+  }
+
+  private static void appendType(
+      StringBuilder xml, Duration duration, org.arpeon.domain.score.Tuplet tuplet) {
+    if (tuplet != null)
+      duration =
+          new Duration(
+              Math.multiplyExact(duration.numerator(), tuplet.actual()),
+              Math.multiplyExact(duration.denominator(), tuplet.normal()));
     String[] types = {"whole", "half", "quarter", "eighth", "16th", "32nd", "64th", "128th"};
     for (int power = 0; power < types.length; power++) {
       var base = new Duration(1, 1L << power);
@@ -246,11 +287,19 @@ public final class MusicXmlExporter {
         if (expected.equals(duration)) {
           xml.append("<type>").append(types[power]).append("</type>");
           for (int i = 0; i < dots; i++) xml.append("<dot/>");
+          if (tuplet != null)
+            xml.append("<time-modification><actual-notes>")
+                .append(tuplet.actual())
+                .append("</actual-notes><normal-notes>")
+                .append(tuplet.normal())
+                .append("</normal-notes></time-modification>");
           return;
         }
         expected = expected.plus(new Duration(1, 1L << (power + dots + 1)));
       }
     }
+    if (tuplet != null)
+      throw new IllegalArgumentException("Tuplet notation cannot be exported exactly");
   }
 
   private static String escape(String value) {

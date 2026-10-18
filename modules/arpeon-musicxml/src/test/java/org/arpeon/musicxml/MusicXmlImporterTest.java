@@ -281,12 +281,12 @@ class MusicXmlImporterTest {
     assertThrows(
         IOException.class, () -> read(original.replace("<note>", "<note><tie type=\"start\"/>")));
     assertThrows(IOException.class, () -> read(original.replace("<note>", "<note><chord/>")));
-    assertThrows(
-        IOException.class,
-        () ->
-            read(
-                original.replace(
-                    "<time>", "<transpose><chromatic>-2</chromatic></transpose><time>")));
+    var transposed =
+        read(original.replace("<time>", "<transpose><chromatic>-2</chromatic></transpose><time>"));
+    assertEquals(
+        -2,
+        org.arpeon.domain.instrument.InstrumentCatalog.get(transposed.instruments().get("P1"))
+            .soundingTranspositionSemitones());
     assertDoesNotThrow(() -> read(original.replace("<note>", "<note><voice>2</voice>")));
     assertThrows(IOException.class, () -> read(original.replace("<divisions>4</divisions>", "")));
     assertThrows(

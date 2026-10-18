@@ -7,13 +7,23 @@ public record Score(
     String title,
     List<Part> parts,
     List<RepeatRegion> repeatRegions,
-    List<EndingRegion> endingRegions) {
+    List<EndingRegion> endingRegions,
+    String composer) {
+  public Score(
+      String title,
+      List<Part> parts,
+      List<RepeatRegion> repeatRegions,
+      List<EndingRegion> endingRegions) {
+    this(title, parts, repeatRegions, endingRegions, "");
+  }
+
   public Score(String title, List<Part> parts) {
     this(title, parts, List.of(), List.of());
   }
 
   public Score {
     Objects.requireNonNull(title);
+    Objects.requireNonNull(composer);
     parts = List.copyOf(parts);
     if (parts.isEmpty()) throw new IllegalArgumentException("Score must contain parts");
     if (parts.stream().map(Part::id).distinct().count() != parts.size())

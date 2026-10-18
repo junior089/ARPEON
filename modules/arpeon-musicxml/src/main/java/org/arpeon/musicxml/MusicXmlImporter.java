@@ -139,6 +139,7 @@ public final class MusicXmlImporter {
       var scoreEvents = new int[1];
       var rootChildren = new HashSet<String>();
       String workTitle = "";
+      String composer = "";
       String movementTitle = "";
       String keyId = null;
       boolean partListSeen = false;
@@ -174,7 +175,15 @@ public final class MusicXmlImporter {
               var title = optional(element, "work-title");
               if (title.isPresent()) workTitle = text(title.orElseThrow());
             }
-            case "identification", "defaults", "credit" -> {
+            case "identification" -> {
+              var composers =
+                  children(element, "creator").stream()
+                      .filter(e -> e.getAttribute("type").equals("composer"))
+                      .map(e -> e.getTextContent().trim())
+                      .toList();
+              composer = String.join("; ", composers);
+            }
+            case "defaults", "credit" -> {
               /* descriptive/engraving metadata */
             }
             case "part-list" -> {
@@ -186,13 +195,24 @@ public final class MusicXmlImporter {
                 throw new IllegalArgumentException("Score exceeds the 16-part limit");
               String id = element.getAttribute("id");
               if (!names.containsKey(id)) throw new IllegalArgumentException("Undeclared part");
-              ParsedPart parsed =
-                  parsePart(
-                      element,
-                      id,
-                      names.get(id),
-                      InstrumentCatalog.get(instruments.getOrDefault(id, "concert")),
-                      scoreEvents);
+              var profile = InstrumentCatalog.get(instruments.getOrDefault(id, "concert"));
+              for (var measure : children(element, "measure")) {
+                var attributes = optional(measure, "attributes");
+                if (attributes.isEmpty()) continue;
+                var transpose = optional(attributes.orElseThrow(), "transpose");
+                if (transpose.isEmpty()) continue;
+                var value = transpose.orElseThrow();
+                int octaves =
+                    optional(value, "octave-change").map(e -> Integer.parseInt(text(e))).orElse(0);
+                int chromatic = Integer.parseInt(text(one(value, "chromatic"))) + 12 * octaves;
+                int diatonic =
+                    optional(value, "diatonic").map(e -> Integer.parseInt(text(e))).orElse(0)
+                        + 7 * octaves;
+                profile = InstrumentCatalog.withTranspose(profile, chromatic, diatonic);
+                break;
+              }
+              instruments.put(id, profile.id());
+              ParsedPart parsed = parsePart(element, id, names.get(id), profile, scoreEvents);
               if (!parts.isEmpty()) {
                 if ((keyId == null) != (parsed.keyId() == null))
                   throw new IllegalArgumentException("Parts use different key signatures");
@@ -235,10 +255,10 @@ public final class MusicXmlImporter {
         throw new IllegalArgumentException("Conflicting work-title and movement-title metadata");
       String title = movementTitle.isBlank() ? workTitle : movementTitle;
       return new ImportedScore(
-          new Score(title, parts, repeatRegions, endingRegions),
+          new Score(title, parts, repeatRegions, endingRegions, composer),
           filename,
           HexFormat.of().formatHex(digest.digest()),
-          "musicxml-m3-stax-v1",
+          "musicxml-ensemble-v2",
           keyId,
           Map.copyOf(instruments));
     } finally {
@@ -266,16 +286,17 @@ public final class MusicXmlImporter {
         throw new IllegalArgumentException("Missing or duplicate part ID");
       var named = optional(declaration, "score-instrument");
       var midi = optional(declaration, "midi-instrument");
-      if (named.isPresent() != midi.isPresent())
-        throw new IllegalArgumentException("Instrument and MIDI program must be paired");
       if (named.isPresent()) {
         allow(
             named.orElseThrow(),
             Set.of("instrument-name", "instrument-sound", "solo", "ensemble"),
             Set.of("id"));
         text(one(named.orElseThrow(), "instrument-name"));
+      }
+      if (midi.isPresent()) {
+        var value = midi.orElseThrow();
         allow(
-            midi.orElseThrow(),
+            value,
             Set.of(
                 "midi-program",
                 "midi-channel",
@@ -285,20 +306,29 @@ public final class MusicXmlImporter {
                 "volume",
                 "pan"),
             Set.of("id"));
-        if (named.orElseThrow().getAttribute("id").isBlank()
-            || !named
-                .orElseThrow()
-                .getAttribute("id")
-                .equals(midi.orElseThrow().getAttribute("id")))
+        if (named.isEmpty()
+            || named.orElseThrow().getAttribute("id").isBlank()
+            || !named.orElseThrow().getAttribute("id").equals(value.getAttribute("id")))
           throw new IllegalArgumentException("Instrument IDs do not match");
-        int program = Integer.parseInt(text(one(midi.orElseThrow(), "midi-program")));
-        String profileId =
-            switch (program) {
-              case 74 -> "flute";
-              case 72 -> "bb-clarinet";
-              default -> throw new IllegalArgumentException("Unsupported MIDI instrument");
-            };
-        instruments.put(id, profileId);
+        if (optional(value, "midi-unpitched").isPresent()
+            || optional(value, "midi-channel")
+                .map(MusicXmlImporter::text)
+                .filter("10"::equals)
+                .isPresent())
+          throw new IllegalArgumentException(
+              "Unpitched percussion is not supported by this score model");
+        int bank = optional(value, "midi-bank").map(e -> Integer.parseInt(text(e))).orElse(1);
+        if (bank != 1)
+          throw new IllegalArgumentException("Only the General MIDI default bank is supported");
+        var program = optional(value, "midi-program");
+        if (program.isPresent())
+          instruments.put(
+              id,
+              InstrumentCatalog.forProgram(Integer.parseInt(text(program.orElseThrow())) - 1).id());
+      }
+      if (!instruments.containsKey(id)) {
+        String name = named.map(e -> text(one(e, "instrument-name"))).orElse(names.get(id));
+        instruments.put(id, InstrumentCatalog.detect(name).id());
       }
     }
   }
@@ -746,6 +776,7 @@ public final class MusicXmlImporter {
     int divisions = 0;
     TimeSignature meter = null;
     String keyId = null;
+    var clefs = new LinkedHashMap<Integer, org.arpeon.domain.score.Clef>();
     boolean transposeSeen = false;
     var measures = new ArrayList<Measure>();
     var repeatRegions = new ArrayList<RepeatRegion>();
@@ -795,14 +826,40 @@ public final class MusicXmlImporter {
                       "part-symbol",
                       "instruments"),
                   Set.of());
+              var staves = optional(element, "staves");
+              if (staves.isPresent() && !text(staves.orElseThrow()).equals("1"))
+                throw new IllegalArgumentException(
+                    "Independent staves are not supported; import separate staff parts");
+              var clef = optional(element, "clef");
+              if (clef.isPresent()) {
+                var value = clef.orElseThrow();
+                allow(
+                    value,
+                    Set.of("sign", "line", "clef-octave-change"),
+                    Set.of("number", "additional", "after-barline", "print-object"));
+                if (value.hasAttribute("number") && !value.getAttribute("number").equals("1"))
+                  throw new IllegalArgumentException("Independent staves are not supported");
+                int line = optional(value, "line").map(e -> Integer.parseInt(text(e))).orElse(2);
+                int octave =
+                    optional(value, "clef-octave-change")
+                        .map(e -> Integer.parseInt(text(e)))
+                        .orElse(0);
+                clefs.put(
+                    measures.size(),
+                    new org.arpeon.domain.score.Clef(text(one(value, "sign")), line, octave));
+              }
               var transpose = optional(element, "transpose");
               if (transpose.isPresent()) {
-                if (!measures.isEmpty() || transposeSeen || !profile.id().equals("bb-clarinet"))
-                  throw new IllegalArgumentException("Unsupported instrument transposition");
-                allow(transpose.orElseThrow(), Set.of("diatonic", "chromatic"), Set.of());
-                if (!text(one(transpose.orElseThrow(), "diatonic")).equals("-1")
-                    || !text(one(transpose.orElseThrow(), "chromatic")).equals("-2"))
-                  throw new IllegalArgumentException("Unsupported instrument transposition");
+                if (!measures.isEmpty() || transposeSeen)
+                  throw new IllegalArgumentException(
+                      "Only an initial instrument transposition is supported");
+                var value = transpose.orElseThrow();
+                allow(value, Set.of("diatonic", "chromatic", "octave-change"), Set.of());
+                int octaves =
+                    optional(value, "octave-change").map(e -> Integer.parseInt(text(e))).orElse(0);
+                if (Integer.parseInt(text(one(value, "chromatic"))) + 12 * octaves
+                    != profile.soundingTranspositionSemitones())
+                  throw new IllegalArgumentException("Conflicting instrument transposition");
                 transposeSeen = true;
               }
               var key = optional(element, "key");
@@ -1005,7 +1062,7 @@ public final class MusicXmlImporter {
     if (keyId != null)
       keyId = MusicalKey.get(keyId).transpose(profile.soundingTranspositionSemitones()).id();
     return new ParsedPart(
-        new Part(id, name, measures),
+        new Part(id, name, measures, clefs),
         keyId,
         List.copyOf(repeatRegions),
         List.copyOf(endingRegions));
@@ -1033,6 +1090,7 @@ public final class MusicXmlImporter {
             "duration",
             "voice",
             "type",
+            "time-modification",
             "dot",
             "tie",
             "notations",
@@ -1055,6 +1113,10 @@ public final class MusicXmlImporter {
             "font-family",
             "font-size",
             "color"));
+    var staff = optional(note, "staff");
+    if (staff.isPresent() && !text(staff.orElseThrow()).equals("1"))
+      throw new IllegalArgumentException(
+          "Independent staves are not supported; import separate staff parts");
     var chordMarker = optional(note, "chord");
     if (chordMarker.isPresent()) allow(chordMarker.orElseThrow(), Set.of(), Set.of());
     var voice = optional(note, "voice");
@@ -1087,18 +1149,22 @@ public final class MusicXmlImporter {
     if (notations.isPresent() && !java.util.Arrays.equals(soundTies, visualTies))
       throw new IllegalArgumentException("Sound and notation ties must match");
     var duration = new Duration(Long.parseLong(text(one(note, "duration"))), 4L * divisions);
-    validateNotatedDuration(note, duration);
+    var tuplet = readTuplet(note);
+    validateNotatedDuration(note, duration, tuplet);
     var rest = optional(note, "rest");
     var pitch = optional(note, "pitch");
     if (rest.isPresent() == pitch.isPresent())
       throw new IllegalArgumentException("Note must have exactly one pitch or rest");
     if (rest.isPresent()) {
-      allow(rest.get(), Set.of(), Set.of());
+      allow(rest.get(), Set.of(), Set.of("measure"));
+      if (rest.get().hasAttribute("measure")
+          && !Set.of("yes", "no").contains(rest.get().getAttribute("measure")))
+        throw new IllegalArgumentException("Invalid full-measure rest marker");
       if (soundTies[0] || soundTies[1])
         throw new IllegalArgumentException("A rest cannot carry a tie");
       if (chordMarker.isPresent())
         throw new IllegalArgumentException("A rest cannot be a chord head");
-      return new ParsedEvent(new Rest(duration), false, voiceId);
+      return new ParsedEvent(new Rest(duration, tuplet), false, voiceId);
     }
     var p = pitch.orElseThrow();
     allow(p, Set.of("step", "alter", "octave"), Set.of());
@@ -1111,7 +1177,8 @@ public final class MusicXmlImporter {
                 Integer.parseInt(text(one(p, "octave")))),
             duration,
             soundTies[0],
-            soundTies[1]),
+            soundTies[1],
+            tuplet),
         chordMarker.isPresent(),
         voiceId);
   }
@@ -1175,7 +1242,46 @@ public final class MusicXmlImporter {
         throw new IllegalArgumentException("Unsupported attribute: " + attrs.item(i).getNodeName());
   }
 
-  private static void validateNotatedDuration(Element note, Duration duration) {
+  private static org.arpeon.domain.score.Tuplet readTuplet(Element note) {
+    var modification = optional(note, "time-modification");
+    var markers = optional(note, "notations").map(e -> children(e, "tuplet")).orElse(List.of());
+    if (modification.isEmpty()) {
+      if (!markers.isEmpty())
+        throw new IllegalArgumentException("Tuplet notation requires a time modification");
+      return null;
+    }
+    var value = modification.orElseThrow();
+    allow(value, Set.of("actual-notes", "normal-notes", "normal-type", "normal-dot"), Set.of());
+    boolean start = false, stop = false;
+    for (var marker : markers) {
+      allow(
+          marker,
+          Set.of(),
+          Set.of(
+              "type", "number", "bracket", "show-number", "show-type", "placement", "line-shape"));
+      if (marker.hasAttribute("number") && !marker.getAttribute("number").equals("1"))
+        throw new IllegalArgumentException("Nested tuplets are not supported");
+      switch (marker.getAttribute("type")) {
+        case "start" -> {
+          if (start) throw new IllegalArgumentException("Duplicate tuplet start");
+          start = true;
+        }
+        case "stop" -> {
+          if (stop) throw new IllegalArgumentException("Duplicate tuplet stop");
+          stop = true;
+        }
+        default -> throw new IllegalArgumentException("Unsupported tuplet marker");
+      }
+    }
+    return new org.arpeon.domain.score.Tuplet(
+        Integer.parseInt(text(one(value, "actual-notes"))),
+        Integer.parseInt(text(one(value, "normal-notes"))),
+        start,
+        stop);
+  }
+
+  private static void validateNotatedDuration(
+      Element note, Duration duration, org.arpeon.domain.score.Tuplet tuplet) {
     var type = optional(note, "type");
     var dots = children(note, "dot");
     if (dots.size() > 3 || (type.isEmpty() && !dots.isEmpty()))
@@ -1200,6 +1306,11 @@ public final class MusicXmlImporter {
     var expected = new Duration(1, denominator);
     for (int i = 1; i <= dots.size(); i++)
       expected = expected.plus(new Duration(1, denominator * (1L << i)));
+    if (tuplet != null)
+      expected =
+          new Duration(
+              Math.multiplyExact(expected.numerator(), tuplet.normal()),
+              Math.multiplyExact(expected.denominator(), tuplet.actual()));
     if (!expected.equals(duration))
       throw new IllegalArgumentException("Notated type contradicts duration");
   }

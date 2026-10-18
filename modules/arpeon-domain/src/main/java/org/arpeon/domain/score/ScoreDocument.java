@@ -134,7 +134,9 @@ public final class ScoreDocument {
             throw new IllegalArgumentException("Remove the tie chain before deleting a tied note");
           TimedEvent timed = events.get(eventIndex);
           if (event instanceof Note)
-            events.set(eventIndex, new TimedEvent(timed.onset(), new Rest(event.duration())));
+            events.set(
+                eventIndex,
+                new TimedEvent(timed.onset(), new Rest(event.duration(), event.tuplet())));
           else {
             var heads = new ArrayList<>(((Chord) event).notes());
             heads.remove(headIndex);
@@ -226,12 +228,19 @@ public final class ScoreDocument {
                     replaceHead(
                         event,
                         address[2],
-                        head -> new Note(head.writtenPitch(), head.duration()))));
+                        head ->
+                            new Note(
+                                head.writtenPitch(),
+                                head.duration(),
+                                false,
+                                false,
+                                head.tuplet()))));
       }
-      parts.add(new Part(part.id(), part.name(), measures));
+      parts.add(new Part(part.id(), part.name(), measures, part.clefs()));
     }
     if (!found) throw new IllegalArgumentException("Unknown part");
-    return new Score(score.title(), parts, score.repeatRegions(), score.endingRegions());
+    return new Score(
+        score.title(), parts, score.repeatRegions(), score.endingRegions(), score.composer());
   }
 
   public static Score setPitch(
@@ -312,12 +321,22 @@ public final class ScoreDocument {
                   replaceHead(
                       event,
                       address[2],
-                      note -> new Note(pitch, note.duration(), note.tieStart(), note.tieStop()))));
+                      note ->
+                          new Note(
+                              pitch,
+                              note.duration(),
+                              note.tieStart(),
+                              note.tieStop(),
+                              note.tuplet()))));
     }
     var parts = new ArrayList<Part>();
     for (Part part : score.parts())
-      parts.add(part.id().equals(partId) ? new Part(part.id(), part.name(), measures) : part);
-    return new Score(score.title(), parts, score.repeatRegions(), score.endingRegions());
+      parts.add(
+          part.id().equals(partId)
+              ? new Part(part.id(), part.name(), measures, part.clefs())
+              : part);
+    return new Score(
+        score.title(), parts, score.repeatRegions(), score.endingRegions(), score.composer());
   }
 
   public static Score insertIntoRest(
@@ -348,12 +367,17 @@ public final class ScoreDocument {
           ScoreEvent event = timed.event();
           if (!(event instanceof Rest))
             throw new IllegalArgumentException("Select a rest to insert");
+          if (event.tuplet() != null && !duration.equals(event.duration()))
+            throw new IllegalArgumentException("A inserção deve preservar a duração da quiáltera.");
           if (duration.compareTo(event.duration()) > 0)
             throw new IllegalArgumentException("Insertion exceeds selected rest");
           events.set(
               eventIndex,
               new TimedEvent(
-                  timed.onset(), pitch == null ? new Rest(duration) : new Note(pitch, duration)));
+                  timed.onset(),
+                  pitch == null
+                      ? new Rest(duration, event.tuplet())
+                      : new Note(pitch, duration, false, false, event.tuplet())));
           if (duration.compareTo(event.duration()) < 0)
             events.add(
                 eventIndex + 1,
@@ -383,6 +407,9 @@ public final class ScoreDocument {
         events -> {
           TimedEvent selected = events.get(checkedTimedIndex(events, eventIndex));
           ScoreEvent event = selected.event();
+          if (event.tuplet() != null)
+            throw new IllegalArgumentException(
+                "A duração de uma quiáltera precisa ser alterada junto com o grupo.");
           int comparison = duration.compareTo(event.duration());
           if (comparison > 0) {
             Duration needed = duration.minus(event.duration());
@@ -400,8 +427,9 @@ public final class ScoreDocument {
                 }
               }
               if (needed == null) break;
-              if (!(adjacent instanceof Rest) || !adjacentTimed.onset().equals(extensionCursor))
-                break;
+              if (!(adjacent instanceof Rest)
+                  || adjacent.tuplet() != null
+                  || !adjacentTimed.onset().equals(extensionCursor)) break;
               int restComparison = needed.compareTo(adjacent.duration());
               if (restComparison < 0) {
                 events.set(
@@ -474,10 +502,11 @@ public final class ScoreDocument {
                 voices,
                 measure.pickup()));
       }
-      parts.add(new Part(part.id(), part.name(), measures));
+      parts.add(new Part(part.id(), part.name(), measures, part.clefs()));
     }
     if (!found) throw new IllegalArgumentException("Unknown part");
-    return new Score(score.title(), parts, score.repeatRegions(), score.endingRegions());
+    return new Score(
+        score.title(), parts, score.repeatRegions(), score.endingRegions(), score.composer());
   }
 
   private static Score changeMeasure(
@@ -507,10 +536,11 @@ public final class ScoreDocument {
               measure.tempo(),
               events,
               measure.pickup()));
-      parts.add(new Part(part.id(), part.name(), measures));
+      parts.add(new Part(part.id(), part.name(), measures, part.clefs()));
     }
     if (!found) throw new IllegalArgumentException("Unknown part");
-    return new Score(score.title(), parts, score.repeatRegions(), score.endingRegions());
+    return new Score(
+        score.title(), parts, score.repeatRegions(), score.endingRegions(), score.composer());
   }
 
   private static Score changeVoiceEvents(
@@ -547,10 +577,11 @@ public final class ScoreDocument {
               measure.tempo(),
               voices,
               measure.pickup()));
-      parts.add(new Part(part.id(), part.name(), measures));
+      parts.add(new Part(part.id(), part.name(), measures, part.clefs()));
     }
     if (!found) throw new IllegalArgumentException("Unknown part");
-    return new Score(score.title(), parts, score.repeatRegions(), score.endingRegions());
+    return new Score(
+        score.title(), parts, score.repeatRegions(), score.endingRegions(), score.composer());
   }
 
   private static int checkedIndex(List<ScoreEvent> events, int index) {
@@ -607,7 +638,11 @@ public final class ScoreDocument {
 
   private static Note transformed(Note note, UnaryOperator<Pitch> transform) {
     return new Note(
-        transform.apply(note.writtenPitch()), note.duration(), note.tieStart(), note.tieStop());
+        transform.apply(note.writtenPitch()),
+        note.duration(),
+        note.tieStart(),
+        note.tieStop(),
+        note.tuplet());
   }
 
   private static Note noteAt(List<Measure> measures, int[] address) {
