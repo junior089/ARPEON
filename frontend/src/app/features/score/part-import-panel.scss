@@ -1,0 +1,82 @@
+:host {
+  display: block;
+  min-width: 0;
+}
+.add-part {
+  display: grid;
+  gap: var(--space-2);
+  color: var(--accent);
+  font-size: var(--text-small);
+  margin-block: var(--space-3);
+}
+input[type='file'] {
+  max-width: 100%;
+  font-size: var(--text-small);
+}
+.part-import-review {
+  display: grid;
+  gap: var(--space-3);
+  border-block: 1px solid var(--border);
+  padding-block: var(--space-3);
+  font-size: var(--text-small);
+  overflow-wrap: anywhere;
+}
+.part-import-review p {
+  margin: 0;
+}
+.part-import-review label {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.part-import-review .source-part,
+.part-import-review .manual-alignment {
+  display: flex;
+  align-items: start;
+  gap: var(--space-2);
+}
+.alignment-status {
+  color: var(--secondary);
+}
+.alignment-status.error {
+  color: var(--danger);
+}
+.alignment-anchor {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  align-items: end;
+  gap: var(--space-2);
+}
+input[type='number'],
+select {
+  width: 100%;
+  min-width: 0;
+}
+.import-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.add-part {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  min-height: var(--control-height);
+  padding: var(--space-2);
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.add-part input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+.add-part:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

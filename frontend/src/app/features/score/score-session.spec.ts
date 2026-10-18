@@ -402,4 +402,21 @@ describe('ScoreSession', () => {
     expect(session.score()).toBeNull();
     expect(session.error()).toContain('inválida');
   });
+  it('autosaves mixer preferences even when the notation revision does not change', async () => {
+    vi.useFakeTimers();
+    const id = '12345678-1234-4123-8123-123456789abc';
+    session.score.set(score);
+    session.transport.set(transport);
+    session.projectId.set(id);
+    session.savedRevision.set(score.revision);
+    expect(session.projectDirty()).toBe(false);
+    fetcher.mockResolvedValueOnce(Response.json({ ...transport, master: 0.5 }));
+    await session.action('master', { value: 0.5 });
+    expect(session.score()?.revision).toBe(score.revision);
+    expect(session.projectDirty()).toBe(true);
+    fetcher.mockResolvedValueOnce(Response.json({ id, updatedAt: '2026-10-18T12:00:00Z' }));
+    fetcher.mockResolvedValueOnce(Response.json([]));
+    expect(await session.saveProject()).toBe(true);
+    expect(session.projectDirty()).toBe(false);
+  });
 });

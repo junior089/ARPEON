@@ -124,4 +124,162 @@ class MidiScorePlayerTest {
       }
     }
   }
+
+  @Test
+  void mixerPresetsMultiSoloAndMasterNeverChangeTheDisplayedPartOrOtherVolumes() {
+    var original = timeline().score().parts().getFirst();
+    var second = new Part("P2", "Violin", original.measures());
+    try (var player =
+        new MidiScorePlayer(new ScoreTimeline(new Score("Duo", List.of(original, second))))) {
+      player.setVolume("P1", .3);
+      player.setVolume("P2", .8);
+      player.setMaster(.5);
+      player.setMute("P1", true);
+      player.setSolo("P1", true);
+      player.setSolo("P2", true);
+      assertEquals(0, player.snapshot().parts().getFirst().effectiveGain());
+      assertEquals(.4, player.snapshot().parts().get(1).effectiveGain(), 1e-9);
+      player.setSolo("P1", false);
+      player.setSolo("P2", false);
+      assertTrue(player.snapshot().parts().getFirst().mute());
+      player.selectPart("P2");
+      player.preset("practice");
+      assertEquals("P2", player.snapshot().activePartId());
+      assertFalse(player.snapshot().parts().getFirst().mute());
+      assertTrue(player.snapshot().parts().get(1).mute());
+      player.preset("listen");
+      assertTrue(player.snapshot().parts().get(1).solo());
+      assertEquals(.8, player.snapshot().parts().get(1).volume());
+      var settings = player.settings();
+      player.preset("reset");
+      assertEquals(1, player.snapshot().master());
+      player.restore(settings);
+      assertEquals(.5, player.snapshot().master());
+      assertEquals(.8, player.snapshot().parts().get(1).volume());
+      assertEquals("NOT_LOADED", player.snapshot().parts().get(1).soundStatus());
+      assertThrows(IllegalArgumentException.class, () -> player.setVolume("P1", Double.NaN));
+      assertThrows(IllegalArgumentException.class, () -> player.setMaster(1.1));
+      assertThrows(IllegalArgumentException.class, () -> player.setPan("P1", -1.1));
+      assertThrows(IllegalArgumentException.class, () -> player.setVolume("missing", .5));
+    }
+  }
+
+  @Test
+  void twoPartsKeepTheirMidiChannelsWhileMixerChangesDuringPlayback() throws Exception {
+    var first = timeline().score().parts().getFirst();
+    var duo =
+        new ScoreTimeline(
+            new Score("Duo", List.of(first, new Part("P2", "Violin", first.measures()))));
+    try (var clock = MidiSystem.getSequencer(false)) {
+      clock.open();
+      var playedChannels = java.util.concurrent.ConcurrentHashMap.<Integer>newKeySet();
+      var notes = new CountDownLatch(2);
+      clock
+          .getTransmitter()
+          .setReceiver(
+              new Receiver() {
+                @Override
+                public void send(javax.sound.midi.MidiMessage message, long timestamp) {
+                  if (message instanceof ShortMessage note
+                      && note.getCommand() == ShortMessage.NOTE_ON
+                      && note.getData2() > 0) {
+                    if (playedChannels.add(note.getChannel())) notes.countDown();
+                  }
+                }
+
+                @Override
+                public void close() {}
+              });
+      try (var player = new MidiScorePlayer(duo, Map.of(), clock)) {
+        player.play();
+        assertTrue(notes.await(2, TimeUnit.SECONDS));
+        player.setVolume("P2", .2);
+        player.setSolo("P2", true);
+        assertTrue(clock.getTrackMute(1));
+        assertFalse(clock.getTrackMute(2));
+        assertEquals("P1", player.snapshot().activePartId());
+        player.setSolo("P2", false);
+        assertFalse(clock.getTrackMute(1));
+        player.pause();
+        player.seek(600);
+        player.play();
+        assertTrue(player.snapshot().tick() >= 600);
+        player.stop();
+        assertEquals(0, player.snapshot().tick());
+      }
+    }
+  }
+
+  @Test
+  void missingSoundOnlyDisablesItsOwnPartAndCanBeRetried() throws Exception {
+    var first = timeline().score().parts().getFirst();
+    var duo =
+        new ScoreTimeline(
+            new Score("Duo", List.of(first, new Part("P2", "Violin", first.measures()))));
+    var available = new java.util.concurrent.atomic.AtomicBoolean(false);
+    var flute =
+        new javax.sound.midi.Instrument(
+            null, new javax.sound.midi.Patch(0, 73), "Flute", Object.class) {
+          @Override
+          public Object getData() {
+            return new Object();
+          }
+        };
+    var violin =
+        new javax.sound.midi.Instrument(
+            null, new javax.sound.midi.Patch(0, 40), "Violin", Object.class) {
+          @Override
+          public Object getData() {
+            return new Object();
+          }
+        };
+    var output =
+        new Receiver() {
+          @Override
+          public void send(javax.sound.midi.MidiMessage message, long timestamp) {}
+
+          @Override
+          public void close() {}
+        };
+    var synth =
+        (javax.sound.midi.Synthesizer)
+            java.lang.reflect.Proxy.newProxyInstance(
+                getClass().getClassLoader(),
+                new Class<?>[] {javax.sound.midi.Synthesizer.class},
+                (proxy, method, arguments) ->
+                    switch (method.getName()) {
+                      case "getAvailableInstruments" ->
+                          available.get()
+                              ? new javax.sound.midi.Instrument[] {flute, violin}
+                              : new javax.sound.midi.Instrument[] {flute};
+                      case "loadInstrument" -> true;
+                      case "getReceiver" -> output;
+                      case "getChannels" -> new javax.sound.midi.MidiChannel[16];
+                      case "getLatency" -> 0L;
+                      default -> null;
+                    });
+    try (var clock = MidiSystem.getSequencer(false)) {
+      clock.open();
+      try (var player =
+          new MidiScorePlayer(
+              duo,
+              Map.of(
+                  "P1",
+                  org.arpeon.domain.instrument.InstrumentCatalog.get("flute"),
+                  "P2",
+                  org.arpeon.domain.instrument.InstrumentCatalog.get("violin")),
+              clock,
+              synth)) {
+        assertEquals("READY", player.snapshot().parts().getFirst().soundStatus());
+        assertEquals("ERROR", player.snapshot().parts().get(1).soundStatus());
+        assertFalse(clock.getTrackMute(1));
+        assertTrue(clock.getTrackMute(2));
+        available.set(true);
+        player.retrySounds();
+        assertEquals("READY", player.snapshot().parts().get(1).soundStatus());
+        assertFalse(clock.getTrackMute(2));
+        assertEquals(2, player.snapshot().parts().size());
+      }
+    }
+  }
 }

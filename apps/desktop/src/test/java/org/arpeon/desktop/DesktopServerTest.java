@@ -33,6 +33,64 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class DesktopServerTest {
+
+  @Test
+  void addsPartsThroughReviewedImportAndExportsOnlyTheRequestedPart() throws Exception {
+    byte[] source =
+        Files.readAllBytes(Path.of(System.getProperty("arpeon.fixtures"), "first-notes.musicxml"));
+    assertEquals(
+        200,
+        client
+            .send(
+                request("/api/score/open")
+                    .header("Content-Type", "application/xml")
+                    .header("X-Arpeon-Filename", "first.musicxml")
+                    .POST(HttpRequest.BodyPublishers.ofByteArray(source))
+                    .build(),
+                HttpResponse.BodyHandlers.ofString())
+            .statusCode());
+    var staged =
+        client.send(
+            request("/api/score/parts/import")
+                .header("Content-Type", "application/xml")
+                .header("X-Arpeon-Filename", "second.musicxml")
+                .POST(HttpRequest.BodyPublishers.ofByteArray(source))
+                .build(),
+            HttpResponse.BodyHandlers.ofString());
+    assertEquals(200, staged.statusCode());
+    String token =
+        JsonParser.parseString(staged.body()).getAsJsonObject().get("token").getAsString();
+    var parameters = new com.google.gson.JsonObject();
+    parameters.addProperty("token", token);
+    parameters.addProperty("partIds", "[\"P1\"]");
+    parameters.addProperty("replaceId", "");
+    parameters.addProperty("anchors", "[{\"sourceMeasure\":0,\"compositionMeasure\":0}]");
+    parameters.addProperty("manual", false);
+    var integrated = post("/api/score/edit/commit-import", parameters.toString());
+    assertEquals(200, integrated.statusCode(), integrated.body());
+    assertEquals(
+        2,
+        JsonParser.parseString(integrated.body())
+            .getAsJsonObject()
+            .getAsJsonObject("score")
+            .getAsJsonArray("parts")
+            .size());
+    assertEquals(200, post("/api/transport/master", "{\"value\":0.4}").statusCode());
+    assertEquals(
+        400, post("/api/transport/volume", "{\"id\":\"P1\",\"value\":\"0.4\"}").statusCode());
+    var exported = get("/api/score/export?partId=P1");
+    assertEquals(200, exported.statusCode());
+    assertEquals(
+        1,
+        new MusicXmlImporter()
+            .read(
+                exported.body().getBytes(java.nio.charset.StandardCharsets.UTF_8), "part.musicxml")
+            .score()
+            .parts()
+            .size());
+    assertEquals(400, get("/api/score/export?partId=missing").statusCode());
+  }
+
   @Test
   void updatePreferencesRejectMalformedRequestsAndInactivePackages() throws Exception {
     var status = JsonParser.parseString(get("/api/updates").body()).getAsJsonObject();

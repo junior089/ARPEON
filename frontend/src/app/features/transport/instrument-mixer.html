@@ -1,0 +1,110 @@
+@if (session.transport(); as state) {
+<section class="instrument-mixer" aria-label="Mixer de instrumentos">
+  <div class="mixer-heading">
+    <strong>Mixer de instrumentos · {{ state.parts.length }} canais</strong>
+    <label class="rehearsal-presets"
+      >Ensaio<select
+        aria-label="Preset de ensaio"
+        (change)="setPreset($event)"
+        [disabled]="session.busy()"
+      >
+        <option value="">Configurar ensaio</option>
+        <option value="ensemble">Conjunto completo</option>
+        <option value="practice">Praticar minha parte</option>
+        <option value="listen">Ouvir minha parte</option>
+      </select></label
+    >
+    <button
+      type="button"
+      (click)="session.action('preset', {preset: 'reset'})"
+      [disabled]="session.busy()"
+    >
+      Restaurar mixer
+    </button>
+    <label class="master-level"
+      >Master {{ percent(state.master) }}%
+      <input
+        type="range"
+        min="0"
+        max="100"
+        [value]="percent(state.master)"
+        (change)="setLevel($event, 'master')"
+        [disabled]="session.busy()"
+      />
+    </label>
+  </div>
+  <div
+    class="mixer-channels"
+    tabindex="0"
+    aria-label="Canais; role horizontalmente para acessar todos"
+  >
+    @for (part of state.parts; track part.id) {
+    <div class="mixer-channel" [class.selected]="state.activePartId === part.id">
+      <button
+        class="channel-name"
+        type="button"
+        [attr.aria-pressed]="state.activePartId === part.id"
+        (click)="session.action('select-part', {id: part.id})"
+        [disabled]="session.busy()"
+        [title]="'Exibir partitura: ' + part.name"
+      >
+        {{ part.name }}
+      </button>
+      <label class="channel-level"
+        >Volume {{ percent(part.volume) }}%
+        <input
+          type="range"
+          min="0"
+          max="100"
+          [value]="percent(part.volume)"
+          (change)="setLevel($event, 'volume', part.id)"
+          [attr.aria-label]="'Volume de ' + part.name"
+          [disabled]="session.busy()"
+        />
+      </label>
+      <div class="channel-controls">
+        <label
+          >Pan
+          <input
+            type="range"
+            min="-100"
+            max="100"
+            [value]="percent(part.pan ?? 0)"
+            (change)="setLevel($event, 'pan', part.id)"
+            [attr.aria-label]="'Panorâmica de ' + part.name"
+            [disabled]="session.busy()"
+        /></label>
+        <button
+          type="button"
+          [attr.aria-pressed]="part.mute"
+          [attr.aria-label]="'Silenciar ' + part.name"
+          (click)="session.action('mute', {id: part.id, enabled: !part.mute})"
+          [disabled]="session.busy()"
+        >
+          M
+        </button>
+        <button
+          type="button"
+          [attr.aria-pressed]="part.solo"
+          [attr.aria-label]="'Solo ' + part.name"
+          (click)="session.action('solo', {id: part.id, enabled: !part.solo})"
+          [disabled]="session.busy()"
+        >
+          S
+        </button>
+      </div>
+      <span class="channel-sound"
+        >{{ instrumentName(part.instrumentId) }} · {{ part.soundStatus === 'READY' ? 'Carregado' :
+        part.soundStatus === 'ERROR' ? 'Indisponível' : 'Carrega ao tocar' }}</span
+      >
+      @if (part.soundStatus === 'ERROR') {
+      <p class="error" role="status">{{ part.soundError }}</p>
+      <button type="button" (click)="session.action('retry-sounds')" [disabled]="session.busy()">
+        Tentar carregar novamente
+      </button>
+      }
+    </div>
+    }
+  </div>
+</section>
+}

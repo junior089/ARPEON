@@ -1,0 +1,114 @@
+:host {
+  display: block;
+  min-width: 0;
+}
+.instrument-mixer {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+.mixer-heading {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+  margin-bottom: var(--space-2);
+  font-size: var(--text-small);
+}
+.rehearsal-presets {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.master-level {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+.master-level input {
+  width: 100px;
+}
+.mixer-channels {
+  display: flex;
+  gap: var(--space-3);
+  overflow-x: auto;
+  padding-bottom: var(--space-2);
+}
+.mixer-channel {
+  flex: 0 0 192px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--space-2);
+  min-width: 0;
+}
+.mixer-channel.selected {
+  border-color: var(--accent);
+}
+.channel-name {
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-color: transparent;
+  padding: 0;
+  color: var(--primary);
+  font-weight: 600;
+}
+.channel-level {
+  display: grid;
+  gap: var(--space-1);
+  font-size: var(--text-small);
+  font-variant-numeric: tabular-nums;
+}
+input[type='range'] {
+  width: 100%;
+  min-width: 0;
+  height: 26px;
+  min-height: 26px;
+  accent-color: var(--accent);
+}
+.channel-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.channel-controls label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  margin-right: auto;
+  font-size: var(--text-small);
+}
+.channel-controls input {
+  width: 64px;
+}
+.channel-controls button {
+  min-width: 30px;
+  padding-inline: var(--space-1);
+}
+button[aria-pressed='true'] {
+  color: var(--accent);
+  background: var(--selection);
+}
+.channel-sound {
+  min-height: 32px;
+  line-height: 16px;
+  font-size: var(--text-small);
+  color: var(--secondary);
+  overflow-wrap: anywhere;
+}
+.error {
+  font-size: var(--text-small);
+  margin: 0;
+}
+@media (max-height: 700px) {
+  .mixer-channels {
+    max-height: 180px;
+    overflow-y: auto;
+  }
+}

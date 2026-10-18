@@ -1,0 +1,85 @@
+<label class="add-part"
+  >Adicionar parte
+  <input
+    type="file"
+    accept=".musicxml,.xml,.mxl,.mscz"
+    multiple
+    (change)="open($event)"
+    [disabled]="session.busy()"
+    aria-label="Adicionar instrumento ou partitura"
+  />
+</label>
+@if (review(); as source) {
+<section class="part-import-review" aria-label="Revisar partes importadas">
+  <strong>{{ source.filename }}</strong>
+  <p>Selecione as partes para integrar a esta composição.</p>
+  @for (part of source.parts; track part.id) {
+  <label class="source-part"
+    ><input
+      type="checkbox"
+      [checked]="selected().includes(part.id)"
+      (change)="select(part.id, $event)"
+    />
+    {{ part.name }} · {{ part.measures }} compassos</label
+  >
+  <p class="alignment-status" [class.error]="!part.compatible">
+    {{ part.compatible ? 'Estrutura musical compatível' : part.problem }}
+  </p>
+  }
+  <label
+    >Destino<select
+      [value]="replaceId()"
+      (change)="setReplacement($event)"
+      [disabled]="session.busy()"
+    >
+      <option value="">Adicionar como novas partes</option>
+      @for (part of session.score()?.parts ?? []; track part.id) {
+      <option [value]="part.id">Substituir {{ part.name }}</option>
+      }
+    </select></label
+  >
+  <label class="manual-alignment"
+    ><input type="checkbox" [checked]="manual()" (change)="setManual($event)" /> Definir alinhamento
+    manual</label
+  >
+  @if (manual()) {
+  <p>
+    Posições escritas, sem contar repetições. O intervalo anterior à entrada permanece em silêncio.
+    A composição define as repetições; fórmulas, durações e andamentos continuam validados.
+  </p>
+  @for (anchor of anchors(); track $index; let index = $index) {
+  <div class="alignment-anchor">
+    <label
+      >Posição na parte<input
+        type="number"
+        min="1"
+        [value]="anchor.sourceMeasure + 1"
+        [disabled]="index === 0"
+        (change)="setAnchor(index, 'sourceMeasure', $event)"
+    /></label>
+    <label
+      >Na composição<input
+        type="number"
+        min="1"
+        [max]="session.score()?.parts?.[0]?.measures?.length ?? 1"
+        [value]="anchor.compositionMeasure + 1"
+        (change)="setAnchor(index, 'compositionMeasure', $event)"
+    /></label>
+    @if (index > 0) {
+    <button type="button" (click)="removeAnchor(index)" aria-label="Remover ponto de alinhamento">
+      ×
+    </button>
+    }
+  </div>
+  }
+  <button type="button" (click)="addAnchor()" [disabled]="anchors().length >= 64">
+    Adicionar correspondência
+  </button>
+  }
+  <div class="import-actions">
+    <button type="button" (click)="confirm()" [disabled]="session.busy() || !canConfirm()">
+      Confirmar importação</button
+    ><button type="button" (click)="cancel()" [disabled]="session.busy()">Cancelar</button>
+  </div>
+</section>
+}

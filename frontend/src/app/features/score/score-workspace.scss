@@ -832,3 +832,63 @@
 .document-provenance p {
   overflow-wrap: anywhere;
 }
+
+.score-view-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+.score-view-controls label {
+  display: grid;
+  gap: var(--space-1);
+  font-size: var(--text-small);
+  min-width: 0;
+}
+.score-view-controls select {
+  max-width: 280px;
+}
+.rehearsal-focus {
+  border-bottom-color: var(--accent);
+}
+.part-management {
+  padding: var(--space-2);
+  font-size: var(--text-small);
+  border-bottom: 1px solid var(--border);
+}
+.part-management summary {
+  cursor: pointer;
+  color: var(--secondary);
+}
+.part-management label {
+  display: grid;
+  gap: var(--space-1);
+  margin-block: var(--space-2);
+}
+.part-management input {
+  width: 100%;
+  min-width: 0;
+}
+.part-order-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+@media (max-width: 800px) {
+  .score-view-controls {
+    gap: var(--space-2);
+  }
+  .score-view-controls select {
+    max-width: 200px;
+  }
+}
+
+.focus-mode .score-layout {
+  grid-template-columns: minmax(0, 1fr);
+}
+.focus-mode .explorer,
+.focus-mode .inspector {
+  display: none;
+}

@@ -23,7 +23,7 @@ import java.util.UUID;
 final class ProjectStore {
   static final int MAX_PROJECTS = 500;
   private static final int MAX_MANIFEST_BYTES = 64 * 1024;
-  private static final int SCHEMA_VERSION = 1;
+  private static final int SCHEMA_VERSION = 2;
   private static final String SCORE_FILE = "score.musicxml";
   private static final String MANIFEST_FILE = "manifest.json";
 
@@ -40,7 +40,20 @@ final class ProjectStore {
       String sourceKind,
       List<String> importWarnings,
       ImportWorkspace.Source source,
-      String xml) {}
+      String xml,
+      RehearsalState rehearsal) {
+    Data(
+        String title,
+        String filename,
+        String sha256,
+        String parserVersion,
+        String sourceKind,
+        List<String> importWarnings,
+        ImportWorkspace.Source source,
+        String xml) {
+      this(title, filename, sha256, parserVersion, sourceKind, importWarnings, source, xml, null);
+    }
+  }
 
   record Info(String id, String title, String filename, String updatedAt) {}
 
@@ -61,7 +74,8 @@ final class ProjectStore {
       String xmlSha256,
       String createdAt,
       String updatedAt,
-      String name) {}
+      String name,
+      RehearsalState rehearsal) {}
 
   private final Path root;
   private final DurableWriter durableWriter;
@@ -149,7 +163,8 @@ final class ProjectStore {
             sha256(xml),
             createdAt,
             updatedAt,
-            name != null ? name : previous == null ? null : previous.name());
+            name != null ? name : previous == null ? null : previous.name(),
+            data.rehearsal());
 
     Path staging = Files.createTempDirectory(root, ".pending-");
     Path backup = root.resolve(".backup-" + id + "-" + UUID.randomUUID());
@@ -204,7 +219,8 @@ final class ProjectStore {
             manifest.sourceKind(),
             manifest.importWarnings(),
             manifest.source(),
-            xml),
+            xml,
+            manifest.rehearsal()),
         manifest.createdAt(),
         manifest.updatedAt());
   }
@@ -228,7 +244,7 @@ final class ProjectStore {
       Manifest manifest =
           json.fromJson(Files.readString(path, StandardCharsets.UTF_8), Manifest.class);
       if (manifest == null
-          || manifest.schemaVersion() != SCHEMA_VERSION
+          || (manifest.schemaVersion() < 1 || manifest.schemaVersion() > SCHEMA_VERSION)
           || !expectedId.equals(manifest.id())
           || manifest.title() == null
           || manifest.filename() == null
@@ -265,7 +281,7 @@ final class ProjectStore {
         throw new IOException("Invalid project timestamps", invalidTimestamp);
       }
       return manifest;
-    } catch (JsonParseException | IllegalStateException failure) {
+    } catch (JsonParseException | IllegalStateException | IllegalArgumentException failure) {
       throw new IOException("Invalid project manifest", failure);
     }
   }

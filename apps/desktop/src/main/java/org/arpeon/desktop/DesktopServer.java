@@ -688,6 +688,31 @@ public final class DesktopServer implements AutoCloseable {
         } catch (IOException failure) {
           sendJson(exchange, 400, Map.of("error", failure.getMessage()));
         }
+      } else if (path.equals("/api/score/parts/import") && method.equals("POST")) {
+        String contentType = exchange.getRequestHeaders().getFirst("Content-Type");
+        if (!Set.of("application/xml", "application/octet-stream")
+            .contains(contentType == null ? "" : contentType)) {
+          sendJson(exchange, 415, Map.of("error", "Expected MusicXML or compressed MusicXML"));
+          return;
+        }
+        String encoded = exchange.getRequestHeaders().getFirst("X-Arpeon-Filename");
+        if (encoded == null || encoded.length() > 768)
+          throw new IllegalArgumentException("Invalid filename");
+        String filename = URLDecoder.decode(encoded, StandardCharsets.UTF_8);
+        byte[] bytes = exchange.getRequestBody().readNBytes(MusicXmlImporter.MAX_BYTES + 1);
+        if (bytes.length > MusicXmlImporter.MAX_BYTES) {
+          sendJson(exchange, 413, Map.of("error", "Score exceeds 128 MiB"));
+          return;
+        }
+        try {
+          sendJson(
+              exchange,
+              200,
+              workspace.stageParts(
+                  bytes, filename, contentType.equals("application/octet-stream")));
+        } catch (IOException failure) {
+          sendJson(exchange, 400, Map.of("error", failure.getMessage()));
+        }
       } else if (path.equals("/api/score/open") && method.equals("POST")) {
         if (!"application/xml".equals(exchange.getRequestHeaders().getFirst("Content-Type"))) {
           sendJson(exchange, 415, Map.of("error", "Expected application/xml"));
@@ -763,7 +788,12 @@ public final class DesktopServer implements AutoCloseable {
         }
         sendJson(exchange, 200, workspace.measureEvents(query.get("partId"), measureIndex));
       } else if (path.equals("/api/score/export") && method.equals("GET")) {
-        byte[] xml = workspace.exportXml().getBytes(StandardCharsets.UTF_8);
+        var query = parseQuery(exchange.getRequestURI());
+        if (!query.isEmpty() && !query.keySet().equals(Set.of("partId")))
+          throw new IllegalArgumentException("Expected partId");
+        byte[] xml =
+            (query.isEmpty() ? workspace.exportXml() : workspace.exportPart(query.get("partId")))
+                .getBytes(StandardCharsets.UTF_8);
         exchange
             .getResponseHeaders()
             .set("Content-Type", "application/vnd.recordare.musicxml+xml; charset=utf-8");

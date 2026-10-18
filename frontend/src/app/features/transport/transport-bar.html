@@ -1,3 +1,6 @@
+@defer (when mixerOpen()) { @if (mixerOpen() && session.transport()) {
+<div id="instrument-mixer"><app-instrument-mixer /></div>
+} }
 <section
   class="transport"
   [attr.aria-label]="'Transporte da partitura ' + (session.score()?.title ?? '')"
@@ -83,6 +86,14 @@
     (click)="settingsOpen.set(!settingsOpen())"
   >
     <app-icon name="settings" /><span class="player-tempo">{{ state.bpm }} BPM</span>
+  </button>
+  <button
+    type="button"
+    aria-controls="instrument-mixer"
+    [attr.aria-expanded]="mixerOpen()"
+    (click)="mixerOpen.set(!mixerOpen())"
+  >
+    Mixer
   </button>
   <div id="transport-settings" class="transport-settings" [class.expanded]="settingsOpen()">
     <button

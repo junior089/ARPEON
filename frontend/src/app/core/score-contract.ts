@@ -1,4 +1,5 @@
 export interface MeasureView {
+  writtenIndex?: number;
   index: number;
   number: string;
   startTick: number;
@@ -11,9 +12,15 @@ export interface PartState {
   mute: boolean;
   solo: boolean;
   instrumentId: string;
+  volume?: number;
+  pan?: number;
+  effectiveGain?: number;
+  soundStatus?: 'NOT_LOADED' | 'READY' | 'ERROR';
+  soundError?: string;
 }
 
 export interface TransportState {
+  master?: number;
   loop?: {
     startTick: number;
     endTick: number;
@@ -122,6 +129,7 @@ export interface SourceView {
 
 export interface ScoreView {
   title: string;
+  composer?: string;
   filename: string;
   sha256: string;
   parserVersion: string;
@@ -156,7 +164,47 @@ export interface PreviewView {
   warningsAfter: RangeWarning[];
 }
 
+export interface RehearsalView {
+  viewMode: 'full' | 'individual' | 'focus';
+  hiddenParts: string[];
+}
+
+export interface PartImportReview {
+  token: string;
+  filename: string;
+  parts: {
+    id: string;
+    name: string;
+    instrumentId: string;
+    measures: number;
+    compatible: boolean;
+    problem: string;
+  }[];
+}
+
+export function isPartImportReview(value: unknown): value is PartImportReview {
+  return (
+    record(value) &&
+    typeof value['token'] === 'string' &&
+    typeof value['filename'] === 'string' &&
+    Array.isArray(value['parts']) &&
+    value['parts'].length > 0 &&
+    value['parts'].every(
+      (part: unknown) =>
+        record(part) &&
+        typeof part['id'] === 'string' &&
+        typeof part['name'] === 'string' &&
+        typeof part['instrumentId'] === 'string' &&
+        integer(part['measures']) &&
+        part['measures'] > 0 &&
+        typeof part['compatible'] === 'boolean' &&
+        typeof part['problem'] === 'string',
+    )
+  );
+}
+
 export interface WorkspaceView {
+  rehearsal?: RehearsalView;
   xml: string;
   score: ScoreView;
   transport: TransportState;
@@ -165,6 +213,10 @@ export interface WorkspaceView {
 
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function level(value: unknown, min: number, max: number): boolean {
+  return typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max;
 }
 
 function integer(value: unknown): value is number {
@@ -238,6 +290,7 @@ export function isTransport(value: unknown): value is TransportState {
     (value['status'] === 'STOPPED' ||
       value['status'] === 'PAUSED' ||
       value['status'] === 'PLAYING') &&
+    (value['master'] === undefined || level(value['master'], 0, 1)) &&
     integer(value['tick']) &&
     (value['audibleTick'] === undefined || integer(value['audibleTick'])) &&
     (value['audibleBpm'] === undefined ||
@@ -278,7 +331,13 @@ export function isTransport(value: unknown): value is TransportState {
         typeof part['name'] === 'string' &&
         typeof part['mute'] === 'boolean' &&
         typeof part['solo'] === 'boolean' &&
-        typeof part['instrumentId'] === 'string',
+        typeof part['instrumentId'] === 'string' &&
+        (part['volume'] === undefined || level(part['volume'], 0, 1)) &&
+        (part['pan'] === undefined || level(part['pan'], -1, 1)) &&
+        (part['effectiveGain'] === undefined || level(part['effectiveGain'], 0, 1)) &&
+        (part['soundStatus'] === undefined ||
+          ['NOT_LOADED', 'READY', 'ERROR'].includes(String(part['soundStatus']))) &&
+        (part['soundError'] === undefined || typeof part['soundError'] === 'string'),
     )
   );
 }
@@ -352,6 +411,8 @@ function isScore(value: unknown): value is ScoreView {
         record(measure) &&
         integer(measure['index']) &&
         typeof measure['number'] === 'string' &&
+        (measure['writtenIndex'] === undefined ||
+          (integer(measure['writtenIndex']) && measure['writtenIndex'] >= 0)) &&
         integer(measure['startTick']) &&
         integer(measure['durationTicks']),
     )
@@ -362,6 +423,11 @@ export function isWorkspace(value: unknown): value is WorkspaceView {
   if (!record(value) || !isScore(value['score']) || !isTransport(value['transport'])) return false;
   const preview = value['preview'];
   return (
+    (value['rehearsal'] === undefined ||
+      (record(value['rehearsal']) &&
+        ['full', 'individual', 'focus'].includes(String(value['rehearsal']['viewMode'])) &&
+        Array.isArray(value['rehearsal']['hiddenParts']) &&
+        value['rehearsal']['hiddenParts'].every((id: unknown) => typeof id === 'string'))) &&
     typeof value['xml'] === 'string' &&
     (preview === null ||
       (record(preview) &&

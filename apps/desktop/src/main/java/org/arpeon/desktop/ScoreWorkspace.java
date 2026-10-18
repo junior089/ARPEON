@@ -34,7 +34,8 @@ import org.arpeon.transport.ScoreTimeline;
 
 /** In-memory revisions and local playback. The imported file remains owned by the user. */
 final class ScoreWorkspace implements AutoCloseable {
-  record MeasureView(int index, String number, long startTick, long durationTicks) {}
+  record MeasureView(
+      int index, String number, long startTick, long durationTicks, int writtenIndex) {}
 
   record EventView(
       int index,
@@ -82,6 +83,7 @@ final class ScoreWorkspace implements AutoCloseable {
 
   record ScoreView(
       String title,
+      String composer,
       String filename,
       String sha256,
       String parserVersion,
@@ -115,7 +117,24 @@ final class ScoreWorkspace implements AutoCloseable {
   private record PositionedEvent(
       String voiceId, int eventIndex, org.arpeon.domain.score.TimedEvent timed) {}
 
-  record View(String xml, ScoreView score, MidiScorePlayer.State transport, PreviewView preview) {}
+  record View(
+      String xml,
+      ScoreView score,
+      MidiScorePlayer.State transport,
+      PreviewView preview,
+      RehearsalState rehearsal) {}
+
+  record ImportPartView(
+      String id,
+      String name,
+      String instrumentId,
+      int measures,
+      boolean compatible,
+      String problem) {}
+
+  record PartImportView(String token, String filename, List<ImportPartView> parts) {}
+
+  private record PartImport(String token, int revision, MusicXmlImporter.ImportedScore source) {}
 
   record AnalysisSource(
       String title,
@@ -144,6 +163,11 @@ final class ScoreWorkspace implements AutoCloseable {
   private String sourceKind = "MUSICXML";
   private List<String> importWarnings = List.of();
   private ImportWorkspace.Source source;
+  private String viewMode = "full";
+  private final Set<String> hiddenParts = new java.util.LinkedHashSet<>();
+  private final Map<String, RehearsalState.PartOrigin> partOrigins = new LinkedHashMap<>();
+  private PartImport partImport;
+  private int preferenceRevision;
 
   synchronized View open(InputStream input, String filename) throws IOException {
     var next = importer.read(input, filename);
@@ -238,14 +262,26 @@ final class ScoreWorkspace implements AutoCloseable {
     timeline = nextTimeline;
     player = nextPlayer;
     pending = null;
+    partImport = null;
+    preferenceRevision = 0;
+    viewMode = "full";
+    hiddenParts.clear();
+    partOrigins.clear();
     return snapshot();
+  }
+
+  private RehearsalState rehearsal() {
+    return new RehearsalState(player.settings(), viewMode, hiddenParts, partOrigins);
   }
 
   synchronized View snapshot() {
     if (player == null) throw new IllegalStateException("No score is open");
     var measures =
         timeline.measures().stream()
-            .map(m -> new MeasureView(m.index(), m.number(), m.startTick(), m.durationTicks()))
+            .map(
+                m ->
+                    new MeasureView(
+                        m.index(), m.number(), m.startTick(), m.durationTicks(), m.writtenIndex()))
             .toList();
     var partViews = new ArrayList<PartView>();
     var warnings = new ArrayList<ScoreTransform.RangeWarning>();
@@ -267,6 +303,7 @@ final class ScoreWorkspace implements AutoCloseable {
             document.current(), document.state().keyId(), profiles(document.state().instruments())),
         new ScoreView(
             document.current().title(),
+            document.current().composer(),
             imported.sourceFilename(),
             imported.sha256(),
             imported.parserVersion(),
@@ -280,7 +317,7 @@ final class ScoreWorkspace implements AutoCloseable {
             document.canRedo(),
             document.state().keyId(),
             List.copyOf(warnings),
-            InstrumentCatalog.profiles().stream()
+            instrumentChoices().stream()
                 .map(
                     profile ->
                         new InstrumentView(
@@ -297,7 +334,8 @@ final class ScoreWorkspace implements AutoCloseable {
                 .map(key -> new KeyView(key.id(), key.label(), key.minor()))
                 .toList()),
         player.snapshot(),
-        pending == null ? null : pending.view());
+        pending == null ? null : pending.view(),
+        rehearsal());
   }
 
   synchronized MeasureEventsPage measureEvents(String partId, int measureIndex) {
@@ -373,6 +411,183 @@ final class ScoreWorkspace implements AutoCloseable {
         document.current(), document.state().keyId(), profiles(document.state().instruments()));
   }
 
+  synchronized String exportPart(String partId) {
+    var part = requirePart(partId);
+    var score = document.current();
+    return exporter.write(
+        new Score(
+            score.title(),
+            List.of(part),
+            score.repeatRegions(),
+            score.endingRegions(),
+            score.composer()),
+        document.state().keyId(),
+        profiles(document.state().instruments()));
+  }
+
+  private org.arpeon.domain.score.Part requirePart(String id) {
+    return document.current().parts().stream()
+        .filter(p -> p.id().equals(id))
+        .findFirst()
+        .orElseThrow(() -> new IllegalArgumentException("Unknown part"));
+  }
+
+  synchronized PartImportView stageParts(byte[] bytes, String filename, boolean compressed)
+      throws IOException {
+    if (document == null)
+      throw new IllegalStateException("Abra a composição antes de adicionar partes.");
+    var source = compressed ? importer.readMxl(bytes, filename) : importer.read(bytes, filename);
+    new ScoreTimeline(source.score());
+    var detected = new ArrayList<ImportPartView>();
+    for (var part : source.score().parts()) {
+      String problem = "";
+      try {
+        org.arpeon.transport.PartAlignment.align(
+            document.current(),
+            source.score(),
+            part.id(),
+            "candidate",
+            List.of(new org.arpeon.transport.PartAlignment.Anchor(0, 0)),
+            false);
+      } catch (IllegalArgumentException failure) {
+        problem = failure.getMessage();
+      }
+      detected.add(
+          new ImportPartView(
+              part.id(),
+              part.name(),
+              source.instruments().getOrDefault(part.id(), "concert"),
+              part.measures().size(),
+              problem.isEmpty(),
+              problem));
+    }
+    partImport = new PartImport(UUID.randomUUID().toString(), document.revision(), source);
+    return new PartImportView(partImport.token(), filename, List.copyOf(detected));
+  }
+
+  private View commitImport(JsonObject request) {
+    keys(request, "token", "partIds", "replaceId", "anchors", "manual");
+    if (partImport == null
+        || partImport.revision() != document.revision()
+        || !partImport.token().equals(string(request, "token")))
+      throw new IllegalArgumentException("A composição mudou. Importe o arquivo novamente.");
+    var selected =
+        com.google.gson.JsonParser.parseString(string(request, "partIds")).getAsJsonArray();
+    if (selected.isEmpty() || selected.size() > MusicXmlImporter.MAX_PARTS)
+      throw new IllegalArgumentException("Selecione uma parte.");
+    var anchors = new ArrayList<org.arpeon.transport.PartAlignment.Anchor>();
+    for (var element :
+        com.google.gson.JsonParser.parseString(string(request, "anchors")).getAsJsonArray()) {
+      var anchor = element.getAsJsonObject();
+      keys(anchor, "sourceMeasure", "compositionMeasure");
+      anchors.add(
+          new org.arpeon.transport.PartAlignment.Anchor(
+              integer(anchor, "sourceMeasure"), integer(anchor, "compositionMeasure")));
+    }
+    String replacement = string(request, "replaceId");
+    if (!replacement.isEmpty()) {
+      requirePart(replacement);
+      if (selected.size() != 1)
+        throw new IllegalArgumentException("Selecione uma parte para substituir.");
+    }
+    if (!request.get("manual").isJsonPrimitive()
+        || !request.get("manual").getAsJsonPrimitive().isBoolean())
+      throw new IllegalArgumentException("Expected manual alignment boolean");
+    boolean manual = request.get("manual").getAsBoolean();
+    var score = document.current();
+    var sourceScore = partImport.source().score();
+    if (!java.util.Objects.equals(document.state().keyId(), partImport.source().keyId()))
+      throw new IllegalArgumentException(
+          "Tonalidades diferentes. Adapte a tonalidade antes de integrar a parte.");
+    var parts = new ArrayList<>(score.parts());
+    var instruments = new LinkedHashMap<>(document.state().instruments());
+    var origins = new LinkedHashMap<>(partOrigins);
+    var seen = new java.util.HashSet<String>();
+    for (var element : selected) {
+      String sourceId = element.getAsString();
+      if (!seen.add(sourceId))
+        throw new IllegalArgumentException("Parte selecionada mais de uma vez.");
+      String id =
+          replacement.isEmpty() ? "P" + UUID.randomUUID().toString().replace("-", "") : replacement;
+      var aligned =
+          org.arpeon.transport.PartAlignment.align(
+              score, sourceScore, sourceId, id, anchors, manual);
+      if (replacement.isEmpty()) parts.add(aligned);
+      else parts.set(parts.indexOf(requirePart(replacement)), aligned);
+      instruments.put(id, partImport.source().instruments().getOrDefault(sourceId, "concert"));
+      origins.put(
+          id,
+          new RehearsalState.PartOrigin(
+              partImport.source().sourceFilename(),
+              partImport.source().sha256(),
+              sourceId,
+              anchors,
+              manual));
+    }
+    if (parts.size() > 15)
+      throw new IllegalArgumentException("O sintetizador suporta até 15 partes melódicas.");
+    commit(
+        new ScoreDocument.State(
+            new Score(
+                score.title(),
+                parts,
+                score.repeatRegions(),
+                score.endingRegions(),
+                score.composer()),
+            instruments,
+            document.state().keyId()));
+    partOrigins.clear();
+    partOrigins.putAll(origins);
+    partImport = null;
+    return snapshot();
+  }
+
+  private View managePart(String action, JsonObject request) {
+    String id = part(request);
+    var selected = requirePart(id);
+    var score = document.current();
+    var parts = new ArrayList<>(score.parts());
+    var assignments = new LinkedHashMap<>(document.state().instruments());
+    if (action.equals("rename-part")) {
+      keys(request, "partId", "name");
+      String name = string(request, "name").strip();
+      if (name.isBlank()
+          || name.length() > 120
+          || name.codePoints().anyMatch(Character::isISOControl))
+        throw new IllegalArgumentException("Use um nome de 1 a 120 caracteres.");
+      parts.set(
+          parts.indexOf(selected),
+          new org.arpeon.domain.score.Part(id, name, selected.measures(), selected.clefs()));
+    } else if (action.equals("move-part")) {
+      keys(request, "partId", "index");
+      int index = integer(request, "index");
+      if (index < 0 || index >= parts.size())
+        throw new IllegalArgumentException("Invalid part position");
+      parts.remove(selected);
+      parts.add(index, selected);
+    } else {
+      keys(request, "partId");
+      if (parts.size() == 1)
+        throw new IllegalArgumentException("A composição precisa de uma parte.");
+      parts.remove(selected);
+      assignments.remove(id);
+    }
+    commit(
+        new ScoreDocument.State(
+            new Score(
+                score.title(),
+                parts,
+                score.repeatRegions(),
+                score.endingRegions(),
+                score.composer()),
+            assignments,
+            document.state().keyId()));
+    hiddenParts.removeIf(partId -> parts.stream().noneMatch(p -> p.id().equals(partId)));
+    if (parts.stream().allMatch(p -> hiddenParts.contains(p.id())))
+      hiddenParts.remove(parts.getFirst().id());
+    return snapshot();
+  }
+
   synchronized ProjectStore.Data projectData() {
     if (document == null) throw new IllegalStateException("No score is open");
     return new ProjectStore.Data(
@@ -383,12 +598,13 @@ final class ScoreWorkspace implements AutoCloseable {
         sourceKind,
         importWarnings,
         source,
-        exportXml());
+        exportXml(),
+        rehearsal());
   }
 
   synchronized int revision() {
     if (document == null) throw new IllegalStateException("No score is open");
-    return document.revision();
+    return document.revision() + preferenceRevision;
   }
 
   synchronized View openProject(ProjectStore.Data data) throws IOException {
@@ -404,7 +620,26 @@ final class ScoreWorkspace implements AutoCloseable {
             data.parserVersion(),
             parsed.keyId(),
             parsed.instruments());
-    return openImported(restored, data.sourceKind(), data.importWarnings(), data.source());
+    if (data.rehearsal() != null) {
+      try (var candidate =
+          new MidiScorePlayer(new ScoreTimeline(parsed.score()), profiles(parsed.instruments()))) {
+        candidate.restore(data.rehearsal().playback());
+        if (parsed.score().parts().stream()
+            .allMatch(p -> data.rehearsal().hiddenParts().contains(p.id())))
+          throw new IllegalArgumentException("O projeto precisa de uma parte visível.");
+      } catch (IllegalArgumentException failure) {
+        throw new IOException(
+            "Configurações de ensaio inválidas: " + failure.getMessage(), failure);
+      }
+    }
+    openImported(restored, data.sourceKind(), data.importWarnings(), data.source());
+    if (data.rehearsal() != null) {
+      player.restore(data.rehearsal().playback());
+      viewMode = data.rehearsal().viewMode();
+      hiddenParts.addAll(data.rehearsal().hiddenParts());
+      partOrigins.putAll(data.rehearsal().origins());
+    }
+    return snapshot();
   }
 
   synchronized MidiScorePlayer.State transport() {
@@ -566,6 +801,40 @@ final class ScoreWorkspace implements AutoCloseable {
 
   synchronized View edit(String action, JsonObject request) {
     if (document == null) throw new IllegalStateException("No score is open");
+    if (action.equals("cancel-import")) {
+      keys(request, "token");
+      if (partImport != null && partImport.token().equals(string(request, "token")))
+        partImport = null;
+      return snapshot();
+    }
+    if (action.equals("commit-import")) return commitImport(request);
+    if (action.equals("view-mode")) {
+      keys(request, "mode");
+      String mode = string(request, "mode");
+      if (!Set.of("full", "individual", "focus").contains(mode))
+        throw new IllegalArgumentException("Invalid view mode");
+      viewMode = mode;
+      preferenceRevision++;
+      return snapshot();
+    }
+    if (action.equals("part-visibility")) {
+      keys(request, "partId", "visible");
+      String id = part(request);
+      requirePart(id);
+      if (!request.get("visible").isJsonPrimitive()
+          || !request.get("visible").getAsJsonPrimitive().isBoolean())
+        throw new IllegalArgumentException("Expected visibility boolean");
+      if (request.get("visible").getAsBoolean()) hiddenParts.remove(id);
+      else hiddenParts.add(id);
+      if (hiddenParts.size() >= document.current().parts().size()) {
+        hiddenParts.remove(id);
+        throw new IllegalArgumentException("Mantenha pelo menos uma parte visível.");
+      }
+      preferenceRevision++;
+      return snapshot();
+    }
+    if (Set.of("rename-part", "remove-part", "move-part").contains(action))
+      return managePart(action, request);
     if (action.equals("preview")) return preview(request);
     if (action.equals("apply-preview")) {
       keys(request, "token");
@@ -837,6 +1106,18 @@ final class ScoreWorkspace implements AutoCloseable {
   }
 
   private void validate(ScoreDocument.State candidate) {
+    long events =
+        candidate.score().parts().stream()
+            .flatMap(p -> p.measures().stream())
+            .flatMap(m -> m.voices().stream())
+            .flatMap(v -> v.events().stream())
+            .mapToLong(e -> Math.max(1, e.event().noteHeads().size()))
+            .sum();
+    if (events > MusicXmlImporter.MAX_SCORE_EVENTS)
+      throw new IllegalArgumentException(
+          "A composição excede o limite de "
+              + MusicXmlImporter.MAX_SCORE_EVENTS
+              + " eventos musicais.");
     exporter.write(candidate.score(), candidate.keyId(), profiles(candidate.instruments()));
     var checkedTimeline = new ScoreTimeline(candidate.score());
     try (var checkedPlayer =
@@ -850,14 +1131,7 @@ final class ScoreWorkspace implements AutoCloseable {
     ScoreTimeline nextTimeline = new ScoreTimeline(document.current());
     MidiScorePlayer next =
         new MidiScorePlayer(nextTimeline, profiles(document.state().instruments()));
-    next.setBpm(previous.startingBpm());
-    next.setMetronome(previous.metronome());
-    next.setCountIn(previous.countIn());
-    next.selectPart(previous.activePartId());
-    for (var part : previous.parts()) {
-      next.setMute(part.id(), part.mute());
-      next.setSolo(part.id(), part.solo());
-    }
+    next.restore(player.settings());
     if (previous.loop() != null
         && previous.loop().endMeasureIndex() < nextTimeline.measures().size()) {
       next.setLoop(previous.loop().startMeasureIndex(), previous.loop().endMeasureIndex(), true);
@@ -867,6 +1141,15 @@ final class ScoreWorkspace implements AutoCloseable {
     player.close();
     player = next;
     timeline = nextTimeline;
+  }
+
+  private List<InstrumentProfile> instrumentChoices() {
+    var choices = new LinkedHashMap<String, InstrumentProfile>();
+    InstrumentCatalog.profiles().forEach(profile -> choices.put(profile.id(), profile));
+    profiles(document.state().instruments())
+        .values()
+        .forEach(profile -> choices.put(profile.id(), profile));
+    return List.copyOf(choices.values());
   }
 
   private static Map<String, InstrumentProfile> profiles(Map<String, String> assignments) {
@@ -997,12 +1280,34 @@ final class ScoreWorkspace implements AutoCloseable {
         exactTransportKeys(request, "id", "enabled");
         player.setMute(request.get("id").getAsString(), request.get("enabled").getAsBoolean());
       }
+      case "volume" -> {
+        exactTransportKeys(request, "id", "value");
+        player.setVolume(string(request, "id"), request.get("value").getAsDouble());
+      }
+      case "pan" -> {
+        exactTransportKeys(request, "id", "value");
+        player.setPan(string(request, "id"), request.get("value").getAsDouble());
+      }
+      case "master" -> {
+        exactTransportKeys(request, "value");
+        player.setMaster(request.get("value").getAsDouble());
+      }
+      case "preset" -> {
+        keys(request, "preset");
+        player.preset(string(request, "preset"));
+      }
+      case "retry-sounds" -> {
+        keys(request);
+        player.retrySounds();
+      }
       case "solo" -> {
         exactTransportKeys(request, "id", "enabled");
         player.setSolo(request.get("id").getAsString(), request.get("enabled").getAsBoolean());
       }
       default -> throw new IllegalArgumentException("Unknown transport action");
     }
+    if (!Set.of("play", "pause", "stop", "seek", "retry-sounds").contains(action))
+      preferenceRevision++;
     return snapshot();
   }
 
@@ -1022,7 +1327,10 @@ final class ScoreWorkspace implements AutoCloseable {
           || !value.isJsonPrimitive()
           || name.equals("enabled") && !value.getAsJsonPrimitive().isBoolean()
           || name.equals("id") && !value.getAsJsonPrimitive().isString()
-          || (name.equals("tick") || name.equals("bpm") || name.endsWith("MeasureIndex"))
+          || (name.equals("value")
+                  || name.equals("tick")
+                  || name.equals("bpm")
+                  || name.endsWith("MeasureIndex"))
               && !value.getAsJsonPrimitive().isNumber())
         throw new IllegalArgumentException("Invalid transport parameter");
     }
