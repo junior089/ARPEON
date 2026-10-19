@@ -3,6 +3,8 @@ import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ScoreSession } from './score-session';
 import { ScoreWorkspace } from './score-workspace';
+import { ScoreReadingPreferences } from '../../core/score-reading-preferences';
+import { WorkspaceLayout } from '../../shared/workspace-layout';
 
 async function emptyWorkspace(countInBeatsLeft = 0, fromReport = false) {
   await TestBed.configureTestingModule({
@@ -99,6 +101,29 @@ describe('ScoreWorkspace editor', () => {
   afterEach(() => {
     TestBed.resetTestingModule();
     localStorage.clear();
+  });
+
+  it('observes shared reading and paper changes from settings while the editor remains open', async () => {
+    const fixture = await emptyWorkspace();
+    await fixture.whenStable();
+    const component = fixture.componentInstance;
+    const rendering = component as unknown as { render: (xml: string) => Promise<void> };
+    const render = vi.spyOn(rendering, 'render').mockResolvedValue();
+    component.session.xml.set('<score-partwise/>');
+    fixture.detectChanges();
+    render.mockClear();
+    TestBed.inject(WorkspaceLayout).toggleScoreTheme();
+    const reading = TestBed.inject(ScoreReadingPreferences);
+    reading.readingEnabled.set(true);
+    reading.readingLanguage.set('portuguese');
+    fixture.detectChanges();
+    expect(component.darkScore()).toBe(true);
+    expect(component.readingEnabled()).toBe(true);
+    expect(component.readingLanguage()).toBe('portuguese');
+    expect(render).toHaveBeenCalledWith('<score-partwise/>');
+    component.readingOctave.set(true);
+    fixture.detectChanges();
+    expect(reading.readingOctave()).toBe(true);
   });
 
   it('keeps the note requested by an analysis report after asynchronous measure loading', async () => {

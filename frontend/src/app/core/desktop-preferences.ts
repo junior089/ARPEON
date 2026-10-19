@@ -130,7 +130,15 @@ export class DesktopPreferences implements OnDestroy {
   }
 
   update(patch: Partial<Omit<UiPreferences, 'schemaVersion'>>): void {
-    this.value = { ...this.value, ...patch };
+    const next = { ...this.value, ...patch };
+    if (!isPreferences(next)) throw new Error('Invalid preferences');
+    if (
+      Object.entries(patch).every(
+        ([key, value]) => this.value[key as keyof UiPreferences] === value,
+      )
+    )
+      return;
+    this.value = next;
     this.cache();
     if (!this.loaded || !this.token || this.disposed) return;
     this.pending = true;
@@ -158,7 +166,16 @@ export class DesktopPreferences implements OnDestroy {
     try {
       while (this.pending && !this.disposed) {
         this.pending = false;
-        await this.request('PUT', JSON.stringify(this.value));
+        const snapshot = this.snapshot();
+        const response = await this.request('PUT', JSON.stringify(snapshot));
+        const saved: unknown = await response.json();
+        if (
+          !isPreferences(saved) ||
+          Object.entries(snapshot).some(
+            ([key, value]) => saved[key as keyof UiPreferences] !== value,
+          )
+        )
+          throw new Error('Preferences were not confirmed');
       }
       this.error.set('');
     } catch {

@@ -22,7 +22,8 @@ import type { EventHeadView, EventView, RangeWarning } from '../../core/score-co
 import { Icon } from '../../shared/icon';
 import { WorkspaceLayout } from '../../shared/workspace-layout';
 import { PlaybackCursor } from '../../shared/playback-cursor';
-import { DesktopPreferences, WorkspaceMode } from '../../core/desktop-preferences';
+import { WorkspaceMode } from '../../core/desktop-preferences';
+import { ScoreReadingPreferences } from '../../core/score-reading-preferences';
 import { SCORE_FILE_ACCEPT, importRoute } from '../../core/import-routing';
 import { NotationPreview } from '../../shared/notation-preview';
 import { annotateScore } from './score-annotations';
@@ -74,15 +75,12 @@ export function eventIndexAtTimestamp(
   styleUrl: './score-workspace.scss',
 })
 export class ScoreWorkspace implements AfterViewInit, OnDestroy {
-  private readonly preferences = inject(DesktopPreferences);
-  private readonly readingSaved = this.preferences.snapshot();
-  readonly readingEnabled = signal(this.readingSaved.readingEnabled ?? false);
-  readonly readingLanguage = signal<'letters' | 'portuguese'>(
-    this.readingSaved.readingLanguage ?? 'letters',
-  );
-  readonly readingOctave = signal(this.readingSaved.readingOctave ?? false);
-  readonly readingScope = signal<'all' | 'selection'>(this.readingSaved.readingScope ?? 'all');
-  readonly followFingering = signal(this.readingSaved.followFingering ?? false);
+  private readonly reading = inject(ScoreReadingPreferences);
+  readonly readingEnabled = this.reading.readingEnabled;
+  readonly readingLanguage = this.reading.readingLanguage;
+  readonly readingOctave = this.reading.readingOctave;
+  readonly readingScope = this.reading.readingScope;
+  readonly followFingering = this.reading.followFingering;
   readonly tone = inject(ReferenceTone);
   readonly audio = inject(AudioSettings);
   readonly pitchLabel = pitchLabel;
@@ -342,7 +340,13 @@ export class ScoreWorkspace implements AfterViewInit, OnDestroy {
         viewMode: 'full' as const,
         hiddenParts: [],
       };
-      const key = JSON.stringify([xml, active, rehearsal.viewMode, rehearsal.hiddenParts]);
+      const key = JSON.stringify([
+        xml,
+        active,
+        rehearsal.viewMode,
+        rehearsal.hiddenParts,
+        this.darkScore(),
+      ]);
       if (key === this.viewKey) return;
       this.viewKey = key;
       untracked(() => {
@@ -361,13 +365,6 @@ export class ScoreWorkspace implements AfterViewInit, OnDestroy {
         this.activePart();
       }
       untracked(() => this.refreshAnnotations());
-      this.preferences.update({
-        readingEnabled: this.readingEnabled(),
-        readingLanguage: this.readingLanguage(),
-        readingOctave: this.readingOctave(),
-        readingScope: this.readingScope(),
-        followFingering: this.followFingering(),
-      });
     });
     const selection = this.session.studySelection?.();
     if (selection) {
@@ -972,7 +969,6 @@ export class ScoreWorkspace implements AfterViewInit, OnDestroy {
 
   toggleScoreTheme(): void {
     this.layout.toggleScoreTheme();
-    void this.render(this.session.xml());
   }
 
   setWorkspaceMode(mode: Exclude<WorkspaceMode, 'custom'>): void {

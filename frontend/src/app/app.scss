@@ -166,6 +166,9 @@
 .product-dialog::backdrop {
   background: var(--overlay);
 }
+.product-dialog.settings-dialog {
+  width: min(860px, calc(100% - 32px));
+}
 .product-dialog h2 {
   margin: 0;
 }

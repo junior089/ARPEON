@@ -1,0 +1,174 @@
+<div class="settings-search">
+  <label for="settings-search">Pesquisar configurações</label>
+  <input
+    id="settings-search"
+    #search
+    type="search"
+    placeholder="Tema, microfone, leitura…"
+    [value]="query()"
+    (input)="query.set(search.value)"
+  />
+</div>
+<div class="settings-layout">
+  <nav aria-label="Categorias de configurações">
+    @for (item of results(); track item.id) {
+    <button
+      type="button"
+      [attr.aria-current]="!query().trim() && category() === item.id ? 'true' : null"
+      (click)="select(item.id)"
+    >
+      {{ item.label }}
+    </button>
+    }
+  </nav>
+  <div class="settings-content">
+    @for (item of visible(); track item.id) {
+    <section [attr.aria-labelledby]="'settings-' + item.id">
+      <header>
+        <h3 [id]="'settings-' + item.id">{{ item.label }}</h3>
+        <p>
+          {{ item.id === 'audio' ? 'Preferências deste dispositivo, compartilhadas entre Afinador,
+          Prática e Análise.' : item.id === 'updates' ? 'Preferências desta instalação. A
+          verificação automática exige sua escolha.' : 'Preferências locais, aplicadas imediatamente
+          à área de trabalho.' }}
+        </p>
+      </header>
+      @switch (item.id) { @case ('interface') {
+      <div class="setting-row">
+        <span id="settings-theme-label">Tema da interface</span>
+        <div role="group" aria-labelledby="settings-theme-label">
+          <button
+            type="button"
+            [attr.aria-pressed]="appearance.theme() === 'dark'"
+            (click)="appearance.setTheme('dark')"
+          >
+            Escuro
+          </button>
+          <button
+            type="button"
+            [attr.aria-pressed]="appearance.theme() === 'light'"
+            (click)="appearance.setTheme('light')"
+          >
+            Claro
+          </button>
+        </div>
+      </div>
+      <label class="setting-row"
+        ><span>Explorador de partes</span
+        ><input type="checkbox" [checked]="layout.explorer()" (change)="layout.toggle('explorer')"
+      /></label>
+      <label class="setting-row"
+        ><span>Inspetor de propriedades</span
+        ><input
+          type="checkbox"
+          [checked]="layout.inspector()"
+          (change)="layout.toggle('inspector')"
+      /></label>
+      <label class="setting-row"
+        ><span>Zoom da partitura <small>De 50 a 200%</small></span
+        ><input
+          #zoom
+          type="number"
+          min="50"
+          max="200"
+          step="10"
+          [value]="layout.zoom()"
+          (change)="layout.setZoom(zoom.valueAsNumber)"
+      /></label>
+      <p class="hint">
+        O movimento reduzido acompanha a preferência de acessibilidade do sistema operacional. Use
+        Tab para navegar pelos controles.
+      </p>
+      <button type="button" class="restore" (click)="reset('interface')">
+        Restaurar interface e layout
+      </button>
+      } @case ('score') {
+      <label class="setting-row"
+        ><span>Papel escuro na partitura</span
+        ><input type="checkbox" [checked]="layout.scoreDark()" (change)="layout.toggleScoreTheme()"
+      /></label>
+      <label class="setting-row"
+        ><span>Mostrar nomes das notas</span
+        ><input
+          type="checkbox"
+          [checked]="reading.readingEnabled()"
+          (change)="reading.readingEnabled.set(!reading.readingEnabled())"
+      /></label>
+      <label class="setting-row"
+        ><span>Nomes das notas</span
+        ><select
+          #language
+          [value]="reading.readingLanguage()"
+          (change)="reading.readingLanguage.set(language.value === 'portuguese' ? 'portuguese' : 'letters')"
+        >
+          <option value="letters">Letras · C, D, E</option>
+          <option value="portuguese">Português · Dó, Ré, Mi</option>
+        </select></label
+      >
+      <label class="setting-row"
+        ><span>Exibir oitavas</span
+        ><input
+          type="checkbox"
+          [checked]="reading.readingOctave()"
+          (change)="reading.readingOctave.set(!reading.readingOctave())"
+      /></label>
+      <label class="setting-row"
+        ><span>Exibir nomes em</span
+        ><select
+          #scope
+          [value]="reading.readingScope()"
+          (change)="reading.readingScope.set(scope.value === 'selection' ? 'selection' : 'all')"
+        >
+          <option value="all">Todas as notas</option>
+          <option value="selection">Seleção atual</option>
+        </select></label
+      >
+      <label class="setting-row"
+        ><span
+          >Acompanhar digitação de flauta
+          <small>Usa o guia disponível ao reproduzir a partitura.</small></span
+        ><input
+          type="checkbox"
+          [checked]="reading.followFingering()"
+          (change)="reading.followFingering.set(!reading.followFingering())"
+      /></label>
+      <p class="hint">
+        A assistência visual preserva o MusicXML. Instrumentos, BPM, volume, mute e solo pertencem
+        ao projeto e continuam disponíveis no editor e no transporte.
+      </p>
+      <button type="button" class="restore" (click)="reset('score')">
+        Restaurar leitura e papel
+      </button>
+      } @case ('audio') {
+      <app-audio-preparation
+        idPrefix="settings-audio"
+        [captureActive]="captureActive()"
+        [busy]="busy()"
+      />
+      } @case ('updates') {
+      <p>
+        Versão {{ version() || 'em consulta' }}. Consulte a disponibilidade do mecanismo de
+        atualização e controle as verificações automáticas.
+      </p>
+      <button type="button" (click)="manageUpdates.emit()">Gerenciar atualizações</button>
+      } }
+    </section>
+    } @empty {
+    <p role="status">
+      Nenhuma configuração encontrada para “{{ query() }}”. Tente tema, microfone ou leitura.
+    </p>
+    }
+  </div>
+</div>
+@if (restored()) {
+<p class="hint" role="status">{{ restored() }}</p>
+}
+<p class="save-state" role="status">
+  {{ preferences.saving() ? 'Guardando preferências…' : preferences.error() ? preferences.error() :
+  'Alterações aplicadas imediatamente. Interface e leitura são guardadas automaticamente.' }}
+</p>
+@if (preferences.error()) {
+<button type="button" (click)="preferences.retry()" [disabled]="preferences.saving()">
+  Tentar guardar preferências
+</button>
+}

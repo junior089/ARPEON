@@ -215,6 +215,7 @@
 <dialog
   #productDialog
   class="product-dialog"
+  [class.settings-dialog]="productPage() === 'settings'"
   aria-labelledby="product-dialog-title"
   (close)="tone.stop(); stopUpdateStatusPolling()"
 >
@@ -225,53 +226,16 @@
     </h2>
     <button type="button" (click)="productDialog.close()" aria-label="Fechar diálogo">×</button>
   </div>
-  @if (productPage() === 'settings') {
-  <section class="preference-section">
-    <h3>Aparência</h3>
-    <div class="preference-row">
-      <span>Interface</span>
-      <div role="group" aria-label="Tema da interface">
-        <button
-          type="button"
-          [attr.aria-pressed]="appearance.theme() === 'dark'"
-          (click)="appearance.setTheme('dark')"
-        >
-          Escuro</button
-        ><button
-          type="button"
-          [attr.aria-pressed]="appearance.theme() === 'light'"
-          (click)="appearance.setTheme('light')"
-        >
-          Claro
-        </button>
-      </div>
-    </div>
-    <div class="preference-row">
-      <span>Partitura</span
-      ><button type="button" [attr.aria-pressed]="layout.scoreDark()" (click)="editorTheme()">
-        {{ layout.scoreDark() ? 'Papel escuro' : 'Papel claro' }}
-      </button>
-    </div>
-  </section>
-  <section class="preference-section">
-    <h3>Áudio de estudo</h3>
-    <app-audio-preparation [captureActive]="captureActive()" [busy]="score.busy()" />
-  </section>
-  <section class="preference-section">
-    <h3>Área de trabalho</h3>
-    <button type="button" (click)="layout.reset()">Restaurar painéis e zoom</button>
-  </section>
-  <section class="preference-section">
-    <h3>Atualizações</h3>
-    <div class="preference-row">
-      <span>Versão {{ updateVersion() || 'Consultando…' }}</span>
-      <button type="button" (click)="openProduct('updates')">Gerenciar atualizações</button>
-    </div>
-  </section>
-  @if (preferences.error()) {
-  <p class="error" role="alert">{{ preferences.error() }}</p>
-  <button type="button" (click)="preferences.retry()">Tentar guardar novamente</button> } } @else if
-  (productPage() === 'updates') {
+  @if (productPage() === 'settings') { @defer (on immediate) {
+  <app-settings-panel
+    [captureActive]="captureActive()"
+    [busy]="score.busy()"
+    [version]="updateVersion()"
+    (manageUpdates)="openProduct('updates')"
+  />
+  } @placeholder {
+  <p role="status">Carregando preferências…</p>
+  } } @else if (productPage() === 'updates') {
   <dl class="update-details">
     <div>
       <dt>Versão instalada</dt>

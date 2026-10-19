@@ -16,6 +16,9 @@ Tokens em `frontend/src/styles/styles.scss`: fundo #0B0B0D, lateral #141416, sup
 - Status: documento e persistência; dados legais e versão em Ajuda.
 
 ## Estados e precisão
+
+A central de Preferências usa pesquisa textual, navegação por categorias e linhas compactas de controles. A pesquisa ignora maiúsculas e acentos, combina todos os termos e exibe as categorias correspondentes; selecionar uma categoria limpa a pesquisa. Interface e acessibilidade, Partituras e estudo, Áudio e dispositivos e Atualizações correspondem a capacidades existentes. Os controles compartilham estado com editor e ferramentas; as restaurações de interface/layout e leitura/papel atuam somente na categoria indicada. Até 700px, a navegação passa da coluna lateral para botões em linhas e os controles permitem quebra de linha. Tema, tokens, navegação por teclado e diálogo nativo seguem o restante do aplicativo. Categorias futuras só aparecem com operações funcionais.
+
 Progresso indeterminado quando não há medição. Toda prévia usa MusicXML produzido pelos mesmos exportadores do documento aceito. Anotações pertencem ao SVG de apresentação, nunca ao MusicXML exportado. A grafia vem da altura estruturada, incluindo enarmonia; som real usa o perfil instrumental. Sem coordenadas OMR, a comparação é independente por página, sem alinhamento automático alegado.
 
 ## Interação

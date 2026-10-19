@@ -4,7 +4,7 @@
     <label
       >Microfone
       <select
-        id="audio-input"
+        [id]="idPrefix() + '-input'"
         #device
         [value]="audio.selectedDevice()"
         (change)="audio.selectDevice(device.value)"
