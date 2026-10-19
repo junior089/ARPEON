@@ -17,6 +17,11 @@ renderer. In the initial milestones, the score and provenance stayed in memory. 
 desktop application can persist a named project with canonical MusicXML and that provenance;
 the importer itself remains independent of the project store.
 
+New direct MusicXML/XML/MXL/MSCZ imports now preserve exact original bytes in the
+profile's project, separately from canonical revisions. The schema-3 evidence and
+verified private download are defined in [ADR 0011](../adr/0011-initial-source-evidence.md).
+Legacy projects and draft/OMR/part-import flows do not gain reconstructed originals.
+
 The explicit subset is documented in [import capabilities](../product/import-capabilities.md).
 Unsupported music fails with a checked import error. There is no partially successful
 score that silently loses a voice, tie, transposition or repeat.

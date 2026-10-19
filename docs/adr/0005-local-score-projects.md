@@ -2,6 +2,11 @@
 
 Status: accepted for the first local persistence implementation.
 
+Evolution: [ADR 0010](0010-local-account-profile-sessions.md) scopes projects by
+study profile; [ADR 0011](0011-initial-source-evidence.md) adds schema 3 and retained
+originals for new direct score imports. The non-retention decision below records
+the initial implementation; microphone audio remains excluded.
+
 ## Decision
 
 The desktop application stores named score projects under

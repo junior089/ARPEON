@@ -1,7 +1,6 @@
 package org.arpeon.desktop;
 
 import com.google.gson.Gson;
-import com.google.gson.JsonParseException;
 import java.io.IOException;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
@@ -17,15 +16,14 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.UUID;
 
-/**
- * Versioned, local-only score project storage. Audio and imported source bytes are never stored.
- */
+/** Versioned local projects with optional verified originals, committed with the score revision. */
 final class ProjectStore {
   static final int MAX_PROJECTS = 500;
   private static final int MAX_MANIFEST_BYTES = 64 * 1024;
-  private static final int SCHEMA_VERSION = 2;
+  private static final int SCHEMA_VERSION = 3;
   private static final String SCORE_FILE = "score.musicxml";
   private static final String MANIFEST_FILE = "manifest.json";
+  private static final String ORIGINAL_FILE = "source.bin";
 
   @FunctionalInterface
   interface DurableWriter {
@@ -41,7 +39,33 @@ final class ProjectStore {
       List<String> importWarnings,
       ImportWorkspace.Source source,
       String xml,
-      RehearsalState rehearsal) {
+      RehearsalState rehearsal,
+      ProjectProvenance provenance,
+      OriginalScore original) {
+    Data(
+        String title,
+        String filename,
+        String sha256,
+        String parserVersion,
+        String sourceKind,
+        List<String> importWarnings,
+        ImportWorkspace.Source source,
+        String xml,
+        RehearsalState rehearsal) {
+      this(
+          title,
+          filename,
+          sha256,
+          parserVersion,
+          sourceKind,
+          importWarnings,
+          source,
+          xml,
+          rehearsal,
+          null,
+          null);
+    }
+
     Data(
         String title,
         String filename,
@@ -61,6 +85,8 @@ final class ProjectStore {
 
   record Project(Data data, String createdAt, String updatedAt) {}
 
+  record Details(ProjectProvenance provenance, String xmlSha256) {}
+
   private record Manifest(
       int schemaVersion,
       String id,
@@ -75,7 +101,8 @@ final class ProjectStore {
       String createdAt,
       String updatedAt,
       String name,
-      RehearsalState rehearsal) {}
+      RehearsalState rehearsal,
+      ProjectProvenance provenance) {}
 
   private final Path root;
   private final DurableWriter durableWriter;
@@ -155,6 +182,11 @@ final class ProjectStore {
       throw new IOException("Local project limit reached; remove projects before adding more");
 
     Manifest previous = Files.exists(target) ? readManifest(target, id) : null;
+    if (previous != null
+        && previous.provenance() != null
+        && !previous.provenance().equals(data.provenance()))
+      throw new IOException(
+          "A origem inicial é imutável. Salve a nova entrada como outro projeto.");
     String createdAt = previous == null ? java.time.Instant.now().toString() : previous.createdAt();
     String updatedAt = java.time.Instant.now().toString();
     byte[] xml = data.xml().getBytes(StandardCharsets.UTF_8);
@@ -173,13 +205,16 @@ final class ProjectStore {
             createdAt,
             updatedAt,
             name != null ? name : previous == null ? null : previous.name(),
-            data.rehearsal());
+            data.rehearsal(),
+            data.provenance());
 
     Path staging = Files.createTempDirectory(root, ".pending-");
     Path backup = root.resolve(".backup-" + id + "-" + UUID.randomUUID());
     boolean backedUp = false;
     try {
       durableWriter.write(staging.resolve(SCORE_FILE), xml);
+      if (data.original() != null)
+        data.original().write(staging.resolve(ORIGINAL_FILE), durableWriter);
       byte[] encodedManifest = json.toJson(manifest).getBytes(StandardCharsets.UTF_8);
       if (encodedManifest.length > MAX_MANIFEST_BYTES)
         throw new IOException("Project manifest exceeds the supported limit");
@@ -229,7 +264,9 @@ final class ProjectStore {
             manifest.importWarnings(),
             manifest.source(),
             xml,
-            manifest.rehearsal()),
+            manifest.rehearsal(),
+            manifest.provenance(),
+            readOriginal(directory, manifest)),
         manifest.createdAt(),
         manifest.updatedAt());
   }
@@ -240,6 +277,38 @@ final class ProjectStore {
     Path directory = root.resolve(id);
     readManifest(directory, id);
     deleteProjectDirectory(directory);
+  }
+
+  synchronized Details details(String id) throws IOException {
+    if (!isId(id)) throw new IllegalArgumentException("Invalid project ID");
+    if (Files.isDirectory(root) && !Files.isSymbolicLink(root)) recoverBackups();
+    Path directory = root.resolve(id);
+    var manifest = readManifest(directory, id);
+    verifyStoredScore(directory, manifest);
+    readOriginal(directory, manifest);
+    return new Details(manifest.provenance(), manifest.xmlSha256());
+  }
+
+  synchronized OriginalScore original(String id) throws IOException {
+    if (!isId(id)) throw new IllegalArgumentException("Invalid project ID");
+    if (Files.isDirectory(root) && !Files.isSymbolicLink(root)) recoverBackups();
+    Path directory = root.resolve(id);
+    return readOriginal(directory, readManifest(directory, id));
+  }
+
+  private static OriginalScore readOriginal(Path directory, Manifest manifest) throws IOException {
+    var provenance = manifest.provenance();
+    if (provenance == null || !provenance.sourceAsset().retained()) return null;
+    Path file = directory.resolve(ORIGINAL_FILE);
+    if (Files.isSymbolicLink(file)
+        || !Files.isRegularFile(file, java.nio.file.LinkOption.NOFOLLOW_LINKS)
+        || Files.size(file) != provenance.sourceAsset().byteSize())
+      throw new IOException("Original ausente ou inválido.");
+    var original = new OriginalScore(manifest.filename(), Files.readAllBytes(file));
+    if (!original.sha256().equals(manifest.sha256())
+        || !original.format().equals(provenance.sourceAsset().format()))
+      throw new IOException("A verificação de integridade do original falhou.");
+    return original;
   }
 
   private Manifest readManifest(Path directory, String expectedId) throws IOException {
@@ -283,6 +352,12 @@ final class ProjectStore {
               manifest.importWarnings(),
               manifest.source(),
               "<x/>"));
+      if (manifest.provenance() != null)
+        manifest.provenance().validate(manifest.filename(), manifest.sha256());
+      if ((manifest.provenance() == null || !manifest.provenance().sourceAsset().retained())
+          && Files.exists(
+              directory.resolve(ORIGINAL_FILE), java.nio.file.LinkOption.NOFOLLOW_LINKS))
+        throw new IOException("Original presente sem registro de proveniência correspondente.");
       try {
         java.time.Instant.parse(manifest.createdAt());
         java.time.Instant.parse(manifest.updatedAt());
@@ -290,7 +365,7 @@ final class ProjectStore {
         throw new IOException("Invalid project timestamps", invalidTimestamp);
       }
       return manifest;
-    } catch (JsonParseException | IllegalStateException | IllegalArgumentException failure) {
+    } catch (RuntimeException failure) {
       throw new IOException("Invalid project manifest", failure);
     }
   }
@@ -305,6 +380,7 @@ final class ProjectStore {
         try {
           Manifest manifest = readManifest(backup, id);
           verifyStoredScore(backup, manifest);
+          readOriginal(backup, manifest);
           move(backup, root.resolve(id));
         } catch (IOException invalidBackup) {
           System.getLogger(ProjectStore.class.getName())
@@ -366,6 +442,17 @@ final class ProjectStore {
             || data.source().notes().stream()
                 .anyMatch(note -> note == null || note.length() > 1000)))
       throw new IOException("Project source metadata is invalid");
+    if (data.provenance() != null) {
+      data.provenance().validate(data.filename(), data.sha256());
+      if (data.provenance().sourceAsset().retained() != (data.original() != null))
+        throw new IOException("O original não corresponde à proveniência.");
+    } else if (data.original() != null) throw new IOException("Original sem proveniência.");
+    if (data.original() != null
+        && (!data.original().filename().equals(data.filename())
+            || !data.original().sha256().equals(data.sha256())
+            || data.original().size() != data.provenance().sourceAsset().byteSize()
+            || !data.original().format().equals(data.provenance().sourceAsset().format())))
+      throw new IOException("O original não corresponde à proveniência.");
   }
 
   private static boolean safeCommonsUrl(String value) {

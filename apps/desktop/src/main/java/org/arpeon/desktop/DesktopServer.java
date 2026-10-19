@@ -387,7 +387,8 @@ public final class DesktopServer implements AutoCloseable {
         return;
       }
       if (profiles != null
-          && path.matches("/api/projects/[0-9a-f-]{36}(/(open|rename|duplicate))?")) {
+          && path.matches(
+              "/api/projects/[0-9a-f-]{36}(/(open|rename|duplicate|provenance|original))?")) {
         String id = path.substring("/api/projects/".length()).split("/", 2)[0];
         if (!projects.contains(id)) {
           sendJson(exchange, 404, Map.of("error", "Projeto não encontrado neste perfil."));
@@ -608,6 +609,34 @@ public final class DesktopServer implements AutoCloseable {
         sendJson(exchange, 200, workspace.prepareStudy(smallJson(exchange)));
       } else if (path.equals("/api/projects") && method.equals("GET")) {
         sendJson(exchange, 200, projects.list());
+      } else if (path.matches("/api/projects/[0-9a-f-]{36}/provenance") && method.equals("GET")) {
+        String id = path.substring("/api/projects/".length(), path.lastIndexOf('/'));
+        sendJson(exchange, 200, projects.details(id));
+      } else if (path.matches("/api/projects/[0-9a-f-]{36}/original") && method.equals("GET")) {
+        String id = path.substring("/api/projects/".length(), path.lastIndexOf('/'));
+        var original = projects.original(id);
+        if (original == null) {
+          sendJson(
+              exchange,
+              404,
+              Map.of(
+                  "error",
+                  "Este projeto não tem original preservado. O MusicXML editável continua"
+                      + " disponível."));
+        } else {
+          exchange.getResponseHeaders().set("Content-Type", "application/octet-stream");
+          exchange
+              .getResponseHeaders()
+              .set(
+                  "Content-Disposition",
+                  "attachment; filename*=UTF-8''"
+                      + java.net.URLEncoder.encode(original.filename(), StandardCharsets.UTF_8)
+                          .replace("+", "%20"));
+          exchange.sendResponseHeaders(200, original.size());
+          try (var output = exchange.getResponseBody()) {
+            output.write(original.copyBytes());
+          }
+        }
       } else if (path.equals("/api/projects") && method.equals("POST")) {
         JsonObject request = smallJson(exchange);
         if (request == null

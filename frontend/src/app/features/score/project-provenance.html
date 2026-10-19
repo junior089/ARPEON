@@ -1,0 +1,73 @@
+<section aria-label="Origem do projeto" class="provenance">
+  <h3>Origem inicial</h3>
+  @if (loading()) {
+  <p role="status">Verificando a origem salva…</p>
+  } @if (error()) {
+  <p class="error" role="alert">{{ error() }}</p>
+  <button type="button" (click)="reload()" [disabled]="downloading()">Tentar novamente</button> }
+  @if (provenance(); as p) {
+  <dl>
+    <dt>Obra declarada</dt>
+    <dd>{{ p.work.title || 'Sem título' }}</dd>
+    <dt>Compositor declarado</dt>
+    <dd>{{ p.work.composer || 'Não informado' }}</dd>
+    <dt>Edição</dt>
+    <dd>{{ p.edition?.title || 'Não identificada' }}</dd>
+    <dt>Arranjo da entrada</dt>
+    <dd>
+      @for (part of p.arrangement.parts; track part.id) {
+      <span class="part">{{ part.name || part.id }}</span> }
+    </dd>
+    <dt>Arquivo</dt>
+    <dd>{{ p.sourceAsset.filename }} · {{ p.sourceAsset.format }}</dd>
+    <dt>Original</dt>
+    <dd>
+      {{ p.sourceAsset.retained ? 'Preservado e verificado · ' + p.sourceAsset.byteSize + ' bytes' :
+      'Não preservado neste fluxo de importação' }}
+    </dd>
+  </dl>
+  @if (p.sourceAsset.retained) {
+  <button type="button" (click)="download()" [disabled]="downloading()">
+    {{ downloading() ? 'Verificando download…' : 'Baixar original' }}
+  </button>
+  }
+  <p class="hint">
+    A origem descreve a entrada inicial. Edições e partes acrescentadas pertencem ao projeto; não
+    modificam esse arquivo.
+  </p>
+  <p class="rights">
+    Direitos não avaliados. {{ p.rights.declaredLicense ? 'Licença declarada pela fonte: ' +
+    p.rights.declaredLicense + '. ' : '' }}Ter o arquivo não comprova permissão para publicar ou
+    redistribuir.
+  </p>
+  <details>
+    <summary>Identificadores e integridade</summary>
+    <dl>
+      <dt>Obra local</dt>
+      <dd class="identifier">{{ p.work.id }}</dd>
+      <dt>Arranjo de origem</dt>
+      <dd class="identifier">{{ p.arrangement.id }}</dd>
+      <dt>SHA-256 da entrada</dt>
+      <dd class="identifier">{{ p.sourceAsset.sha256 }}</dd>
+      <dt>SHA-256 da versão salva</dt>
+      <dd class="identifier">{{ details()?.xmlSha256 }}</dd>
+      @for (id of p.work.externalIdentifiers; track $index) {
+      <dt>{{ id.namespace }}</dt>
+      <dd class="identifier">{{ id.value }}</dd>
+      } @for (id of p.sourceAsset.externalIdentifiers; track $index) {
+      <dt>{{ id.namespace }}</dt>
+      <dd class="identifier">{{ id.value }}</dd>
+      }
+    </dl>
+    <p class="hint">
+      Identidades locais não vinculam obras apenas por título. Os hashes podem diferir após
+      normalização ou edição.
+    </p>
+  </details>
+  } @else if (details()) {
+  <p class="hint">
+    Projeto legado sem registro de origem preservada. O MusicXML editável continua disponível; não é
+    possível reconstruir os bytes originais a partir dele.
+  </p>
+  }
+</section>

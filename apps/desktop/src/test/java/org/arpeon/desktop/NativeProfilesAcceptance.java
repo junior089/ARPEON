@@ -79,6 +79,24 @@ public final class NativeProfilesAcceptance {
         await(window, "Nenhuma partitura aberta", 30);
         window.execute("document.querySelector('button[title=\"Biblioteca\"]').click();");
         await(window, "first-notes.musicxml", 20);
+        window.execute(
+            "document.querySelector('[aria-label=\"Gerenciar projeto First notes\"]').click();");
+        await(window, "Preservado e verificado", 20);
+        if (!window.document().get(5, TimeUnit.SECONDS).contains("Direitos não avaliados"))
+          throw new AssertionError("Source rights state was not shown");
+        var entries =
+            JsonParser.parseString(get(http, sessions.launchUri(), "/api/projects"))
+                .getAsJsonArray();
+        String projectId = entries.get(0).getAsJsonObject().get("id").getAsString();
+        var original =
+            http.send(
+                request(sessions.launchUri(), "/api/projects/" + projectId + "/original")
+                    .GET()
+                    .build(),
+                HttpResponse.BodyHandlers.ofByteArray());
+        if (original.statusCode() != 200
+            || !java.util.Arrays.equals(Files.readAllBytes(Path.of(args[3])), original.body()))
+          throw new AssertionError("Original bytes were not restored");
         if (JsonParser.parseString(get(http, sessions.launchUri(), "/api/projects"))
                 .getAsJsonArray()
                 .size()
@@ -89,7 +107,8 @@ public final class NativeProfilesAcceptance {
         Files.writeString(
             output.resolve("result.json"),
             "{\"success\":true,\"checks\":[\"native session rotation\",\"MusicXML import and"
-                + " save\",\"empty second library\",\"restored first library\"]}");
+                + " save\",\"empty second library\",\"restored first library\",\"provenance and"
+                + " original integrity\"]}");
       }
     }
     System.out.println("Native profile acceptance passed.");

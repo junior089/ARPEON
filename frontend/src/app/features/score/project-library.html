@@ -122,6 +122,7 @@
       <button type="button" class="destructive" (click)="remove()" [disabled]="session.busy()">
         Excluir projeto salvo
       </button>
+      <app-project-provenance [projectId]="selectedId()" />
     </div>
     }
   </ng-template>

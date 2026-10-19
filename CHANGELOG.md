@@ -7,6 +7,10 @@ continuam documentadas em `docs/releases/`.
 
 ### Added
 
+- Origem inicial tipada na biblioteca, com obra/arranjo, edição desconhecida
+  explícita, direitos não avaliados e hashes separados da revisão salva.
+- Originais verificáveis de novas importações MusicXML/XML/MXL/MSCZ, preservados
+  com o projeto e disponíveis para download autenticado no perfil proprietário.
 - Conta local e perfis de estudo com bibliotecas, históricos, preferências e
   bancos de sons independentes, limite configurável com padrão oito, seleção na
   abertura, instrumentos, edição, arquivamento e retomada por adesão explícita.
@@ -17,6 +21,8 @@ continuam documentadas em `docs/releases/`.
 
 ### Changed
 
+- Manifesto de projeto schema 3 com original transacional e origem inicial
+  imutável; schemas 1/2 permanecem legíveis sem reconstruir originais.
 - Estúdio e seletor de perfis carregados sob demanda após resolver a identidade local.
 - Leitura assistida compartilhada entre editor e central, preservando migração
   legada e preferências duráveis da instalação.

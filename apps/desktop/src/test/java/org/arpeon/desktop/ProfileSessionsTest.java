@@ -132,6 +132,30 @@ class ProfileSessionsTest {
       var saved = post("/api/projects", "{}");
       assertEquals(200, saved.statusCode(), saved.body());
       project = JsonParser.parseString(saved.body()).getAsJsonObject().get("id").getAsString();
+      var provenance = get("/api/projects/" + project + "/provenance");
+      assertEquals(200, provenance.statusCode());
+      assertTrue(
+          JsonParser.parseString(provenance.body())
+              .getAsJsonObject()
+              .getAsJsonObject("provenance")
+              .getAsJsonObject("sourceAsset")
+              .get("retained")
+              .getAsBoolean());
+      var original =
+          client.send(
+              request("/api/projects/" + project + "/original").GET().build(),
+              HttpResponse.BodyHandlers.ofByteArray());
+      assertEquals(200, original.statusCode());
+      assertArrayEquals(
+          Files.readAllBytes(
+              Path.of(System.getProperty("arpeon.fixtures"), "first-notes.musicxml")),
+          original.body());
+      assertEquals(
+          401,
+          send(HttpRequest.newBuilder(launch.resolve("/api/projects/" + project + "/original"))
+                  .GET()
+                  .build())
+              .statusCode());
       assertEquals(
           200,
           write("/api/preferences", PreferencesStoreTest.settings().toString(), "PUT")
@@ -168,6 +192,8 @@ class ProfileSessionsTest {
               .get("totalCount")
               .getAsInt());
       assertEquals(404, post("/api/projects/" + project + "/open", "{}").statusCode());
+      assertEquals(404, get("/api/projects/" + project + "/provenance").statusCode());
+      assertEquals(404, get("/api/projects/" + project + "/original").statusCode());
       assertEquals(
           404, post("/api/projects/" + project + "/rename", "{\"name\":\"Other\"}").statusCode());
       assertEquals(404, post("/api/projects", "{\"id\":\"" + project + "\"}").statusCode());
