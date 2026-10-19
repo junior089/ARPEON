@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<score-partwise version="4.0">
+  <work><work-title>Estudo em duas pautas</work-title></work>
+  <part-list><score-part id="P1"><part-name>Piano</part-name><score-instrument id="I1"><instrument-name>Piano</instrument-name></score-instrument><midi-instrument id="I1"><midi-program>1</midi-program></midi-instrument></score-part></part-list>
+  <part id="P1">
+    <measure number="1">
+      <attributes><divisions>480</divisions><time><beats>4</beats><beat-type>4</beat-type></time><staves>2</staves><clef number="1"><sign>G</sign><line>2</line></clef><clef number="2"><sign>F</sign><line>4</line></clef></attributes>
+      <sound tempo="120"/>
+      <note><pitch><step>C</step><octave>5</octave></pitch><duration>1920</duration><voice>1</voice><type>whole</type><staff>1</staff></note>
+      <note><chord/><pitch><step>E</step><octave>5</octave></pitch><duration>1920</duration><voice>1</voice><type>whole</type><staff>1</staff></note>
+      <backup><duration>1920</duration></backup>
+      <note><pitch><step>C</step><octave>3</octave></pitch><duration>960</duration><tie type="start"/><voice>2</voice><type>half</type><staff>2</staff><notations><tied type="start"/></notations></note>
+      <note><pitch><step>C</step><octave>3</octave></pitch><duration>960</duration><tie type="stop"/><voice>2</voice><type>half</type><staff>2</staff><notations><tied type="stop"/></notations></note>
+    </measure>
+    <measure number="2">
+      <attributes><clef number="2"><sign>G</sign><line>2</line></clef></attributes>
+      <note><pitch><step>G</step><octave>5</octave></pitch><duration>960</duration><voice>1</voice><type>half</type><staff>1</staff></note>
+      <note><chord/><pitch><step>E</step><octave>4</octave></pitch><duration>960</duration><voice>1</voice><type>half</type><staff>2</staff></note>
+      <note><rest/><duration>960</duration><voice>1</voice><type>half</type><staff>1</staff></note>
+      <backup><duration>1920</duration></backup>
+      <note><rest/><duration>960</duration><voice>2</voice><type>half</type><staff>2</staff></note>
+      <note><pitch><step>G</step><octave>4</octave></pitch><duration>960</duration><voice>2</voice><type>half</type><staff>2</staff></note>
+    </measure>
+  </part>
+</score-partwise>

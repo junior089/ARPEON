@@ -3,6 +3,9 @@
   min-width: 0;
 }
 .instrument-mixer {
+  max-height: min(40vh, 320px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   border-bottom: 1px solid var(--border);
   padding-bottom: var(--space-3);
   margin-bottom: var(--space-3);
@@ -34,6 +37,31 @@
   gap: var(--space-3);
   overflow-x: auto;
   padding-bottom: var(--space-2);
+}
+.saved-mixes {
+  margin-block: var(--space-2);
+}
+.saved-mixes summary {
+  cursor: pointer;
+  font-size: var(--text-small);
+}
+.mix-library {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--space-2);
+  padding-block: var(--space-2);
+}
+.mix-library label {
+  display: grid;
+  gap: var(--space-1);
+  font-size: var(--text-small);
+  min-width: 0;
+}
+.mix-library input,
+.mix-library select {
+  max-width: 220px;
+  width: 100%;
 }
 .mixer-channel {
   flex: 0 0 192px;

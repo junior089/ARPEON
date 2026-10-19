@@ -1,5 +1,5 @@
 import { Component, inject, signal } from '@angular/core';
-import { PartImportReview } from '../../core/score-contract';
+import { AlignmentPreview, PartImportReview } from '../../core/score-contract';
 import { ScoreSession } from './score-session';
 
 @Component({
@@ -14,6 +14,40 @@ export class PartImportPanel {
   readonly replaceId = signal('');
   readonly manual = signal(false);
   readonly anchors = signal([{ sourceMeasure: 0, compositionMeasure: 0 }]);
+  readonly alignment = signal<AlignmentPreview | null>(null);
+  readonly checking = signal(false);
+  readonly alignmentError = signal('');
+  private checkVersion = 0;
+
+  async checkAlignment(): Promise<void> {
+    const version = ++this.checkVersion;
+    this.alignment.set(null);
+    this.alignmentError.set('');
+    const review = this.review();
+    if (!review || !this.selected().length) {
+      this.checking.set(false);
+      return;
+    }
+    this.checking.set(true);
+    try {
+      const result = await this.session.previewAlignment({
+        token: review.token,
+        partIds: JSON.stringify(this.selected()),
+        anchors: JSON.stringify(
+          this.manual() ? this.anchors() : [{ sourceMeasure: 0, compositionMeasure: 0 }],
+        ),
+        manual: this.manual(),
+      });
+      if (version === this.checkVersion) this.alignment.set(result);
+    } catch (error: unknown) {
+      if (version === this.checkVersion)
+        this.alignmentError.set(
+          error instanceof Error ? error.message : 'Não foi possível verificar o alinhamento.',
+        );
+    } finally {
+      if (version === this.checkVersion) this.checking.set(false);
+    }
+  }
   private queue: File[] = [];
 
   async open(event: Event): Promise<void> {
@@ -36,6 +70,7 @@ export class PartImportPanel {
     this.replaceId.set('');
     this.anchors.set([{ sourceMeasure: 0, compositionMeasure: 0 }]);
     if (!result) this.queue = [];
+    await this.checkAlignment();
   }
 
   select(id: string, event: Event): void {
@@ -43,6 +78,7 @@ export class PartImportPanel {
     this.selected.update((ids) =>
       ids.includes(id) ? ids.filter((item) => item !== id) : [...ids, id],
     );
+    void this.checkAlignment();
   }
 
   setReplacement(event: Event): void {
@@ -50,7 +86,10 @@ export class PartImportPanel {
   }
 
   setManual(event: Event): void {
-    if (event.target instanceof HTMLInputElement) this.manual.set(event.target.checked);
+    if (event.target instanceof HTMLInputElement) {
+      this.manual.set(event.target.checked);
+      void this.checkAlignment();
+    }
   }
 
   setAnchor(index: number, field: 'sourceMeasure' | 'compositionMeasure', event: Event): void {
@@ -59,6 +98,7 @@ export class PartImportPanel {
     this.anchors.update((anchors) =>
       anchors.map((anchor, i) => (i === index ? { ...anchor, [field]: value } : anchor)),
     );
+    void this.checkAlignment();
   }
 
   addAnchor(): void {
@@ -71,16 +111,20 @@ export class PartImportPanel {
         compositionMeasure: previous.compositionMeasure + 1,
       },
     ]);
+    void this.checkAlignment();
   }
 
   removeAnchor(index: number): void {
     this.anchors.update((anchors) => anchors.filter((_, i) => i !== index));
+    void this.checkAlignment();
   }
 
   canConfirm(): boolean {
     const review = this.review();
     return (
       !!review &&
+      !this.checking() &&
+      this.alignment()?.valid === true &&
       this.selected().length > 0 &&
       (!this.replaceId() || this.selected().length === 1) &&
       (this.manual() ||
@@ -104,6 +148,8 @@ export class PartImportPanel {
   }
 
   async cancel(): Promise<void> {
+    ++this.checkVersion;
+    this.alignment.set(null);
     this.queue = [];
     const review = this.review();
     if (!review || (await this.session.edit('cancel-import', { token: review.token })))

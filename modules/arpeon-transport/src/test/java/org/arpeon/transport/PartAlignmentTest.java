@@ -15,6 +15,34 @@ import org.arpeon.domain.time.TimeSignature;
 import org.junit.jupiter.api.Test;
 
 class PartAlignmentTest {
+  @Test
+  void insertedSilenceCoversEveryStaffOfTheImportedInstrument() {
+    var original = score("S", 1, false).parts().getFirst();
+    var piano =
+        new Part(
+            original.id(),
+            "Piano",
+            original.measures(),
+            java.util.Map.of(),
+            2,
+            java.util.Map.of(2, java.util.Map.of(0, new org.arpeon.domain.score.Clef("F", 4, 0))));
+    var aligned =
+        PartAlignment.align(
+            score("C", 3, false),
+            new Score("Piano", List.of(piano)),
+            "P1",
+            "P2",
+            List.of(new PartAlignment.Anchor(0, 1)),
+            true);
+    assertEquals(2, aligned.staves());
+    assertEquals(
+        List.of(1, 2),
+        aligned.measures().getFirst().voices().stream()
+            .map(v -> v.events().getFirst().event().staff())
+            .toList());
+    assertEquals("F", aligned.additionalClefs().get(2).get(0).sign());
+  }
+
   private Score score(String label, int count, boolean pickup) {
     var measures = new java.util.ArrayList<Measure>();
     for (int i = 0; i < count; i++)

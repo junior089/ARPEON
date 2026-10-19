@@ -524,6 +524,20 @@
         >
       </div>
       <section class="reading-inspector" aria-label="Assistência musical">
+        <div class="selection-location" role="group" aria-label="Trecho pela seleção na partitura">
+          <button type="button" (click)="markStudyPoint('start')" [disabled]="session.busy()">
+            Marcar A aqui
+          </button>
+          <button
+            type="button"
+            (click)="markStudyPoint('end')"
+            [disabled]="session.busy() || selectedLoopStart() === null"
+          >
+            Marcar B e repetir
+          </button>
+          @if (selectedLoopStart() !== null) {
+          <small>A: posição {{ selectedLoopStart()! + 1 }} da execução</small> }
+        </div>
         <div class="selection-location">
           <label
             >Compasso

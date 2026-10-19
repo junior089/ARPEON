@@ -7,6 +7,7 @@ import { PartImportPanel } from './part-import-panel';
 describe('part import review', () => {
   it('requires review of incompatible sources and sends explicit anchors for late entries', async () => {
     const edit = vi.fn().mockResolvedValue(true);
+    const previewAlignment = vi.fn().mockResolvedValue({ valid: true, parts: [] });
     await TestBed.configureTestingModule({
       imports: [PartImportPanel],
       providers: [
@@ -16,6 +17,7 @@ describe('part import review', () => {
             score: signal({ parts: [{ id: 'P1', name: 'Flauta', measures: [{}, {}, {}] }] }),
             busy: signal(false),
             edit,
+            previewAlignment,
           },
         },
       ],
@@ -41,7 +43,12 @@ describe('part import review', () => {
     expect(panel.canConfirm()).toBe(false);
     panel.manual.set(true);
     panel.anchors.set([{ sourceMeasure: 0, compositionMeasure: 1 }]);
+    await panel.checkAlignment();
     expect(panel.canConfirm()).toBe(true);
+    previewAlignment.mockResolvedValueOnce({ valid: false, parts: [] });
+    await panel.checkAlignment();
+    expect(panel.canConfirm()).toBe(false);
+    await panel.checkAlignment();
     await panel.confirm();
     expect(edit).toHaveBeenCalledWith('commit-import', {
       token: 'source-token',

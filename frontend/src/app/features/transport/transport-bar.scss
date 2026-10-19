@@ -3,6 +3,34 @@
   flex: 1;
   min-width: 0;
 }
+.study-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--space-2);
+  width: 100%;
+}
+.study-tools label {
+  display: grid;
+  gap: var(--space-1);
+  font-size: var(--text-small);
+}
+.study-tools input {
+  width: 160px;
+  max-width: 100%;
+}
+.study-marker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+.tempo-practice {
+  width: 100%;
+}
+.tempo-practice summary {
+  cursor: pointer;
+  margin-bottom: var(--space-2);
+}
 .transport {
   display: flex;
   align-items: center;
@@ -130,6 +158,11 @@
   justify-content: space-between;
   gap: var(--space-2);
   font-size: var(--text-small);
+}
+.transport-settings {
+  max-height: min(38vh, 340px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .panel-heading span,
 .panel-hint {

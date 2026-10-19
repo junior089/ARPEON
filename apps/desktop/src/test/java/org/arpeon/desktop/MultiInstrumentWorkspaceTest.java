@@ -60,6 +60,63 @@ class MultiInstrumentWorkspaceTest {
   }
 
   @Test
+  void olderVersionTwoSettingsDefaultNewLibrariesAndSoundBankSafely() throws Exception {
+    var store = new ProjectStore(directory);
+    try (var workspace = new ScoreWorkspace()) {
+      workspace.open(xml(1, "flute"), "old.musicxml");
+      var saved = store.save(null, workspace.projectData());
+      Path path = directory.resolve(saved.id()).resolve("manifest.json");
+      var manifest = json(Files.readString(path));
+      var settings = manifest.getAsJsonObject("rehearsal").getAsJsonObject("playback");
+      for (String field : List.of("mixPresets", "markers", "tempoPractice", "soundBankId"))
+        settings.remove(field);
+      Files.writeString(path, manifest.toString());
+      var restored = workspace.openProject(store.load(saved.id()).data()).transport();
+      assertTrue(restored.mixPresets().isEmpty());
+      assertTrue(restored.markers().isEmpty());
+      assertFalse(restored.tempoPractice().enabled());
+      assertEquals("system", restored.soundBankId());
+    }
+  }
+
+  @Test
+  void previewsAlignmentWithoutCommittingAndPersistsNamedMixesAndStudyRanges() throws Exception {
+    try (var workspace = new ScoreWorkspace()) {
+      workspace.open(xml(3, "flute"), "flute.musicxml");
+      var review = workspace.stageParts(xml(2, "violin"), "late.musicxml", false);
+      var request = selection(review, "", false, 0);
+      request.remove("replaceId");
+      assertFalse(workspace.previewPartImport(request).valid());
+      request.addProperty("manual", true);
+      request.addProperty("anchors", "[{\"sourceMeasure\":0,\"compositionMeasure\":1}]");
+      var preview = workspace.previewPartImport(request);
+      assertTrue(preview.valid());
+      assertEquals(2, preview.parts().getFirst().rows().getFirst().targetPosition());
+      assertEquals("4/4", preview.parts().getFirst().rows().getFirst().targetMeter());
+      assertEquals(1, workspace.snapshot().score().parts().size());
+      workspace.command("volume", json("{\"id\":\"P1\",\"value\":0.3}"));
+      workspace.command("save-mix", json("{\"id\":\"\",\"name\":\"Cordas\"}"));
+      workspace.command(
+          "save-marker",
+          json("{\"name\":\"Entrada\",\"startMeasureIndex\":1,\"endMeasureIndex\":2}"));
+      workspace.command(
+          "loop", json("{\"startMeasureIndex\":1,\"endMeasureIndex\":2,\"enabled\":true}"));
+      workspace.command(
+          "tempo-practice",
+          json("{\"enabled\":true,\"stepBpm\":5,\"targetBpm\":180,\"loopsPerStep\":2}"));
+      var store = new ProjectStore(directory);
+      var saved = store.save(null, workspace.projectData());
+      try (var restored = new ScoreWorkspace()) {
+        restored.openProject(store.load(saved.id()).data());
+        assertEquals("Cordas", restored.transport().mixPresets().getFirst().name());
+        assertEquals(.3, restored.transport().parts().getFirst().volume());
+        assertEquals("Entrada", restored.transport().markers().getFirst().name());
+        assertTrue(restored.transport().tempoPractice().enabled());
+      }
+    }
+  }
+
+  @Test
   void importsSeparatePartsKeepsVisualSelectionIndependentAndPersistsMixer() throws Exception {
     try (var workspace = new ScoreWorkspace()) {
       workspace.open(xml(3, "flute"), "flute.musicxml");

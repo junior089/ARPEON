@@ -119,6 +119,35 @@ export class ScoreWorkspace implements AfterViewInit, OnDestroy {
   readonly requestedFile = output<File>();
   readonly fileAccept = SCORE_FILE_ACCEPT;
   readonly session = inject(ScoreSession);
+  readonly selectedLoopStart = signal<number | null>(null);
+
+  async markStudyPoint(point: 'start' | 'end'): Promise<void> {
+    const state = this.session.transport();
+    const measures = this.session.score()?.measures;
+    if (!state || !measures || this.session.busy()) return;
+    const occurrence = performedMeasureForWritten(
+      measures,
+      this.measureIndex(),
+      state.measureIndex,
+    );
+    if (!occurrence) return;
+    if (point === 'start') {
+      this.selectedLoopStart.set(occurrence.index);
+      return;
+    }
+    const start = this.selectedLoopStart();
+    if (start === null || occurrence.index < start) {
+      this.session.error.set(
+        'Selecione A primeiro e depois um compasso na mesma posição ou após A.',
+      );
+      return;
+    }
+    await this.session.action('loop', {
+      startMeasureIndex: start,
+      endMeasureIndex: occurrence.index,
+      enabled: true,
+    });
+  }
   readonly layout = inject(WorkspaceLayout);
   @ViewChild('studyPanel') private studyPanel?: ElementRef<HTMLDetailsElement>;
   private resizeStart: { x: number; width: number } | null = null;
@@ -297,6 +326,15 @@ export class ScoreWorkspace implements AfterViewInit, OnDestroy {
   }
 
   constructor() {
+    let studyDocument = '';
+    effect(() => {
+      const score = this.session.score();
+      const key = score ? `${score.sha256}:${score.filename}:${score.revision}` : '';
+      if (key !== studyDocument) {
+        studyDocument = key;
+        this.selectedLoopStart.set(null);
+      }
+    });
     effect(() => {
       const xml = this.session.xml();
       const active = this.session.transport()?.activePartId ?? '';

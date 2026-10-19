@@ -18,6 +18,63 @@ export class TransportBar {
   readonly settingsOpen = signal(false);
   readonly tempoOpen = signal(false);
   readonly loopOpen = signal(false);
+  togglePanel(panel: 'mixer' | 'tempo' | 'settings'): void {
+    const next = !(panel === 'mixer'
+      ? this.mixerOpen()
+      : panel === 'tempo'
+        ? this.tempoOpen()
+        : this.settingsOpen());
+    this.mixerOpen.set(panel === 'mixer' && next);
+    this.tempoOpen.set(panel === 'tempo' && next);
+    this.settingsOpen.set(panel === 'settings' && next);
+  }
+  readonly markerName = signal('');
+  readonly tempoStep = signal(5);
+  readonly tempoTarget = signal(180);
+  readonly tempoLoops = signal(2);
+
+  setStudyValue(event: Event, field: 'name' | 'step' | 'target' | 'loops'): void {
+    if (!(event.target instanceof HTMLInputElement)) return;
+    if (field === 'name') this.markerName.set(event.target.value);
+    else
+      (field === 'step'
+        ? this.tempoStep
+        : field === 'target'
+          ? this.tempoTarget
+          : this.tempoLoops
+      ).set(event.target.valueAsNumber);
+  }
+
+  async saveMarker(): Promise<void> {
+    await this.session.action('save-marker', {
+      name: this.markerName().trim(),
+      startMeasureIndex: this.loopStart(),
+      endMeasureIndex: this.loopEnd(),
+    });
+    if (!this.session.error()) this.markerName.set('');
+  }
+
+  async trainTempo(enabled: boolean): Promise<void> {
+    await this.session.action('tempo-practice', {
+      enabled,
+      stepBpm: this.tempoStep(),
+      targetBpm: this.tempoTarget(),
+      loopsPerStep: this.tempoLoops(),
+    });
+  }
+
+  readonly validTraining = computed(
+    () =>
+      Number.isInteger(this.tempoStep()) &&
+      this.tempoStep() >= 1 &&
+      this.tempoStep() <= 20 &&
+      Number.isInteger(this.tempoLoops()) &&
+      this.tempoLoops() >= 1 &&
+      this.tempoLoops() <= 20 &&
+      Number.isFinite(this.tempoTarget()) &&
+      this.tempoTarget() > (this.session.transport()?.startingBpm ?? 300) &&
+      this.tempoTarget() <= 300,
+  );
   readonly draftLoopStart = signal<number | null>(null);
   readonly draftLoopEnd = signal<number | null>(null);
   readonly loopStart = computed(
@@ -40,6 +97,29 @@ export class TransportBar {
   private documentKey = '';
 
   constructor() {
+    let loopKey = '';
+    effect(() => {
+      const loop = this.session.transport()?.loop;
+      const key = loop ? `${loop.startMeasureIndex}:${loop.endMeasureIndex}` : '';
+      if (key !== loopKey) {
+        loopKey = key;
+        this.draftLoopStart.set(null);
+        this.draftLoopEnd.set(null);
+      }
+    });
+    let trainingKey = '';
+    effect(() => {
+      const practice = this.session.transport()?.tempoPractice;
+      const key = practice
+        ? `${practice.stepBpm}:${practice.targetBpm}:${practice.loopsPerStep}`
+        : '';
+      if (practice && key !== trainingKey) {
+        trainingKey = key;
+        this.tempoStep.set(practice.stepBpm);
+        this.tempoTarget.set(practice.targetBpm);
+        this.tempoLoops.set(practice.loopsPerStep);
+      }
+    });
     effect(() => {
       const key = this.session.score()?.sha256 ?? '';
       if (key === this.documentKey) return;
@@ -125,6 +205,7 @@ export class TransportBar {
 
   @HostListener('keydown.escape')
   closePanels(): void {
+    this.mixerOpen.set(false);
     this.tempoOpen.set(false);
     this.settingsOpen.set(false);
   }

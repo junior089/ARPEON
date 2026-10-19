@@ -2,6 +2,10 @@ import { computed, inject, Injectable, OnDestroy, signal } from '@angular/core';
 import { LOCAL_FETCH, SESSION_TOKEN } from '../../core/local-session';
 import {
   isMeasureEventsPage,
+  isAlignmentPreview,
+  AlignmentPreview,
+  SoundBankInfo,
+  isSoundBankList,
   isPartImportReview,
   PartImportReview,
   RehearsalView,
@@ -101,6 +105,125 @@ export class ScoreSession implements OnDestroy {
   private openController: AbortController | undefined;
   private generation = 0;
   private disposed = false;
+  readonly soundBanks = signal<SoundBankInfo[]>([]);
+
+  async refreshSoundBanks(): Promise<void> {
+    try {
+      const result = await this.request('/api/soundbanks');
+      if (!isSoundBankList(result)) throw new Error('Lista de bancos de sons inválida.');
+      this.soundBanks.set(result);
+    } catch (failure: unknown) {
+      this.showError(failure);
+    }
+  }
+
+  async importSoundBank(file: File): Promise<void> {
+    if (this.busy() || this.mixerUpdating()) return;
+    if (!/\.(sf2|dls)$/i.test(file.name) || file.size > 128 * 1024 * 1024) {
+      this.error.set('Escolha um banco SF2 ou DLS de até 128 MiB.');
+      return;
+    }
+    this.busy.set(true);
+    this.error.set('');
+    const generation = ++this.generation;
+    clearTimeout(this.timer);
+    try {
+      const result = await this.request('/api/soundbanks', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          'X-Arpeon-Filename': encodeURIComponent(file.name),
+        },
+        body: file,
+      });
+      if (!isTransport(result)) throw new Error('Resposta do banco de sons inválida.');
+      if (this.disposed) return;
+      this.transport.set(result);
+      this.preferencesDirty.set(true);
+      await this.refreshSoundBanks();
+    } catch (failure: unknown) {
+      this.showError(failure);
+    } finally {
+      this.busy.set(false);
+      this.scheduleProjectSave();
+      if (
+        !this.disposed &&
+        generation === this.generation &&
+        this.transport()?.status === 'PLAYING'
+      )
+        this.schedulePoll(generation);
+    }
+  }
+
+  async deleteSoundBank(id: string): Promise<void> {
+    if (this.busy()) return;
+    this.busy.set(true);
+    this.error.set('');
+    try {
+      const result = await this.request('/api/soundbanks/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+      if (!isSoundBankList(result)) throw new Error('Lista de bancos de sons inválida.');
+      this.soundBanks.set(result);
+    } catch (failure: unknown) {
+      this.showError(failure);
+    } finally {
+      this.busy.set(false);
+    }
+  }
+  readonly mixerUpdating = signal(false);
+  readonly mixerDraft = signal<Record<string, number>>({});
+  private readonly mixerQueue = new Map<
+    string,
+    { name: 'volume' | 'pan' | 'master'; value: number; id?: string }
+  >();
+  private mixerTimer: ReturnType<typeof setTimeout> | undefined;
+
+  /** Coalesce pointer/keyboard input while preserving the final value of every control. */
+  queueLevel(name: 'volume' | 'pan' | 'master', value: number, id?: string): void {
+    if (!this.score() || this.disposed || !Number.isFinite(value)) return;
+    const key = `${name}:${id ?? ''}`;
+    this.mixerQueue.set(key, { name, value, id });
+    this.mixerDraft.update((draft) => ({ ...draft, [key]: value }));
+    if (!this.mixerUpdating()) {
+      this.mixerUpdating.set(true);
+      const score = this.score();
+      this.mixerTimer = setTimeout(() => void this.flushMixer(score), 40);
+    }
+  }
+
+  private async flushMixer(score: ScoreView | null): Promise<void> {
+    if (this.disposed || this.score() !== score) {
+      this.mixerQueue.clear();
+      this.mixerDraft.set({});
+      this.mixerUpdating.set(false);
+      return;
+    }
+    if (this.busy()) {
+      this.mixerTimer = setTimeout(() => void this.flushMixer(score), 40);
+      return;
+    }
+    const entry = this.mixerQueue.entries().next().value;
+    if (!entry) {
+      this.mixerUpdating.set(false);
+      return;
+    }
+    const [key, command] = entry;
+    this.mixerQueue.delete(key);
+    await this.action(
+      command.name,
+      command.id ? { id: command.id, value: command.value } : { value: command.value },
+    );
+    if (!this.mixerQueue.has(key))
+      this.mixerDraft.update((draft) => {
+        const next = { ...draft };
+        delete next[key];
+        return next;
+      });
+    this.mixerTimer = setTimeout(() => void this.flushMixer(score), 40);
+  }
   private readonly loadedMeasureEvents = new Set<string>();
   private readonly measureEventRequests = new Map<string, Promise<boolean>>();
 
@@ -327,6 +450,16 @@ export class ScoreSession implements OnDestroy {
       this.busy.set(false);
       this.scheduleProjectSave();
     }
+  }
+
+  async previewAlignment(params: Record<string, string | boolean>): Promise<AlignmentPreview> {
+    const result = await this.request('/api/score/parts/preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    });
+    if (!isAlignmentPreview(result)) throw new Error('Resposta do alinhamento inválida.');
+    return result;
   }
 
   async edit(
@@ -706,6 +839,15 @@ export class ScoreSession implements OnDestroy {
       const result = await this.request('/api/transport');
       if (this.disposed || generation !== this.generation) return;
       if (!isTransport(result)) throw new Error('Posição de reprodução inválida.');
+      const previous = this.transport();
+      if (
+        previous &&
+        (previous.startingBpm !== result.startingBpm ||
+          previous.tempoPractice?.enabled !== result.tempoPractice?.enabled)
+      ) {
+        this.preferencesDirty.set(true);
+        this.scheduleProjectSave();
+      }
       this.transport.set(result);
       if (result.status === 'PLAYING') this.schedulePoll(generation);
     } catch (failure: unknown) {
@@ -778,6 +920,8 @@ export class ScoreSession implements OnDestroy {
 
   ngOnDestroy(): void {
     this.disposed = true;
+    clearTimeout(this.mixerTimer);
+    this.mixerQueue.clear();
     this.openController?.abort();
     ++this.generation;
     clearTimeout(this.timer);

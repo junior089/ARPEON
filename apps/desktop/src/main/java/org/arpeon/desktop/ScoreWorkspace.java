@@ -136,6 +136,132 @@ final class ScoreWorkspace implements AutoCloseable {
 
   private record PartImport(String token, int revision, MusicXmlImporter.ImportedScore source) {}
 
+  record AlignmentRow(
+      int sourcePosition,
+      int targetPosition,
+      String sourceNumber,
+      String targetNumber,
+      String sourceMeter,
+      String targetMeter,
+      String sourceDuration,
+      String targetDuration,
+      double sourceBpm,
+      double targetBpm,
+      boolean pickup) {}
+
+  record AlignmentPart(
+      String id, String name, String problem, int totalMeasures, List<AlignmentRow> rows) {}
+
+  record AlignmentPreview(boolean valid, List<AlignmentPart> parts) {}
+
+  synchronized AlignmentPreview previewPartImport(JsonObject request) {
+    keys(request, "token", "partIds", "anchors", "manual");
+    if (partImport == null
+        || partImport.revision() != document.revision()
+        || !partImport.token().equals(string(request, "token")))
+      throw new IllegalArgumentException("A composição mudou. Importe o arquivo novamente.");
+    var selected =
+        com.google.gson.JsonParser.parseString(string(request, "partIds")).getAsJsonArray();
+    if (selected.isEmpty() || selected.size() > 15)
+      throw new IllegalArgumentException("Selecione uma parte.");
+    var anchors = importAnchors(request);
+    var sourceScore = partImport.source().score();
+    var composition = document.current();
+    var results = new ArrayList<AlignmentPart>();
+    boolean manual = request.get("manual").getAsBoolean();
+    double[] targetTempos = writtenTempos(composition);
+    for (var value : selected) {
+      String id = value.getAsString();
+      var part =
+          sourceScore.parts().stream().filter(p -> p.id().equals(id)).findFirst().orElseThrow();
+      String problem = "";
+      try {
+        if (!java.util.Objects.equals(document.state().keyId(), partImport.source().keyId()))
+          throw new IllegalArgumentException(
+              "Tonalidades diferentes. Adapte a tonalidade antes de integrar a parte.");
+        org.arpeon.transport.PartAlignment.align(
+            composition, sourceScore, id, "preview", anchors, manual);
+      } catch (IllegalArgumentException | ArithmeticException failure) {
+        problem = failure.getMessage();
+      }
+      var rows = new ArrayList<AlignmentRow>();
+      int anchorIndex = 0;
+      for (int i = 0; i < Math.min(part.measures().size(), 128); i++) {
+        while (anchorIndex + 1 < anchors.size()
+            && anchors.get(anchorIndex + 1).sourceMeasure() <= i) anchorIndex++;
+        var anchor = anchors.get(anchorIndex);
+        long target = (long) anchor.compositionMeasure() + i - anchor.sourceMeasure();
+        var from = part.measures().get(i);
+        var to =
+            target >= 0 && target < composition.parts().getFirst().measures().size()
+                ? composition.parts().getFirst().measures().get((int) target)
+                : null;
+        rows.add(
+            new AlignmentRow(
+                i + 1,
+                target >= 0 && target < Integer.MAX_VALUE ? (int) target + 1 : 0,
+                from.number(),
+                to == null ? "Fora da composição" : to.number(),
+                meterLabel(from),
+                to == null ? "—" : meterLabel(to),
+                measureDuration(from),
+                to == null ? "—" : measureDuration(to),
+                from.tempo().map(t -> t.quarterNotesPerMinute()).orElse(0.0),
+                to == null ? 0 : targetTempos[(int) target],
+                from.pickup()));
+      }
+      results.add(
+          new AlignmentPart(id, part.name(), problem, part.measures().size(), List.copyOf(rows)));
+    }
+    return new AlignmentPreview(
+        results.stream().allMatch(p -> p.problem().isEmpty()), List.copyOf(results));
+  }
+
+  private static String meterLabel(org.arpeon.domain.score.Measure measure) {
+    return measure.timeSignature().beats() + "/" + measure.timeSignature().beatUnit();
+  }
+
+  private static String measureDuration(org.arpeon.domain.score.Measure measure) {
+    if (!measure.pickup())
+      return measure.timeSignature().measureDuration().numerator()
+          + "/"
+          + measure.timeSignature().measureDuration().denominator();
+    var end =
+        measure.voices().stream()
+            .map(org.arpeon.domain.score.Voice::end)
+            .max(org.arpeon.domain.time.ScoreOffset::compareTo)
+            .orElseThrow();
+    return end.numerator() + "/" + end.denominator();
+  }
+
+  private static double[] writtenTempos(Score score) {
+    double[] result = new double[score.parts().getFirst().measures().size()];
+    double bpm = 120;
+    for (int i = 0; i < result.length; i++) {
+      for (var part : score.parts())
+        if (part.measures().get(i).tempo().isPresent())
+          bpm = part.measures().get(i).tempo().orElseThrow().quarterNotesPerMinute();
+      result[i] = bpm;
+    }
+    return result;
+  }
+
+  private static List<org.arpeon.transport.PartAlignment.Anchor> importAnchors(JsonObject request) {
+    var elements =
+        com.google.gson.JsonParser.parseString(string(request, "anchors")).getAsJsonArray();
+    if (elements.isEmpty() || elements.size() > 64)
+      throw new IllegalArgumentException("Defina de 1 a 64 correspondências.");
+    var anchors = new ArrayList<org.arpeon.transport.PartAlignment.Anchor>();
+    for (var element : elements) {
+      var anchor = element.getAsJsonObject();
+      keys(anchor, "sourceMeasure", "compositionMeasure");
+      anchors.add(
+          new org.arpeon.transport.PartAlignment.Anchor(
+              integer(anchor, "sourceMeasure"), integer(anchor, "compositionMeasure")));
+    }
+    return List.copyOf(anchors);
+  }
+
   record AnalysisSource(
       String title,
       String filename,
@@ -168,6 +294,41 @@ final class ScoreWorkspace implements AutoCloseable {
   private final Map<String, RehearsalState.PartOrigin> partOrigins = new LinkedHashMap<>();
   private PartImport partImport;
   private int preferenceRevision;
+  private final SoundBankStore soundBanks =
+      new SoundBankStore(UserDirectories.data().resolve("soundbanks"));
+
+  synchronized List<SoundBankStore.Info> soundBanks() throws IOException {
+    return soundBanks.list();
+  }
+
+  synchronized MidiScorePlayer.State importSoundBank(byte[] bytes, String filename)
+      throws IOException {
+    if (player == null)
+      throw new IllegalStateException("Abra uma composição antes de escolher o banco.");
+    var info = soundBanks.importBank(bytes, filename);
+    configureSoundBank(player, info.id());
+    preferenceRevision++;
+    return player.snapshot();
+  }
+
+  synchronized void deleteSoundBank(String id) throws IOException {
+    if (player != null && player.settings().soundBankId().equals(id))
+      throw new IllegalArgumentException("Escolha outro banco antes de remover o banco em uso.");
+    soundBanks.delete(id);
+  }
+
+  private void configureSoundBank(MidiScorePlayer target, String id) {
+    if (id.equals("system")) {
+      target.setSoundBank(null, id, "Banco do sistema", "");
+      return;
+    }
+    try {
+      var loaded = soundBanks.load(id);
+      target.setSoundBank(loaded.bank(), id, loaded.info().name(), "");
+    } catch (IOException failure) {
+      target.setSoundBank(null, id, "Banco indisponível", failure.getMessage());
+    }
+  }
 
   synchronized View open(InputStream input, String filename) throws IOException {
     var next = importer.read(input, filename);
@@ -555,9 +716,7 @@ final class ScoreWorkspace implements AutoCloseable {
           || name.length() > 120
           || name.codePoints().anyMatch(Character::isISOControl))
         throw new IllegalArgumentException("Use um nome de 1 a 120 caracteres.");
-      parts.set(
-          parts.indexOf(selected),
-          new org.arpeon.domain.score.Part(id, name, selected.measures(), selected.clefs()));
+      parts.set(parts.indexOf(selected), selected.withIdentity(id, name));
     } else if (action.equals("move-part")) {
       keys(request, "partId", "index");
       int index = integer(request, "index");
@@ -604,7 +763,7 @@ final class ScoreWorkspace implements AutoCloseable {
 
   synchronized int revision() {
     if (document == null) throw new IllegalStateException("No score is open");
-    return document.revision() + preferenceRevision;
+    return document.revision() + preferenceRevision + player.automaticPreferenceRevision();
   }
 
   synchronized View openProject(ProjectStore.Data data) throws IOException {
@@ -635,6 +794,7 @@ final class ScoreWorkspace implements AutoCloseable {
     openImported(restored, data.sourceKind(), data.importWarnings(), data.source());
     if (data.rehearsal() != null) {
       player.restore(data.rehearsal().playback());
+      configureSoundBank(player, player.settings().soundBankId());
       viewMode = data.rehearsal().viewMode();
       hiddenParts.addAll(data.rehearsal().hiddenParts());
       partOrigins.putAll(data.rehearsal().origins());
@@ -1132,6 +1292,7 @@ final class ScoreWorkspace implements AutoCloseable {
     MidiScorePlayer next =
         new MidiScorePlayer(nextTimeline, profiles(document.state().instruments()));
     next.restore(player.settings());
+    player.copySoundBankTo(next);
     if (previous.loop() != null
         && previous.loop().endMeasureIndex() < nextTimeline.measures().size()) {
       next.setLoop(previous.loop().startMeasureIndex(), previous.loop().endMeasureIndex(), true);
@@ -1139,6 +1300,7 @@ final class ScoreWorkspace implements AutoCloseable {
       next.seek(Math.max(range.startTick(), Math.min(previous.tick(), range.endTick() - 1)));
     } else next.seek(Math.min(previous.tick(), nextTimeline.totalTicks()));
     player.close();
+    preferenceRevision += player.automaticPreferenceRevision();
     player = next;
     timeline = nextTimeline;
   }
@@ -1235,6 +1397,16 @@ final class ScoreWorkspace implements AutoCloseable {
   }
 
   synchronized View command(String action, JsonObject request) {
+    executeCommand(action, request);
+    return snapshot();
+  }
+
+  synchronized MidiScorePlayer.State commandTransport(String action, JsonObject request) {
+    executeCommand(action, request);
+    return player.snapshot();
+  }
+
+  private void executeCommand(String action, JsonObject request) {
     if (player == null) throw new IllegalStateException("No score is open");
     switch (action) {
       case "play" -> {
@@ -1276,6 +1448,32 @@ final class ScoreWorkspace implements AutoCloseable {
         exactTransportKeys(request, "id");
         player.selectPart(request.get("id").getAsString());
       }
+      case "tempo-practice" -> {
+        keys(request, "enabled", "stepBpm", "targetBpm", "loopsPerStep");
+        if (!request.get("enabled").getAsJsonPrimitive().isBoolean())
+          throw new IllegalArgumentException("Expected enabled boolean");
+        player.setTempoPractice(
+            new MidiScorePlayer.TempoPractice(
+                request.get("enabled").getAsBoolean(),
+                integer(request, "stepBpm"),
+                request.get("targetBpm").getAsDouble(),
+                integer(request, "loopsPerStep")));
+      }
+      case "save-marker" -> {
+        keys(request, "name", "startMeasureIndex", "endMeasureIndex");
+        player.saveMarker(
+            string(request, "name"),
+            integer(request, "startMeasureIndex"),
+            integer(request, "endMeasureIndex"));
+      }
+      case "study-marker" -> {
+        keys(request, "id");
+        player.studyMarker(string(request, "id"));
+      }
+      case "delete-marker" -> {
+        keys(request, "id");
+        player.deleteMarker(string(request, "id"));
+      }
       case "mute" -> {
         exactTransportKeys(request, "id", "enabled");
         player.setMute(request.get("id").getAsString(), request.get("enabled").getAsBoolean());
@@ -1296,9 +1494,25 @@ final class ScoreWorkspace implements AutoCloseable {
         keys(request, "preset");
         player.preset(string(request, "preset"));
       }
+      case "save-mix" -> {
+        keys(request, "id", "name");
+        player.saveMixPreset(string(request, "id"), string(request, "name"));
+      }
+      case "apply-mix" -> {
+        keys(request, "id");
+        player.applyMixPreset(string(request, "id"));
+      }
+      case "delete-mix" -> {
+        keys(request, "id");
+        player.deleteMixPreset(string(request, "id"));
+      }
       case "retry-sounds" -> {
         keys(request);
-        player.retrySounds();
+        configureSoundBank(player, player.settings().soundBankId());
+      }
+      case "sound-bank" -> {
+        keys(request, "id");
+        configureSoundBank(player, string(request, "id"));
       }
       case "solo" -> {
         exactTransportKeys(request, "id", "enabled");
@@ -1308,7 +1522,6 @@ final class ScoreWorkspace implements AutoCloseable {
     }
     if (!Set.of("play", "pause", "stop", "seek", "retry-sounds").contains(action))
       preferenceRevision++;
-    return snapshot();
   }
 
   synchronized void stopIfPlaying() {

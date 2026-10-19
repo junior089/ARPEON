@@ -117,12 +117,20 @@ public final class PartAlignment {
             target.pickup()
                 ? ScoreOffset.zero().distanceTo(end(target))
                 : target.timeSignature().measureDuration();
+        var voices = new ArrayList<org.arpeon.domain.score.Voice>();
+        for (int staff = 1; staff <= part.staves(); staff++)
+          voices.add(
+              new org.arpeon.domain.score.Voice(
+                  "silence-staff-" + staff,
+                  List.of(
+                      new org.arpeon.domain.score.TimedEvent(
+                          ScoreOffset.zero(), new Rest(duration, null, staff)))));
         measures.add(
-            new Measure(
+            Measure.withVoices(
                 target.number(),
                 target.timeSignature(),
                 Optional.empty(),
-                List.of(new Rest(duration)),
+                voices,
                 target.pickup()));
       }
     }
@@ -130,7 +138,17 @@ public final class PartAlignment {
     part.clefs()
         .forEach(
             (measureIndex, clef) -> clefs.put(measureIndex == 0 ? 0 : mapping[measureIndex], clef));
-    return new Part(id, part.name(), measures, clefs);
+    var extraClefs =
+        new java.util.LinkedHashMap<
+            Integer, java.util.Map<Integer, org.arpeon.domain.score.Clef>>();
+    part.additionalClefs()
+        .forEach(
+            (staff, values) -> {
+              var aligned = new java.util.LinkedHashMap<Integer, org.arpeon.domain.score.Clef>();
+              values.forEach((index, clef) -> aligned.put(index == 0 ? 0 : mapping[index], clef));
+              extraClefs.put(staff, aligned);
+            });
+    return new Part(id, part.name(), measures, clefs, part.staves(), extraClefs);
   }
 
   private static ScoreOffset end(Measure measure) {

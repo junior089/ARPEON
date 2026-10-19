@@ -20,6 +20,46 @@ import org.arpeon.transport.ScoreTimeline;
 import org.junit.jupiter.api.Test;
 
 class MidiScoreSequenceTest {
+  @Test
+  void aSharedPianoPitchDoesNotEndBeforeBothHandsReleaseIt() {
+    var quarter = new Duration(1, 4);
+    var measure =
+        Measure.withVoices(
+            "1",
+            new TimeSignature(4, 4),
+            Optional.empty(),
+            List.of(
+                org.arpeon.domain.score.Voice.sequential(
+                    "1", List.of(new Note(Pitch.fromMidiNumber(60), new Duration(1, 1)))),
+                org.arpeon.domain.score.Voice.sequential(
+                    "2",
+                    List.of(
+                        new org.arpeon.domain.score.Rest(quarter, null, 2),
+                        new Note(Pitch.fromMidiNumber(60), quarter, false, false, null, 2),
+                        new org.arpeon.domain.score.Rest(new Duration(1, 2), null, 2)))),
+            false);
+    var score =
+        new Score(
+            "Unison", List.of(new Part("P1", "Piano", List.of(measure), Map.of(), 2, Map.of())));
+    var timeline = new ScoreTimeline(score);
+    var track = MidiScoreSequence.build(timeline).getTracks()[1];
+    var events =
+        java.util.stream.IntStream.range(0, track.size())
+            .mapToObj(track::get)
+            .filter(
+                e ->
+                    e.getMessage() instanceof ShortMessage m
+                        && (m.getCommand() == ShortMessage.NOTE_ON
+                            || m.getCommand() == ShortMessage.NOTE_OFF))
+            .toList();
+    assertEquals(4, events.size());
+    assertEquals(
+        List.of(1920L, 2400L, 3840L, 3840L),
+        events.stream().map(javax.sound.midi.MidiEvent::getTick).toList());
+    assertEquals(
+        ShortMessage.NOTE_OFF, ((ShortMessage) events.getLast().getMessage()).getCommand());
+  }
+
   private static ScoreTimeline timeline() {
     var measure =
         new Measure(

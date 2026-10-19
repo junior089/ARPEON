@@ -82,7 +82,7 @@
       type="button"
       aria-controls="instrument-mixer"
       [attr.aria-expanded]="mixerOpen()"
-      (click)="mixerOpen.set(!mixerOpen())"
+      (click)="togglePanel('mixer')"
     >
       Mixer
     </button>
@@ -105,7 +105,7 @@
         title="Ajustar andamento · 30 a 300 BPM"
         aria-controls="transport-tempo"
         [attr.aria-expanded]="tempoOpen()"
-        (click)="tempoOpen.set(!tempoOpen()); settingsOpen.set(false)"
+        (click)="togglePanel('tempo')"
       >
         {{ state.bpm }}<span>BPM</span>
       </button>
@@ -129,7 +129,7 @@
       aria-controls="transport-settings"
       [class.loop-active]="!!state.loop"
       [attr.aria-expanded]="settingsOpen()"
-      (click)="settingsOpen.set(!settingsOpen()); tempoOpen.set(false)"
+      (click)="togglePanel('settings')"
     >
       <app-icon name="settings" />
     </button>
@@ -233,7 +233,7 @@
           [disabled]="session.busy()"
         >
           @for (measure of session.score()?.measures ?? []; track measure.index) {
-          <option [value]="measure.index">
+          <option [value]="measure.index" [selected]="measure.index === loopStart()">
             Posição {{ measure.index + 1 }} · compasso {{ measure.number }}
           </option>
           }
@@ -246,7 +246,7 @@
           [disabled]="session.busy()"
         >
           @for (measure of session.score()?.measures ?? []; track measure.index) {
-          <option [value]="measure.index">
+          <option [value]="measure.index" [selected]="measure.index === loopEnd()">
             Posição {{ measure.index + 1 }} · compasso {{ measure.number }}
           </option>
           }
@@ -264,6 +264,92 @@
         {{ validLoop() ? 'Inclui A e B. Posições seguem a execução, com repetições. Contagem inicial
         só ao partir do início da partitura.' : 'Escolha B na mesma posição de A ou depois dela.' }}
       </p>
+      <div class="study-tools">
+        <label
+          >Nome do trecho<input
+            type="text"
+            maxlength="80"
+            [value]="markerName()"
+            (input)="setStudyValue($event, 'name')"
+            placeholder="Ex.: Entrada das cordas"
+        /></label>
+        <button
+          type="button"
+          (click)="saveMarker()"
+          [disabled]="session.busy() || !validLoop() || !markerName().trim() || (state.markers?.length ?? 0) >= 24"
+        >
+          Salvar trecho A–B
+        </button>
+        @for (marker of state.markers ?? []; track marker.id) {
+        <div class="study-marker">
+          <button
+            type="button"
+            (click)="session.action('study-marker', {id: marker.id})"
+            [disabled]="session.busy()"
+          >
+            {{ marker.name }} · {{ marker.startMeasureIndex + 1 }}–{{ marker.endMeasureIndex + 1 }}
+          </button>
+          <button
+            type="button"
+            (click)="session.action('delete-marker', {id: marker.id})"
+            [disabled]="session.busy()"
+            [attr.aria-label]="'Excluir trecho ' + marker.name"
+          >
+            Excluir
+          </button>
+        </div>
+        }
+      </div>
+      <details class="tempo-practice">
+        <summary>Aumentar andamento a cada repetição</summary>
+        <div class="study-tools">
+          <label
+            >Incremento (BPM)<input
+              type="number"
+              min="1"
+              max="20"
+              [value]="tempoStep()"
+              (input)="setStudyValue($event, 'step')"
+          /></label>
+          <label
+            >Meta (BPM)<input
+              type="number"
+              min="30"
+              max="300"
+              [value]="tempoTarget()"
+              (input)="setStudyValue($event, 'target')"
+          /></label>
+          <label
+            >Voltas por incremento<input
+              type="number"
+              min="1"
+              max="20"
+              [value]="tempoLoops()"
+              (input)="setStudyValue($event, 'loops')"
+          /></label>
+          <button
+            type="button"
+            (click)="trainTempo(true)"
+            [disabled]="session.busy() || !state.loop || !validTraining()"
+          >
+            {{ state.tempoPractice?.enabled ? 'Atualizar progressão' : 'Ativar progressão' }}
+          </button>
+          @if (state.tempoPractice?.enabled) {
+          <button type="button" (click)="trainTempo(false)" [disabled]="session.busy()">
+            Desativar progressão
+          </button>
+          }
+        </div>
+        <p class="loop-hint" role="status">
+          {{ state.completedLoops ?? 0 }} volta(s) concluída(s). @if (state.tempoPractice?.enabled)
+          { +{{ state.tempoPractice.stepBpm }} BPM a cada {{ state.tempoPractice.loopsPerStep }}
+          volta(s), até {{ state.tempoPractice.targetBpm }} BPM. } @else if (state.completedLoops &&
+          state.tempoPractice && state.startingBpm >= state.tempoPractice.targetBpm) { Meta
+          atingida: {{ state.startingBpm }} BPM. } @else if (state.loop) { Escolha uma meta acima do
+          andamento atual para iniciar a progressão. } @else { Ative A–B para iniciar a progressão.
+          }
+        </p>
+      </details>
     </div>
     }
   </div>

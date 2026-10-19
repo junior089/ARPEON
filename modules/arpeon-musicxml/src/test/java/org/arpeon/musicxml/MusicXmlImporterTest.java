@@ -21,6 +21,88 @@ import org.junit.jupiter.api.Test;
 class MusicXmlImporterTest {
   private final MusicXmlImporter importer = new MusicXmlImporter();
 
+  @Test
+  void roundTripsPianoStavesClefChangesCrossStaffChordsAndEdits() throws Exception {
+    String xml =
+        Files.readString(
+            Path.of(System.getProperty("arpeon.fixtures"), "piano-two-staves.musicxml"));
+    var imported = read(xml);
+    var part = imported.score().parts().getFirst();
+    assertEquals(2, part.staves());
+    assertEquals("F", part.additionalClefs().get(2).get(0).sign());
+    assertEquals("G", part.additionalClefs().get(2).get(1).sign());
+    assertEquals(2, part.measures().getFirst().voices().get(1).events().getFirst().event().staff());
+    var chord = (Chord) part.measures().get(1).voices().getFirst().events().getFirst().event();
+    assertEquals(List.of(1, 2), chord.notes().stream().map(Note::staff).toList());
+    var exporter = new MusicXmlExporter();
+    var profiles =
+        java.util.Map.of(
+            "P1",
+            org.arpeon.domain.instrument.InstrumentCatalog.get(imported.instruments().get("P1")));
+    assertEquals(
+        imported.score(),
+        read(exporter.write(imported.score(), imported.keyId(), profiles)).score());
+    var transposed =
+        org.arpeon.domain.score.ScoreTransform.transpose(imported.score(), "P1", 12, null);
+    assertEquals(2, transposed.parts().getFirst().staves());
+    assertEquals(
+        2,
+        transposed
+            .parts()
+            .getFirst()
+            .measures()
+            .get(1)
+            .voices()
+            .getFirst()
+            .events()
+            .getFirst()
+            .event()
+            .noteHeads()
+            .get(1)
+            .staff());
+    var edited =
+        org.arpeon.domain.score.ScoreDocument.deleteNote(imported.score(), "P1", 1, 1, "2", 0);
+    assertEquals(
+        2,
+        edited
+            .parts()
+            .getFirst()
+            .measures()
+            .get(1)
+            .voices()
+            .get(1)
+            .events()
+            .get(1)
+            .event()
+            .staff());
+    var inserted =
+        org.arpeon.domain.score.ScoreDocument.insertIntoRest(
+            edited,
+            "P1",
+            1,
+            1,
+            "2",
+            new Duration(1, 4),
+            org.arpeon.domain.pitch.Pitch.fromMidiNumber(60));
+    assertEquals(inserted, read(exporter.write(inserted, imported.keyId(), profiles)).score());
+  }
+
+  @Test
+  void rejectsUndeclaredOrChangingStavesWithoutFlatteningThem() throws Exception {
+    String xml =
+        Files.readString(
+            Path.of(System.getProperty("arpeon.fixtures"), "piano-two-staves.musicxml"));
+    assertThrows(
+        IOException.class, () -> read(xml.replace("<staves>2</staves>", "<staves>1</staves>")));
+    assertThrows(
+        IOException.class,
+        () ->
+            read(
+                xml.replace(
+                    "<measure number=\"2\">",
+                    "<measure number=\"2\"><attributes><staves>3</staves></attributes>")));
+  }
+
   private String fixture() throws IOException {
     return Files.readString(Path.of(System.getProperty("arpeon.fixtures"), "first-notes.musicxml"));
   }

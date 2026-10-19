@@ -10,8 +10,11 @@ import javax.sound.midi.Track;
 import org.arpeon.domain.instrument.InstrumentProfile;
 import org.arpeon.transport.ScoreTimeline;
 
-/** A local synthesized performance of the supported single-voice MusicXML subset. */
+/** A local synthesized performance of the supported voice-aware MusicXML subset. */
 public final class MidiScoreSequence {
+  static final byte[] LOOP_MARKER =
+      "ARPEON_LOOP".getBytes(java.nio.charset.StandardCharsets.US_ASCII);
+
   private MidiScoreSequence() {}
 
   public static Sequence build(ScoreTimeline timeline) {
@@ -35,6 +38,11 @@ public final class MidiScoreSequence {
       for (var tempo : timeline.tempos()) {
         timing.add(new MidiEvent(tempoMessage(tempo.bpm()), offset + tempo.startTick()));
       }
+      if (loop != null) {
+        var boundary = new MetaMessage();
+        boundary.setMessage(0x7f, LOOP_MARKER, LOOP_MARKER.length);
+        timing.add(new MidiEvent(boundary, offset + loop.startTick()));
+      }
       // Count-in uses the first score tempo, including when the score starts with a pickup.
       timing.add(new MidiEvent(tempoMessage(timeline.firstBpm()), 0));
       for (int part = 0; part < timeline.score().parts().size(); part++) {
@@ -48,6 +56,7 @@ public final class MidiScoreSequence {
             profile == null ? 0 : profile.midiProgram(),
             0,
             0);
+        var boundaries = new java.util.TreeMap<Integer, java.util.TreeMap<Long, int[]>>();
         for (var note : timeline.notes()) {
           if (note.partIndex() != part) continue;
           long start = note.startTick();
@@ -61,8 +70,30 @@ public final class MidiScoreSequence {
               note.midiNumber() + (profile == null ? 0 : profile.soundingTranspositionSemitones());
           if (sounding < 0 || sounding > 127)
             throw new IllegalArgumentException("Sounding pitch outside MIDI range");
-          add(track, ShortMessage.NOTE_ON, channel, sounding, 80, offset + start);
-          add(track, ShortMessage.NOTE_OFF, channel, sounding, 0, offset + endTick);
+          if (endTick <= start) continue;
+          var pitchBoundaries =
+              boundaries.computeIfAbsent(sounding, ignored -> new java.util.TreeMap<>());
+          pitchBoundaries.computeIfAbsent(offset + start, ignored -> new int[2])[0]++;
+          pitchBoundaries.computeIfAbsent(offset + endTick, ignored -> new int[2])[1]++;
+        }
+        for (var pitch : boundaries.entrySet()) {
+          int active = 0, pendingReleases = 0;
+          for (var boundary : pitch.getValue().entrySet()) {
+            int starts = boundary.getValue()[0], ends = boundary.getValue()[1];
+            active -= ends;
+            // Two hands can share a pitch. A shorter voice must not cut the longer one.
+            if (ends > 0 && active == 0) {
+              while (pendingReleases > 0) {
+                add(track, ShortMessage.NOTE_OFF, channel, pitch.getKey(), 0, boundary.getKey());
+                pendingReleases--;
+              }
+            }
+            if (starts > 0) {
+              add(track, ShortMessage.NOTE_ON, channel, pitch.getKey(), 80, boundary.getKey());
+              pendingReleases++;
+            }
+            active += starts;
+          }
         }
       }
       Track metronome = sequence.createTrack();

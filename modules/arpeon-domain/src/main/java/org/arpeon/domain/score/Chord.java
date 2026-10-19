@@ -28,6 +28,11 @@ public record Chord(List<Note> notes) implements ScoreEvent {
   }
 
   @Override
+  public int staff() {
+    return notes.getFirst().staff();
+  }
+
+  @Override
   public Duration duration() {
     return notes.getFirst().duration();
   }

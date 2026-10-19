@@ -6,7 +6,7 @@
       >Ensaio<select
         aria-label="Preset de ensaio"
         (change)="setPreset($event)"
-        [disabled]="session.busy()"
+        [disabled]="session.busy() || session.mixerUpdating()"
       >
         <option value="">Configurar ensaio</option>
         <option value="ensemble">Conjunto completo</option>
@@ -22,17 +22,121 @@
       Restaurar mixer
     </button>
     <label class="master-level"
-      >Master {{ percent(state.master) }}%
+      >Master {{ level('master', state.master) }}%
       <input
         type="range"
         min="0"
         max="100"
-        [value]="percent(state.master)"
-        (change)="setLevel($event, 'master')"
-        [disabled]="session.busy()"
+        [value]="level('master', state.master)"
+        (input)="setLevel($event, 'master')"
+        [disabled]="session.busy() && !session.mixerUpdating()"
       />
     </label>
   </div>
+  <details class="saved-mixes">
+    <summary>Meus presets · {{ state.mixPresets?.length ?? 0 }}/12</summary>
+    <div class="mix-library">
+      <label
+        >Preset salvo<select [value]="selectedMix()" (change)="selectMix($event)">
+          <option value="" [selected]="!selectedMix()">Novo preset</option>
+          @for (preset of state.mixPresets ?? []; track preset.id) {
+          <option [value]="preset.id" [selected]="preset.id === selectedMix()">
+            {{ preset.name }}
+          </option>
+          }
+        </select></label
+      >
+      <label
+        >Nome<input
+          type="text"
+          maxlength="80"
+          [value]="mixName()"
+          (input)="setMixName($event)"
+          placeholder="Ex.: Estudar flauta"
+      /></label>
+      <button
+        type="button"
+        (click)="saveMix(false)"
+        [disabled]="session.busy() || session.mixerUpdating() || !mixName().trim() || (state.mixPresets?.length ?? 0) >= 12"
+      >
+        Salvar novo
+      </button>
+      <button
+        type="button"
+        (click)="session.action('apply-mix', {id: selectedMix()})"
+        [disabled]="session.busy() || session.mixerUpdating() || !selectedMix()"
+      >
+        Aplicar
+      </button>
+      <button
+        type="button"
+        (click)="saveMix(true)"
+        [disabled]="session.busy() || session.mixerUpdating() || !selectedMix() || !mixName().trim()"
+      >
+        Atualizar
+      </button>
+      <button
+        type="button"
+        (click)="deleteMix()"
+        [disabled]="session.busy() || session.mixerUpdating() || !selectedMix()"
+      >
+        Excluir preset
+      </button>
+    </div>
+    <p class="channel-sound">Guarda volumes, panorâmicas, mute e solo nesta composição.</p>
+  </details>
+  <details class="saved-mixes" (toggle)="openBanks($event)">
+    <summary>Banco de sons · {{ state.soundBankName ?? 'Banco do sistema' }}</summary>
+    <div class="mix-library">
+      <label
+        >Banco para esta composição<select
+          [value]="state.soundBankId ?? 'system'"
+          (change)="selectBank($event)"
+          [disabled]="session.busy() || session.mixerUpdating()"
+        >
+          <option value="system" [selected]="!state.soundBankId || state.soundBankId === 'system'">
+            Banco do sistema
+          </option>
+          @for (bank of session.soundBanks(); track bank.id) {
+          <option [value]="bank.id" [selected]="bank.id === state.soundBankId">
+            {{ bank.name }} · {{ bank.programs }} programas
+          </option>
+          } @if (state.soundBankError) {
+          <option [value]="state.soundBankId">Banco indisponível</option>
+          }
+        </select></label
+      >
+      <label
+        >Importar banco local<input
+          type="file"
+          accept=".sf2,.dls"
+          (change)="importBank($event)"
+          [disabled]="session.busy() || session.mixerUpdating()"
+      /></label>
+      <label
+        >Remover do computador<select [value]="bankToDelete()" (change)="setBankToDelete($event)">
+          <option value="">Escolher banco</option>
+          @for (bank of session.soundBanks(); track bank.id) { @if (bank.id !== state.soundBankId) {
+          <option [value]="bank.id">{{ bank.name }}</option>
+          } }
+        </select></label
+      >
+      <button
+        type="button"
+        (click)="session.deleteSoundBank(bankToDelete())"
+        [disabled]="session.busy() || !bankToDelete() || bankToDelete() === state.soundBankId"
+      >
+        Remover banco selecionado
+      </button>
+    </div>
+    <p class="channel-sound">
+      SF2/DLS até 128 MiB; oito bancos locais. O projeto guarda a referência ao banco. Ao mover o
+      projeto, importe o mesmo arquivo. Confira a licença do banco antes de compartilhá-lo.
+    </p>
+    @if (state.soundBankError) {
+    <p class="error" role="status">{{ state.soundBankError }}</p>
+    }
+  </details>
   <div
     class="mixer-channels"
     tabindex="0"
@@ -51,15 +155,15 @@
         {{ part.name }}
       </button>
       <label class="channel-level"
-        >Volume {{ percent(part.volume) }}%
+        >Volume {{ level('volume', part.volume, part.id) }}%
         <input
           type="range"
           min="0"
           max="100"
-          [value]="percent(part.volume)"
-          (change)="setLevel($event, 'volume', part.id)"
+          [value]="level('volume', part.volume, part.id)"
+          (input)="setLevel($event, 'volume', part.id)"
           [attr.aria-label]="'Volume de ' + part.name"
-          [disabled]="session.busy()"
+          [disabled]="session.busy() && !session.mixerUpdating()"
         />
       </label>
       <div class="channel-controls">
@@ -69,10 +173,10 @@
             type="range"
             min="-100"
             max="100"
-            [value]="percent(part.pan ?? 0)"
-            (change)="setLevel($event, 'pan', part.id)"
+            [value]="level('pan', part.pan, part.id)"
+            (input)="setLevel($event, 'pan', part.id)"
             [attr.aria-label]="'Panorâmica de ' + part.name"
-            [disabled]="session.busy()"
+            [disabled]="session.busy() && !session.mixerUpdating()"
         /></label>
         <button
           type="button"
@@ -93,9 +197,13 @@
           S
         </button>
       </div>
+      @if (silenceReason(part); as reason) {
+      <span class="channel-sound">{{ reason }}</span>
+      }
       <span class="channel-sound"
-        >{{ instrumentName(part.instrumentId) }} · {{ part.soundStatus === 'READY' ? 'Carregado' :
-        part.soundStatus === 'ERROR' ? 'Indisponível' : 'Carrega ao tocar' }}</span
+        >{{ instrumentName(part.instrumentId) }}{{ part.soundName ? ' · ' + part.soundName : '' }} ·
+        {{ part.soundStatus === 'READY' ? 'Carregado' : part.soundStatus === 'ERROR' ?
+        'Indisponível' : 'Carrega ao tocar' }}</span
       >
       @if (part.soundStatus === 'ERROR') {
       <p class="error" role="status">{{ part.soundError }}</p>
