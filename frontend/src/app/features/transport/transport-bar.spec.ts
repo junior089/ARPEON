@@ -60,6 +60,7 @@ describe('TransportBar', () => {
     const start = selects[0];
     const end = selects[1];
     if (!start || !end) throw new Error('Both A–B controls must be rendered');
+    expect(end.value).toBe('1');
     expect(selects[0]?.options[0]?.textContent).toContain('Posição 1 · compasso 1');
     expect(selects[0]?.options[1]?.textContent).toContain('Posição 2 · compasso 1');
     start.value = '1';

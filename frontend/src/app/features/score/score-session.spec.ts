@@ -92,6 +92,79 @@ describe('ScoreSession', () => {
     TestBed.resetTestingModule();
   });
 
+  it('coalesces live mixer movement during an in-flight request and delivers every final control value', async () => {
+    vi.useFakeTimers();
+    session.score.set(score);
+    session.transport.set(transport);
+    let finishFirst: ((response: Response) => void) | undefined;
+    let current = {
+      ...transport,
+      master: 1,
+      parts: [
+        {
+          id: 'P1',
+          name: 'Melody',
+          instrumentId: 'concert',
+          mute: false,
+          solo: false,
+          volume: 1,
+          pan: 0,
+        },
+      ],
+    };
+    const commands: { name: string; value: number }[] = [];
+    fetcher.mockImplementation((url, options) => {
+      const name = String(url).split('/').at(-1) ?? '';
+      const params = JSON.parse(String(options?.body)) as { value: number };
+      commands.push({ name, value: params.value });
+      if (name === 'volume')
+        current = {
+          ...current,
+          parts: current.parts.map((part) => ({ ...part, volume: params.value })),
+        };
+      if (name === 'pan')
+        current = {
+          ...current,
+          parts: current.parts.map((part) => ({ ...part, pan: params.value })),
+        };
+      const response = new Response(JSON.stringify(current));
+      if (commands.length === 1)
+        return new Promise<Response>((resolve) => {
+          finishFirst = resolve;
+        });
+      return Promise.resolve(response);
+    });
+    session.queueLevel('volume', 0.2, 'P1');
+    await vi.advanceTimersByTimeAsync(40);
+    expect(session.busy()).toBe(true);
+    session.queueLevel('volume', 0.3, 'P1');
+    session.queueLevel('volume', 0.7, 'P1');
+    session.queueLevel('pan', -0.4, 'P1');
+    expect(session.mixerDraft()['volume:P1']).toBe(0.7);
+    if (!finishFirst) throw new Error('Expected in-flight mixer request');
+    finishFirst(new Response(JSON.stringify(current)));
+    await vi.advanceTimersByTimeAsync(200);
+    expect(commands).toEqual([
+      { name: 'volume', value: 0.2 },
+      { name: 'volume', value: 0.7 },
+      { name: 'pan', value: -0.4 },
+    ]);
+    expect(session.transport()?.parts[0]?.volume).toBe(0.7);
+    expect(session.transport()?.parts[0]?.pan).toBe(-0.4);
+    expect(session.mixerDraft()).toEqual({});
+    expect(session.mixerUpdating()).toBe(false);
+  });
+
+  it('discards pending mixer updates when another document replaces the score', async () => {
+    vi.useFakeTimers();
+    session.score.set(score);
+    session.queueLevel('volume', 0.1, 'P1');
+    session.score.set({ ...score, filename: 'other.musicxml' });
+    await vi.advanceTimersByTimeAsync(80);
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(session.mixerDraft()).toEqual({});
+  });
+
   it('prepares study atomically without editing or saving the score', async () => {
     session.score.set(score);
     session.transport.set(transport as NonNullable<ReturnType<ScoreSession['transport']>>);

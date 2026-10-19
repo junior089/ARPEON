@@ -7,9 +7,14 @@ import { InstrumentMixer } from './instrument-mixer';
 describe('instrument mixer', () => {
   it('operates each channel, master and presets without changing the selected notation', async () => {
     const action = vi.fn();
+    const queueLevel = vi.fn();
+    const banks = signal<
+      { id: string; name: string; filename: string; bytes: number; programs: number }[]
+    >([]);
     const transport = signal({
       activePartId: 'flute',
       master: 0.8,
+      soundBankId: 'a'.repeat(64),
       parts: [
         {
           id: 'flute',
@@ -43,6 +48,10 @@ describe('instrument mixer', () => {
             transport,
             score: signal({ instruments: [{ id: 'flute', name: 'Flauta transversal' }] }),
             busy: signal(false),
+            mixerUpdating: signal(false),
+            mixerDraft: signal({}),
+            soundBanks: banks,
+            queueLevel,
             action,
           },
         },
@@ -54,8 +63,8 @@ describe('instrument mixer', () => {
     const violinVolume = root.querySelector<HTMLInputElement>('[aria-label="Volume de Violino"]');
     if (!violinVolume) throw new Error('Missing violin volume control');
     violinVolume.value = '25';
-    violinVolume.dispatchEvent(new Event('change'));
-    expect(action).toHaveBeenCalledWith('volume', { id: 'violin', value: 0.25 });
+    violinVolume.dispatchEvent(new Event('input'));
+    expect(queueLevel).toHaveBeenCalledWith('volume', 0.25, 'violin');
     root.querySelector<HTMLButtonElement>('[aria-label="Solo Violino"]')?.click();
     expect(action).toHaveBeenCalledWith('solo', { id: 'violin', enabled: true });
     expect(transport().activePartId).toBe('flute');
@@ -68,7 +77,21 @@ describe('instrument mixer', () => {
     const master = root.querySelector<HTMLInputElement>('.master-level input');
     if (!master) throw new Error('Missing master control');
     master.value = '50';
-    master.dispatchEvent(new Event('change'));
-    expect(action).toHaveBeenCalledWith('master', { value: 0.5 });
+    master.dispatchEvent(new Event('input'));
+    expect(queueLevel).toHaveBeenCalledWith('master', 0.5, undefined);
+    banks.set([
+      {
+        id: 'a'.repeat(64),
+        name: 'Banco local',
+        filename: 'local.sf2',
+        bytes: 1000,
+        programs: 128,
+      },
+    ]);
+    fixture.detectChanges();
+    const bankSelect = Array.from(root.querySelectorAll<HTMLSelectElement>('select')).find(
+      (control) => Array.from(control.options).some((option) => option.value === 'a'.repeat(64)),
+    );
+    expect(bankSelect?.value).toBe('a'.repeat(64));
   });
 });

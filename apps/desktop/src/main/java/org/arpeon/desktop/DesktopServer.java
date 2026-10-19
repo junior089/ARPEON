@@ -688,6 +688,41 @@ public final class DesktopServer implements AutoCloseable {
         } catch (IOException failure) {
           sendJson(exchange, 400, Map.of("error", failure.getMessage()));
         }
+      } else if (path.equals("/api/soundbanks") && method.equals("GET")) {
+        sendJson(exchange, 200, workspace.soundBanks());
+      } else if (path.equals("/api/soundbanks") && method.equals("POST")) {
+        if (!"application/octet-stream"
+            .equals(exchange.getRequestHeaders().getFirst("Content-Type")))
+          throw new IllegalArgumentException("Expected sound bank bytes");
+        String encoded = exchange.getRequestHeaders().getFirst("X-Arpeon-Filename");
+        if (encoded == null || encoded.length() > 768)
+          throw new IllegalArgumentException("Invalid filename");
+        byte[] bytes = exchange.getRequestBody().readNBytes(SoundBankStore.MAX_BYTES + 1);
+        if (bytes.length > SoundBankStore.MAX_BYTES) {
+          sendJson(exchange, 413, Map.of("error", "Banco excede 128 MiB."));
+          return;
+        }
+        try {
+          sendJson(
+              exchange,
+              200,
+              workspace.importSoundBank(bytes, URLDecoder.decode(encoded, StandardCharsets.UTF_8)));
+        } catch (IOException invalid) {
+          sendJson(
+              exchange,
+              400,
+              Map.of(
+                  "error",
+                  invalid.getMessage() == null ? "Banco de sons inválido." : invalid.getMessage()));
+        }
+      } else if (path.equals("/api/soundbanks/delete") && method.equals("POST")) {
+        var request = smallJson(exchange);
+        if (request == null || !request.keySet().equals(Set.of("id")))
+          throw new IllegalArgumentException("Invalid sound bank request");
+        workspace.deleteSoundBank(practiceString(request, "id"));
+        sendJson(exchange, 200, workspace.soundBanks());
+      } else if (path.equals("/api/score/parts/preview") && method.equals("POST")) {
+        sendJson(exchange, 200, workspace.previewPartImport(boundedJson(exchange, 8192)));
       } else if (path.equals("/api/score/parts/import") && method.equals("POST")) {
         String contentType = exchange.getRequestHeaders().getFirst("Content-Type");
         if (!Set.of("application/xml", "application/octet-stream")
@@ -921,9 +956,10 @@ public final class DesktopServer implements AutoCloseable {
           requirePlaybackAvailable();
           practice.stopIfPlaying();
         }
-        var result = workspace.command(path.substring("/api/transport/".length()), request);
+        var result =
+            workspace.commandTransport(path.substring("/api/transport/".length()), request);
         lastTransportPollNanos = System.nanoTime();
-        sendJson(exchange, 200, result.transport());
+        sendJson(exchange, 200, result);
       } else if (path.equals("/api/devices") && method.equals("GET"))
         sendJson(exchange, 200, tuner.devices());
       else if (path.equals("/api/analysis") && method.equals("GET"))
@@ -1252,10 +1288,14 @@ public final class DesktopServer implements AutoCloseable {
   }
 
   private JsonObject smallJson(HttpExchange exchange) throws IOException {
+    return boundedJson(exchange, 1024);
+  }
+
+  private JsonObject boundedJson(HttpExchange exchange, int limit) throws IOException {
     if (!"application/json".equals(exchange.getRequestHeaders().getFirst("Content-Type")))
       throw new IllegalArgumentException("Expected application/json");
-    byte[] body = exchange.getRequestBody().readNBytes(1025);
-    if (body.length > 1024) throw new IllegalArgumentException("Request is too large");
+    byte[] body = exchange.getRequestBody().readNBytes(limit + 1);
+    if (body.length > limit) throw new IllegalArgumentException("Request is too large");
     return json.fromJson(new String(body, StandardCharsets.UTF_8), JsonObject.class);
   }
 

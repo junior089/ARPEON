@@ -22,6 +22,74 @@ import org.arpeon.transport.ScoreTimeline;
 import org.junit.jupiter.api.Test;
 
 class MidiScorePlayerTest {
+  @Test
+  void namedMixesAndStudyMarkersRoundTripWithoutChangingPositionOrSelection() {
+    try (var player = new MidiScorePlayer(timeline())) {
+      player.setVolume("P1", .35);
+      player.setPan("P1", -.6);
+      player.setMute("P1", true);
+      player.setMaster(.8);
+      player.saveMixPreset("", "Estudar flauta");
+      var preset = player.snapshot().mixPresets().getFirst();
+      player.saveMarker("Final", 1, 1);
+      player.seek(528);
+      player.preset("reset");
+      player.applyMixPreset(preset.id());
+      var state = player.snapshot();
+      assertEquals(528, state.tick());
+      assertEquals("P1", state.activePartId());
+      assertEquals(.35, state.parts().getFirst().volume());
+      assertEquals(-.6, state.parts().getFirst().pan());
+      assertTrue(state.parts().getFirst().mute());
+      assertEquals(.8, state.master());
+      try (var restored = new MidiScorePlayer(timeline())) {
+        restored.restore(player.settings());
+        assertEquals(player.settings(), restored.settings());
+        restored.studyMarker(state.markers().getFirst().id());
+        assertEquals(480, restored.snapshot().tick());
+        assertEquals(1, restored.snapshot().loop().startMeasureIndex());
+      }
+      assertThrows(
+          IllegalArgumentException.class, () -> player.saveMixPreset("", "Estudar flauta"));
+      assertThrows(IllegalArgumentException.class, () -> player.saveMixPreset("", "\n"));
+      player.deleteMixPreset(preset.id());
+      assertTrue(player.snapshot().mixPresets().isEmpty());
+    }
+  }
+
+  @Test
+  void progressiveTempoFollowsTheMidiClockWithoutPositionPollingAndStopsAtTheTarget()
+      throws Exception {
+    try (var clock = MidiSystem.getSequencer(false)) {
+      clock.open();
+      try (var player = new MidiScorePlayer(timeline(), Map.of(), clock)) {
+        player.setBpm(240);
+        player.setLoop(0, 0, true);
+        player.setTempoPractice(new MidiScorePlayer.TempoPractice(true, 7, 250, 1));
+        var boundaries = new CountDownLatch(3);
+        clock.addMetaEventListener(
+            message -> {
+              if (message.getType() == 0x7f) boundaries.countDown();
+            });
+        player.play();
+        assertTrue(
+            boundaries.await(4, TimeUnit.SECONDS),
+            "MIDI clock must report loop boundaries without HTTP polling");
+        var state = player.snapshot();
+        assertEquals(250, state.startingBpm());
+        assertFalse(state.tempoPractice().enabled());
+        assertTrue(state.completedLoops() >= 2);
+        assertEquals(2, player.automaticPreferenceRevision());
+        player.stop();
+        assertEquals(0, player.snapshot().completedLoops());
+        player.setLoop(0, 0, false);
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> player.setTempoPractice(new MidiScorePlayer.TempoPractice(true, 5, 260, 1)));
+      }
+    }
+  }
+
   private static ScoreTimeline timeline() {
     var meter = new TimeSignature(1, 4);
     var note = new Note(Pitch.fromMidiNumber(69), new Duration(1, 4));
@@ -279,6 +347,14 @@ class MidiScorePlayerTest {
         assertEquals("READY", player.snapshot().parts().get(1).soundStatus());
         assertFalse(clock.getTrackMute(2));
         assertEquals(2, player.snapshot().parts().size());
+        player.setSoundBank(
+            null, "a".repeat(64), "Banco indisponível", "Banco ausente neste computador");
+        assertTrue(
+            player.snapshot().parts().stream().allMatch(p -> p.soundStatus().equals("ERROR")));
+        assertEquals("Banco ausente neste computador", player.snapshot().soundBankError());
+        player.setSoundBank(null, "system", "Banco do sistema", "");
+        assertTrue(
+            player.snapshot().parts().stream().allMatch(p -> p.soundStatus().equals("READY")));
       }
     }
   }

@@ -26,12 +26,14 @@ major/minor key signature per part when all parts agree. Chord heads share the p
 event's onset and duration. `<backup/>` and `<forward/>` preserve voice cursor movement and
 relative onsets. G/F/C/percussion clefs and their measure changes, octave clefs,
 simple non-nested tuplets with exact representable durations, General MIDI programs and
-initial instrument transposition are retained. Multiple staves remain unsupported. When a note
+initial instrument transposition are retained. MusicXML supports 1–8 staves per instrument,
+including per-staff clef changes, rests and cross-staff chord heads. Staff count must be
+declared initially and remain constant. When a note
 type or dots are present, they must agree with the explicit duration. Missing tempo remains
 absent in the source; playback visibly defaults to 120 BPM. Errors in measure content identify
 the part, measure, voice and note position where available. Bounded non-nested repeats and
 contiguous pass-specific endings share one execution map. Unpitched percussion, nested
-repeats/tuplets, D.C./D.S./coda and independent staves are unsupported. Some descriptive
+repeats/tuplets and D.C./D.S./coda are unsupported. Some descriptive
 engraving metadata and lyrics are omitted by the existing canonical subset.
 
 Separately exported MusicXML/MXL parts can be reviewed and appended to the open composition,
@@ -43,6 +45,13 @@ visibility are independent of mixer volume, mute and solo. Project schema 2 reta
 preferences and source/anchor provenance separately from interoperable MusicXML; schema 1
 projects reopen with defaults. Playback retains its limit of 15 melodic parts and exact
 480 PPQ timing. See [rehearsal architecture](../adr/0008-multi-instrument-rehearsal.md).
+Import review compares measure correspondence, meter, duration, pickup status and tempo
+before confirmation. The first 128 measures appear in the comparison table; all measures
+are validated. Projects also retain up to twelve named mixer presets, twenty-four named
+study ranges, progressive-tempo settings and the selected sound-bank hash. User-supplied
+SF2/DLS banks (up to eight, each 128 MiB) stay in local application data and are never embedded
+in exported MusicXML or automatically redistributed. Moving a project to another computer
+requires importing the same bank or explicitly selecting a different one.
 
 ## Text and pasted melodic cipher
 

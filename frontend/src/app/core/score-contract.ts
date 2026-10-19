@@ -17,9 +17,41 @@ export interface PartState {
   effectiveGain?: number;
   soundStatus?: 'NOT_LOADED' | 'READY' | 'ERROR';
   soundError?: string;
+  soundName?: string;
+}
+
+export interface SoundBankInfo {
+  id: string;
+  name: string;
+  filename: string;
+  bytes: number;
+  programs: number;
+}
+export function isSoundBankList(value: unknown): value is SoundBankInfo[] {
+  return (
+    Array.isArray(value) &&
+    value.length <= 8 &&
+    value.every(
+      (bank: unknown) =>
+        record(bank) &&
+        typeof bank['id'] === 'string' &&
+        /^[0-9a-f]{64}$/.test(bank['id']) &&
+        typeof bank['name'] === 'string' &&
+        typeof bank['filename'] === 'string' &&
+        level(bank['bytes'], 1, 128 * 1024 * 1024) &&
+        level(bank['programs'], 1, 128),
+    )
+  );
 }
 
 export interface TransportState {
+  mixPresets?: { id: string; name: string }[];
+  markers?: { id: string; name: string; startMeasureIndex: number; endMeasureIndex: number }[];
+  tempoPractice?: { enabled: boolean; stepBpm: number; targetBpm: number; loopsPerStep: number };
+  completedLoops?: number;
+  soundBankId?: string;
+  soundBankName?: string;
+  soundBankError?: string;
   master?: number;
   loop?: {
     startTick: number;
@@ -182,6 +214,63 @@ export interface PartImportReview {
   }[];
 }
 
+export interface AlignmentPreview {
+  valid: boolean;
+  parts: {
+    id: string;
+    name: string;
+    problem: string;
+    totalMeasures: number;
+    rows: {
+      sourcePosition: number;
+      targetPosition: number;
+      sourceNumber: string;
+      targetNumber: string;
+      sourceMeter: string;
+      targetMeter: string;
+      sourceDuration: string;
+      targetDuration: string;
+      sourceBpm: number;
+      targetBpm: number;
+      pickup: boolean;
+    }[];
+  }[];
+}
+
+export function isAlignmentPreview(value: unknown): value is AlignmentPreview {
+  return (
+    record(value) &&
+    typeof value['valid'] === 'boolean' &&
+    Array.isArray(value['parts']) &&
+    value['parts'].every(
+      (part: unknown) =>
+        record(part) &&
+        typeof part['id'] === 'string' &&
+        typeof part['name'] === 'string' &&
+        typeof part['problem'] === 'string' &&
+        integer(part['totalMeasures']) &&
+        Array.isArray(part['rows']) &&
+        part['rows'].every(
+          (row: unknown) =>
+            record(row) &&
+            integer(row['sourcePosition']) &&
+            integer(row['targetPosition']) &&
+            typeof row['pickup'] === 'boolean' &&
+            [
+              'sourceNumber',
+              'targetNumber',
+              'sourceMeter',
+              'targetMeter',
+              'sourceDuration',
+              'targetDuration',
+            ].every((key) => typeof row[key] === 'string') &&
+            level(row['sourceBpm'], 0, 1000) &&
+            level(row['targetBpm'], 0, 1000),
+        ),
+    )
+  );
+}
+
 export function isPartImportReview(value: unknown): value is PartImportReview {
   return (
     record(value) &&
@@ -291,6 +380,39 @@ export function isTransport(value: unknown): value is TransportState {
       value['status'] === 'PAUSED' ||
       value['status'] === 'PLAYING') &&
     (value['master'] === undefined || level(value['master'], 0, 1)) &&
+    ['soundBankId', 'soundBankName', 'soundBankError'].every(
+      (key) => value[key] === undefined || typeof value[key] === 'string',
+    ) &&
+    (value['mixPresets'] === undefined ||
+      (Array.isArray(value['mixPresets']) &&
+        value['mixPresets'].length <= 12 &&
+        value['mixPresets'].every(
+          (preset: unknown) =>
+            record(preset) &&
+            typeof preset['id'] === 'string' &&
+            typeof preset['name'] === 'string',
+        ))) &&
+    (value['markers'] === undefined ||
+      (Array.isArray(value['markers']) &&
+        value['markers'].length <= 24 &&
+        value['markers'].every(
+          (marker: unknown) =>
+            record(marker) &&
+            typeof marker['id'] === 'string' &&
+            typeof marker['name'] === 'string' &&
+            integer(marker['startMeasureIndex']) &&
+            integer(marker['endMeasureIndex']) &&
+            marker['startMeasureIndex'] >= 0 &&
+            marker['endMeasureIndex'] >= marker['startMeasureIndex'],
+        ))) &&
+    (value['completedLoops'] === undefined ||
+      (integer(value['completedLoops']) && value['completedLoops'] >= 0)) &&
+    (value['tempoPractice'] === undefined ||
+      (record(value['tempoPractice']) &&
+        typeof value['tempoPractice']['enabled'] === 'boolean' &&
+        level(value['tempoPractice']['stepBpm'], 1, 20) &&
+        level(value['tempoPractice']['targetBpm'], 30, 300) &&
+        level(value['tempoPractice']['loopsPerStep'], 1, 20))) &&
     integer(value['tick']) &&
     (value['audibleTick'] === undefined || integer(value['audibleTick'])) &&
     (value['audibleBpm'] === undefined ||

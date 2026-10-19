@@ -76,6 +76,65 @@
     Adicionar correspondência
   </button>
   }
+  <button
+    type="button"
+    (click)="checkAlignment()"
+    [disabled]="checking() || !selected().length || session.busy()"
+  >
+    {{ checking() ? 'Verificando…' : 'Verificar alinhamento' }}
+  </button>
+  @if (alignmentError()) {
+  <p class="error" role="status">{{ alignmentError() }}</p>
+  } @if (alignment(); as comparison) {
+  <p role="status">
+    {{ comparison.valid ? 'Alinhamento validado. Confira as correspondências antes de integrar.' :
+    'Corrija os conflitos antes de integrar.' }}
+  </p>
+  @for (part of comparison.parts; track part.id) {
+  <details [open]="!!part.problem">
+    <summary>{{ part.name }} · comparação</summary>
+    @if (part.problem) {
+    <p class="error">{{ part.problem }}</p>
+    }
+    <div class="alignment-table" tabindex="0" aria-label="Comparação de compassos">
+      <table>
+        <caption>
+          Parte → composição · duração em fração de semibreve
+        </caption>
+        <thead>
+          <tr>
+            <th scope="col">Posição</th>
+            <th scope="col">Compasso</th>
+            <th scope="col">Fórmula</th>
+            <th scope="col">Duração</th>
+            <th scope="col">BPM</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of part.rows; track row.sourcePosition) {
+          <tr
+            [class.conflict]="row.sourceMeter !== row.targetMeter || row.sourceDuration !== row.targetDuration || (row.sourceBpm > 0 && row.sourceBpm !== row.targetBpm)"
+          >
+            <td>{{ row.sourcePosition }} → {{ row.targetPosition }}</td>
+            <td>
+              {{ row.sourceNumber }} → {{ row.targetNumber }}{{ row.pickup ? ' · anacruse' : '' }}
+            </td>
+            <td>{{ row.sourceMeter }} → {{ row.targetMeter }}</td>
+            <td>{{ row.sourceDuration }} → {{ row.targetDuration }}</td>
+            <td>{{ row.sourceBpm || 'Herdado' }} → {{ row.targetBpm || '—' }}</td>
+          </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+    @if (part.totalMeasures > part.rows.length) {
+    <p>
+      Prévia dos primeiros {{ part.rows.length }} de {{ part.totalMeasures }} compassos. A validação
+      abrange toda a parte.
+    </p>
+    }
+  </details>
+  } }
   <div class="import-actions">
     <button type="button" (click)="confirm()" [disabled]="session.busy() || !canConfirm()">
       Confirmar importação</button
