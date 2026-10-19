@@ -31,14 +31,17 @@ public final class DesktopApplication {
               "arpeon.omr.tempDir", UserDirectories.data().resolve("temporary").toString());
           var stopped = new CountDownLatch(1);
           try (var server =
-              new DesktopServer(
-                  new TunerService(new JavaSoundAudioInput(), new YinPitchDetector()))) {
+              new ProfileSessions(
+                  UserDirectories.data(),
+                  LocalAccountStore.configuredLimit(),
+                  () -> new TunerService(new JavaSoundAudioInput(), new YinPitchDetector()))) {
             server.onShutdown(stopped::countDown);
             Thread hook = new Thread(server::close, "arpeon-shutdown");
             Runtime.getRuntime().addShutdownHook(hook);
             try {
               server.start();
-              try (var window = new DesktopWindow(server.launchUri(), stopped::countDown)) {
+              try (var window =
+                  new DesktopWindow(server.launchUri(), stopped::countDown, server::launchUri)) {
                 var settings = updateSettings();
                 String version = AppInstallation.version();
                 try (var updater =

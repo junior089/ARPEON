@@ -38,6 +38,11 @@ final class DesktopWindow implements AutoCloseable {
   private volatile boolean loaded;
 
   DesktopWindow(URI launch, Runnable closeBeforeLoad) throws Exception {
+    this(launch, closeBeforeLoad, () -> launch);
+  }
+
+  DesktopWindow(URI launch, Runnable closeBeforeLoad, java.util.function.Supplier<URI> activeLaunch)
+      throws Exception {
     var builder = new CefAppBuilder();
     var bundle = AppInstallation.component("tools/cef");
     if (!java.nio.file.Files.isRegularFile(bundle.resolve("install.lock")))
@@ -55,7 +60,11 @@ final class DesktopWindow implements AutoCloseable {
         UserDirectories.data().resolve("logs/chromium.log").toString();
     app = builder.build();
     client = app.createClient();
-    String origin = launch.getScheme() + "://" + launch.getAuthority();
+    java.util.function.Supplier<String> currentOrigin =
+        () -> {
+          URI active = activeLaunch.get();
+          return active.getScheme() + "://" + active.getAuthority();
+        };
     client.addRequestHandler(
         new CefRequestHandlerAdapter() {
           @Override
@@ -66,9 +75,13 @@ final class DesktopWindow implements AutoCloseable {
               boolean userGesture,
               boolean redirect) {
             String url = request.getURL();
+            String origin = currentOrigin.get();
             if (url.equals("about:blank")
                 || url.startsWith(origin + "/#")
-                || url.equals(origin + "/")) return false;
+                || url.equals(origin + "/")) {
+              if (page.isMain()) loaded = false;
+              return false;
+            }
             if (userGesture) openLink(url, origin);
             return true;
           }
@@ -77,7 +90,7 @@ final class DesktopWindow implements AutoCloseable {
         new CefLifeSpanHandlerAdapter() {
           @Override
           public boolean onBeforePopup(CefBrowser view, CefFrame page, String url, String name) {
-            openLink(url, origin);
+            openLink(url, currentOrigin.get());
             return true;
           }
         });
@@ -90,6 +103,7 @@ final class DesktopWindow implements AutoCloseable {
               String name,
               CefBeforeDownloadCallback callback) {
             String url = item.getURL();
+            String origin = currentOrigin.get();
             if (!(url.startsWith(origin + "/") || url.startsWith("blob:" + origin + "/")))
               return true;
             callback.Continue("", true);

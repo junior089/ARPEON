@@ -4,6 +4,7 @@ import {
   ElementRef,
   HostListener,
   inject,
+  output,
   signal,
   ViewChild,
 } from '@angular/core';
@@ -24,9 +25,11 @@ import { ProjectLibrary } from './features/score/project-library';
 import { SettingsPanel } from './features/settings/settings-panel';
 import { AudioSettings } from './core/audio-settings';
 import { ReferenceTone } from './core/reference-tone';
+import { StudyProfiles } from './core/study-profiles';
+import { ScoreReadingPreferences } from './core/score-reading-preferences';
 
 @Component({
-  selector: 'app-root',
+  selector: 'app-workstation',
   imports: [
     Icon,
     TunerPanel,
@@ -43,6 +46,51 @@ import { ReferenceTone } from './core/reference-tone';
   styleUrl: './app.scss',
 })
 export class App {
+  readonly profiles = inject(StudyProfiles);
+  private readonly readingPreferences = inject(ScoreReadingPreferences);
+  readonly profileRequested = output<void>();
+  readonly profileChanging = signal(false);
+  readonly profileChangeError = signal('');
+
+  async requestProfiles(): Promise<void> {
+    if (this.profileChanging() || !this.profiles.account()) return;
+    this.profileChangeError.set('');
+    if (
+      this.score.busy() ||
+      this.score.savingProject() ||
+      this.captureActive() ||
+      this.importer?.busy() ||
+      this.importer?.recognizingOmr() ||
+      this.importer?.pending() ||
+      this.importer?.omrPending()
+    ) {
+      this.profileChangeError.set(
+        'Conclua ou cancele a operação, a captura ou o rascunho de importação antes de trocar de perfil.',
+      );
+      return;
+    }
+    this.profileChanging.set(true);
+    try {
+      if (this.score.score()) {
+        await this.score.action('stop');
+        if (this.score.error()) throw new Error(this.score.error());
+        if (this.score.projectDirty() && !(await this.score.saveProject())) return;
+      }
+      this.tone.stop();
+      await this.readingPreferences.flush();
+      await this.audio.flush();
+      if (this.preferences.error() || this.audio.preferencesError())
+        throw new Error('Guarde os ajustes pendentes antes de trocar de perfil.');
+      this.productDialog?.nativeElement.close();
+      this.profileRequested.emit();
+    } catch (failure) {
+      this.profileChangeError.set(
+        failure instanceof Error ? failure.message : 'Não foi possível preparar a troca de perfil.',
+      );
+    } finally {
+      this.profileChanging.set(false);
+    }
+  }
   constructor() {
     inject(DestroyRef).onDestroy(() => this.stopUpdateStatusPolling());
   }

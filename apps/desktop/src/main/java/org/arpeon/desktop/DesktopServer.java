@@ -43,9 +43,9 @@ import org.arpeon.tuner.TuningReference;
 /** Same-origin loopback bridge. Microphone samples and local filesystem paths stay in Java. */
 public final class DesktopServer implements AutoCloseable {
   private final TunerService tuner;
-  private final ScoreWorkspace workspace = new ScoreWorkspace();
+  private final ScoreWorkspace workspace;
   private final AnalysisWorkspace analysis;
-  private final AnalysisHistory analysisHistory = AnalysisHistory.defaultHistory();
+  private final AnalysisHistory analysisHistory;
   private final ImportWorkspace imports;
   private final OmrWorkspace omr;
   private final PracticeWorkspace practice = new PracticeWorkspace();
@@ -87,6 +87,11 @@ public final class DesktopServer implements AutoCloseable {
   private volatile String analysisProjectId;
   private volatile long lastPersistedAnalysisStart = Long.MIN_VALUE;
   private volatile Runnable shutdownCallback = () -> {};
+  private final java.util.concurrent.locks.ReentrantReadWriteLock profileGate =
+      new java.util.concurrent.locks.ReentrantReadWriteLock(true);
+  private ProfileSessions profiles;
+  private boolean selectionRequired;
+  private volatile boolean retiredProfile;
   private final Gson json =
       new GsonBuilder()
           .setStrictness(Strictness.STRICT)
@@ -165,7 +170,32 @@ public final class DesktopServer implements AutoCloseable {
       PreferencesStore preferences,
       AudioPreferencesStore audioPreferences)
       throws IOException {
+    this(
+        tuner,
+        practiceHistory,
+        imports,
+        omr,
+        projects,
+        preferences,
+        audioPreferences,
+        AnalysisHistory.defaultHistory(),
+        new ScoreWorkspace());
+  }
+
+  private DesktopServer(
+      TunerService tuner,
+      PracticeHistory practiceHistory,
+      ImportWorkspace imports,
+      OmrWorkspace omr,
+      ProjectStore projects,
+      PreferencesStore preferences,
+      AudioPreferencesStore audioPreferences,
+      AnalysisHistory analysisHistory,
+      ScoreWorkspace workspace)
+      throws IOException {
     this.tuner = tuner;
+    this.workspace = workspace;
+    this.analysisHistory = analysisHistory;
     this.analysis = new AnalysisWorkspace(workspace, tuner);
     this.practiceHistory = practiceHistory;
     this.imports = imports;
@@ -180,6 +210,33 @@ public final class DesktopServer implements AutoCloseable {
     token = Base64.getUrlEncoder().withoutPadding().encodeToString(secret);
     server.createContext("/", this::handle);
     server.setExecutor(requests);
+  }
+
+  static DesktopServer forProfile(
+      TunerService tuner, java.nio.file.Path profile, java.nio.file.Path deviceData)
+      throws IOException {
+    return new DesktopServer(
+        tuner,
+        new PracticeHistory(profile.resolve("practice-history.json")),
+        new ImportWorkspace(),
+        new OmrWorkspace(new AudiverisOmrEngine()),
+        new ProjectStore(profile.resolve("projects")),
+        new PreferencesStore(profile.resolve("preferences.json")),
+        new AudioPreferencesStore(deviceData.resolve("audio-preferences.json")),
+        new AnalysisHistory(profile.resolve("analysis-history.json")),
+        new ScoreWorkspace(profile.resolve("soundbanks")));
+  }
+
+  void profileSession(ProfileSessions host, String id, boolean required) {
+    java.util.Objects.requireNonNull(id);
+    profiles = host;
+    selectionRequired = required;
+  }
+
+  void retireProfile() {
+    retiredProfile = true;
+    workspace.stopIfPlaying();
+    practice.close();
   }
 
   public URI launchUri() {
@@ -296,6 +353,128 @@ public final class DesktopServer implements AutoCloseable {
   }
 
   private void api(HttpExchange exchange, String path) throws IOException {
+    if (path.equals("/api/profiles/select") && profiles != null) {
+      if (!profileGate.writeLock().tryLock()) {
+        sendJson(
+            exchange, 409, Map.of("error", "Aguarde a operação atual antes de trocar de perfil."));
+        return;
+      }
+      try {
+        profileApi(exchange, path);
+      } finally {
+        profileGate.writeLock().unlock();
+      }
+      return;
+    }
+    profileGate.readLock().lock();
+    try {
+      if (retiredProfile) {
+        sendJson(exchange, 410, Map.of("error", "A sessão deste perfil foi encerrada."));
+        return;
+      }
+      if (profiles == null
+          && path.equals("/api/account")
+          && exchange.getRequestMethod().equals("GET")) {
+        sendJson(exchange, 404, Map.of("error", "Esta sessão não gerencia perfis locais."));
+        return;
+      }
+      if (profiles != null && (path.equals("/api/account") || path.startsWith("/api/profiles"))) {
+        profileApi(exchange, path);
+        return;
+      }
+      if (selectionRequired && !path.equals("/api/shutdown")) {
+        sendJson(exchange, 409, Map.of("error", "Selecione um perfil antes de abrir seus dados."));
+        return;
+      }
+      if (profiles != null
+          && path.matches("/api/projects/[0-9a-f-]{36}(/(open|rename|duplicate))?")) {
+        String id = path.substring("/api/projects/".length()).split("/", 2)[0];
+        if (!projects.contains(id)) {
+          sendJson(exchange, 404, Map.of("error", "Projeto não encontrado neste perfil."));
+          return;
+        }
+      }
+      scopedApi(exchange, path);
+    } finally {
+      profileGate.readLock().unlock();
+    }
+  }
+
+  private void profileApi(HttpExchange exchange, String path) throws IOException {
+    try {
+      if (retiredProfile)
+        throw new IllegalStateException("A sessão deste perfil já foi encerrada.");
+      var account = profiles.account();
+      String method = exchange.getRequestMethod();
+      if (path.equals("/api/account") && method.equals("GET")) {
+        sendJson(exchange, 200, account.view(selectionRequired));
+      } else if (path.equals("/api/account") && method.equals("PUT")) {
+        var request = smallJson(exchange);
+        if (!request.keySet().equals(Set.of("name", "openLastProfile")))
+          throw new IllegalArgumentException("Preferências da conta inválidas.");
+        account.preferences(
+            practiceString(request, "name"), practiceBoolean(request, "openLastProfile"));
+        sendJson(exchange, 200, account.view(selectionRequired));
+      } else if (path.equals("/api/profiles/select") && method.equals("POST")) {
+        var request = smallJson(exchange);
+        if (!request.keySet().equals(Set.of("profileId")))
+          throw new IllegalArgumentException("Informe apenas o perfil.");
+        var uri = profiles.select(this, practiceString(request, "profileId"));
+        sendJson(exchange, 200, Map.of("launchUri", uri.toString()));
+      } else if (path.equals("/api/profiles/archive") && method.equals("POST")) {
+        var request = smallJson(exchange);
+        if (!request.keySet().equals(Set.of("profileId", "archived")))
+          throw new IllegalArgumentException("Dados de arquivamento inválidos.");
+        account.archive(practiceString(request, "profileId"), practiceBoolean(request, "archived"));
+        sendJson(exchange, 200, account.view(selectionRequired));
+      } else if (path.equals("/api/profiles") && Set.of("POST", "PUT").contains(method)) {
+        var request = smallJson(exchange);
+        var expected =
+            method.equals("POST")
+                ? Set.of("name", "avatar", "instrumentId", "secondaryInstrumentIds")
+                : Set.of("profileId", "name", "avatar", "instrumentId", "secondaryInstrumentIds");
+        if (!request.keySet().equals(expected))
+          throw new IllegalArgumentException("Dados do perfil inválidos.");
+        var secondary = request.get("secondaryInstrumentIds");
+        if (!secondary.isJsonArray() || secondary.getAsJsonArray().size() > 16)
+          throw new IllegalArgumentException("Instrumentos secundários inválidos.");
+        var instruments = new java.util.ArrayList<String>();
+        for (var instrument : secondary.getAsJsonArray()) {
+          if (!instrument.isJsonPrimitive() || !instrument.getAsJsonPrimitive().isString())
+            throw new IllegalArgumentException("Instrumento inválido.");
+          instruments.add(instrument.getAsString());
+        }
+        if (method.equals("POST"))
+          account.create(
+              practiceString(request, "name"),
+              practiceString(request, "avatar"),
+              practiceString(request, "instrumentId"),
+              instruments);
+        else
+          account.edit(
+              practiceString(request, "profileId"),
+              practiceString(request, "name"),
+              practiceString(request, "avatar"),
+              practiceString(request, "instrumentId"),
+              instruments);
+        sendJson(exchange, 200, account.view(selectionRequired));
+      } else sendJson(exchange, 404, Map.of("error", "Operação de perfil não encontrada."));
+    } catch (JsonParseException | IllegalArgumentException | ArithmeticException invalid) {
+      sendJson(exchange, 400, Map.of("error", invalid.getMessage()));
+    } catch (IllegalStateException busy) {
+      sendJson(exchange, 409, Map.of("error", busy.getMessage()));
+    } catch (IOException failure) {
+      sendJson(
+          exchange,
+          500,
+          Map.of(
+              "error",
+              "Não foi possível guardar ou abrir o perfil. Os dados anteriores foram"
+                  + " preservados."));
+    }
+  }
+
+  private void scopedApi(HttpExchange exchange, String path) throws IOException {
     if (path.startsWith("/api/transport")
         || path.startsWith("/api/tuner")
         || path.startsWith("/api/practice")
@@ -441,6 +620,10 @@ public final class DesktopServer implements AutoCloseable {
                     || !request.get("autosave").getAsJsonPrimitive().isBoolean())))
           throw new IllegalArgumentException("Invalid project save request");
         String id = request.has("id") ? practiceString(request, "id") : null;
+        if (profiles != null && id != null && !id.isBlank() && !projects.contains(id)) {
+          sendJson(exchange, 404, Map.of("error", "Projeto não encontrado neste perfil."));
+          return;
+        }
         boolean autosave = request.has("autosave") && practiceBoolean(request, "autosave");
         ProjectStore.Data data;
         int revision;
@@ -1296,7 +1479,9 @@ public final class DesktopServer implements AutoCloseable {
       throw new IllegalArgumentException("Expected application/json");
     byte[] body = exchange.getRequestBody().readNBytes(limit + 1);
     if (body.length > limit) throw new IllegalArgumentException("Request is too large");
-    return json.fromJson(new String(body, StandardCharsets.UTF_8), JsonObject.class);
+    JsonObject request = json.fromJson(new String(body, StandardCharsets.UTF_8), JsonObject.class);
+    if (request == null) throw new IllegalArgumentException("Expected a JSON object");
+    return request;
   }
 
   private void emptyJson(HttpExchange exchange) throws IOException {

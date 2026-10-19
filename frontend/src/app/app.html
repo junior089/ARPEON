@@ -52,8 +52,21 @@
     </details>
     }
   </nav>
+  @if (profiles.active(); as profile) {
+  <button
+    class="profile-button"
+    type="button"
+    (click)="requestProfiles()"
+    [disabled]="profileChanging()"
+    [attr.aria-label]="'Trocar perfil: ' + profile.name"
+  >
+    {{ profile.name }}
+  </button>
+  }
 </header>
-@if (preferences.error()) {
+@if (profileChangeError()) {
+<p class="shutdown-notice error" role="alert">{{ profileChangeError() }}</p>
+} @if (preferences.error()) {
 <div class="preferences-notice" role="status">
   <span>{{ preferences.error() }}</span
   ><button type="button" (click)="preferences.retry()" [disabled]="preferences.saving()">
@@ -158,7 +171,9 @@
   </div>
 </div>
 <footer class="statusbar">
-  <span class="local-state"><span aria-hidden="true">●</span> Local · sem conta</span>
+  <span class="local-state"
+    ><span aria-hidden="true">●</span> Local · {{ profiles.active()?.name ?? 'sem conta' }}</span
+  >
   <span class="document-status"
     >{{ score.score() ? score.savingProject() ? 'Salvando projeto…' : score.projectSaveError() ?
     'Falha ao salvar · tentar novamente' : score.projectDirty() ? 'Alterações não salvas' : 'Projeto
@@ -232,6 +247,7 @@
     [busy]="score.busy()"
     [version]="updateVersion()"
     (manageUpdates)="openProduct('updates')"
+    (manageProfiles)="requestProfiles()"
   />
   } @placeholder {
   <p role="status">Carregando preferências…</p>

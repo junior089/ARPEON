@@ -27,13 +27,23 @@
       <header>
         <h3 [id]="'settings-' + item.id">{{ item.label }}</h3>
         <p>
-          {{ item.id === 'audio' ? 'Preferências deste dispositivo, compartilhadas entre Afinador,
-          Prática e Análise.' : item.id === 'updates' ? 'Preferências desta instalação. A
+          {{ item.id === 'profiles' ? 'Identidade local e bibliotecas independentes neste
+          computador.' : item.id === 'audio' ? 'Preferências deste dispositivo, compartilhadas entre
+          Afinador, Prática e Análise.' : item.id === 'updates' ? 'Preferências desta instalação. A
           verificação automática exige sua escolha.' : 'Preferências locais, aplicadas imediatamente
           à área de trabalho.' }}
         </p>
       </header>
-      @switch (item.id) { @case ('interface') {
+      @switch (item.id) { @case ('profiles') {
+      <p>Conta {{ profiles.account()?.name }} · Perfil {{ profiles.active()?.name }}</p>
+      <button type="button" (click)="manageProfiles.emit()" [disabled]="busy() || captureActive()">
+        Gerenciar e trocar perfis
+      </button>
+      <p class="hint">
+        O projeto e os ajustes são guardados antes da troca. Encerre a captura e conclua as
+        importações pendentes.
+      </p>
+      } @case ('interface') {
       <div class="setting-row">
         <span id="settings-theme-label">Tema da interface</span>
         <div role="group" aria-labelledby="settings-theme-label">

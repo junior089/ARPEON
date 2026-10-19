@@ -1,0 +1,193 @@
+<main class="profile-page">
+  <header class="profile-heading">
+    <img src="/brand/arpeon-symbol-accent.svg" alt="" width="32" height="32" />
+    <div>
+      <h1>Quem vai estudar?</h1>
+      <p>Escolha uma biblioteca e continue seu trabalho musical.</p>
+    </div>
+    @if (!profiles.account()?.selectionRequired) {
+    <button type="button" (click)="back()" [disabled]="profiles.busy()">Voltar ao estudo</button>
+    }
+  </header>
+  @if (profiles.error()) {
+  <p class="error" role="alert">{{ profiles.error() }}</p>
+  }
+  <div class="profile-content">
+    <section aria-labelledby="profiles-title">
+      <div class="section-heading">
+        <h2 id="profiles-title">Perfis de estudo</h2>
+        <span
+          >{{ profiles.account()?.profiles?.length }} de {{ profiles.account()?.maxProfiles }}</span
+        >
+      </div>
+      <div class="profiles-grid">
+        @for (profile of available(); track profile.id) {
+        <article class="profile-item">
+          <button
+            type="button"
+            class="profile-select"
+            (click)="choose(profile.id)"
+            [disabled]="profiles.busy()"
+            [attr.aria-label]="'Estudar com ' + profile.name"
+          >
+            <span class="profile-avatar" [attr.data-avatar]="profile.avatar" aria-hidden="true"
+              >{{ initials(profile.name) }}</span
+            >
+            <strong>{{ profile.name }}</strong
+            ><span>{{ instrumentName(profile.instrumentId) }}</span>
+          </button>
+          <div class="profile-actions">
+            <button type="button" (click)="edit(profile)" [disabled]="profiles.busy()">
+              Editar <span class="sr-only">{{ profile.name }}</span></button
+            ><button
+              type="button"
+              (click)="archive(profile)"
+              [disabled]="profiles.busy() || profile.id === profiles.account()?.activeProfileId"
+            >
+              Arquivar <span class="sr-only">{{ profile.name }}</span>
+            </button>
+          </div>
+        </article>
+        }
+      </div>
+      <button
+        type="button"
+        class="create-profile"
+        (click)="edit()"
+        [disabled]="profiles.busy() || (profiles.account()?.profiles?.length ?? 0) >= (profiles.account()?.maxProfiles ?? 0)"
+      >
+        Criar perfil
+      </button>
+      @if ((profiles.account()?.profiles?.length ?? 0) >= (profiles.account()?.maxProfiles ?? 0)) {
+      <p class="hint">
+        Limite de perfis atingido. Perfis arquivados preservam seus dados e também contam neste
+        limite.
+      </p>
+      } @if (archived().length) {
+      <details class="archived-profiles">
+        <summary>Perfis arquivados · {{ archived().length }}</summary>
+        @for (profile of archived(); track profile.id) {
+        <div class="archived-row">
+          <span>{{ profile.name }} · {{ instrumentName(profile.instrumentId) }}</span
+          ><button
+            type="button"
+            (click)="profiles.archive(profile.id, false)"
+            [disabled]="profiles.busy()"
+          >
+            Restaurar <span class="sr-only">{{ profile.name }}</span>
+          </button>
+        </div>
+        }
+      </details>
+      }
+    </section>
+    @if (editing() !== null) {
+    <section class="profile-editor" aria-labelledby="edit-profile-title">
+      <h2 id="edit-profile-title">{{ editing() ? 'Editar perfil' : 'Criar perfil' }}</h2>
+      <form (submit)="save($event)">
+        <label for="profile-name">Nome</label
+        ><input
+          id="profile-name"
+          #profileName
+          type="text"
+          maxlength="48"
+          required
+          autocomplete="off"
+          [value]="name()"
+          (input)="name.set(profileName.value)"
+          [disabled]="profiles.busy()"
+        />
+        <fieldset [disabled]="profiles.busy()">
+          <legend>Cor do avatar</legend>
+          <div class="avatar-options">
+            @for (option of avatars; track option.id) {
+            <button
+              type="button"
+              [attr.data-avatar]="option.id"
+              [attr.aria-label]="option.name"
+              [attr.aria-pressed]="avatar() === option.id"
+              (click)="avatar.set(option.id)"
+            >
+              <span class="profile-avatar" [attr.data-avatar]="option.id" aria-hidden="true"
+                >{{ initials(name()) || 'A' }}</span
+              >
+            </button>
+            }
+          </div>
+        </fieldset>
+        <label for="profile-instrument">Instrumento principal</label
+        ><select
+          id="profile-instrument"
+          #primary
+          (change)="setInstrument(primary.value)"
+          [disabled]="profiles.busy()"
+        >
+          @for (item of profiles.account()?.instruments; track item.id) {
+          <option [value]="item.id" [selected]="instrument() === item.id">{{ item.name }}</option>
+          }
+        </select>
+        <label for="profile-secondary"
+          >Instrumentos secundários
+          <small>Opcional · Ctrl ou Command para selecionar vários.</small></label
+        ><select
+          id="profile-secondary"
+          multiple
+          size="4"
+          (change)="secondaryChanged($event)"
+          [disabled]="profiles.busy()"
+        >
+          @for (item of profiles.account()?.instruments; track item.id) { @if (item.id !==
+          instrument()) {
+          <option [value]="item.id" [selected]="secondary().includes(item.id)">
+            {{ item.name }}
+          </option>
+          } }
+        </select>
+        <p class="hint">
+          O perfil organiza seus instrumentos. A instrumentação das partituras importadas é
+          preservada.
+        </p>
+        <div class="form-actions">
+          <button class="primary" type="submit" [disabled]="profiles.busy() || !name().trim()">
+            {{ profiles.busy() ? 'Guardando…' : 'Guardar perfil' }}</button
+          ><button type="button" (click)="editing.set(null)" [disabled]="profiles.busy()">
+            Cancelar
+          </button>
+        </div>
+      </form>
+    </section>
+    }
+  </div>
+  <section class="account-options" aria-labelledby="account-title">
+    <h2 id="account-title">Conta local</h2>
+    <label for="account-name">Nome da conta</label
+    ><input
+      id="account-name"
+      #accountName
+      type="text"
+      maxlength="48"
+      [value]="profiles.account()?.name ?? ''"
+      (change)="profiles.preferences(accountName.value, profiles.account()?.openLastProfile ?? false)"
+      [disabled]="profiles.busy()"
+    />
+    <label class="resume-option"
+      ><input
+        type="checkbox"
+        [checked]="profiles.account()?.openLastProfile ?? false"
+        (change)="startupChanged($event)"
+        [disabled]="profiles.busy()"
+      /><span
+        >Iniciar automaticamente no último perfil<small
+          >Desmarcado, o seletor aparece a cada abertura do aplicativo.</small
+        ></span
+      ></label
+    >
+    <p class="hint">
+      Bibliotecas, estudos e preferências ficam neste computador, separados por perfil. Perfis não
+      substituem a proteção da conta do sistema operacional; não há PIN de perfil nesta etapa.
+    </p>
+  </section>
+  @if (profiles.busy()) {
+  <p role="status">Preparando o perfil…</p>
+  }
+</main>

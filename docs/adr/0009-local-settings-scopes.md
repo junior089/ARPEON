@@ -2,6 +2,10 @@
 
 Status: aceito para a primeira entrega do ecossistema.
 
+Evolução: o [ADR 0010](0010-local-account-profile-sessions.md) implementa os
+escopos de conta/perfil descritos como futuros neste registro. Interface/leitura
+agora pertencem ao perfil nas sessões de produção; dispositivos continuam locais.
+
 ## Decisão
 
 Reutilizar `PreferencesStore`, `AudioPreferencesStore`, `UpdatePreferences` e o

@@ -3,6 +3,11 @@
 Data da auditoria: 18/10/2026. Base: `c54c590`. Cada linha abaixo representa
 entregas pequenas; não é uma declaração de funcionalidades implementadas.
 
+Atualização em 19/10/2026: as entregas 0/1 estão registradas em
+[central de configurações](settings-foundation.md); 2a/2b em
+[conta local e perfis](local-study-profiles.md). O inventário abaixo preserva a
+fotografia da auditoria inicial; o ADR 0010 define os escopos atuais por perfil.
+
 ## Evidências do repositório
 
 - Java 25, Gradle Kotlin DSL, Angular 22 strict/SCSS e JCEF estão em uso.

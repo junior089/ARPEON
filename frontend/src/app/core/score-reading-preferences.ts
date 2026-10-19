@@ -20,15 +20,22 @@ export class ScoreReadingPreferences {
   readonly followFingering = signal(this.initial.followFingering);
 
   constructor() {
-    effect(() => {
-      this.preferences.update({
-        readingEnabled: this.readingEnabled(),
-        readingLanguage: this.readingLanguage(),
-        readingOctave: this.readingOctave(),
-        readingScope: this.readingScope(),
-        followFingering: this.followFingering(),
-      });
+    effect(() => this.persist());
+  }
+
+  private persist(): void {
+    this.preferences.update({
+      readingEnabled: this.readingEnabled(),
+      readingLanguage: this.readingLanguage(),
+      readingOctave: this.readingOctave(),
+      readingScope: this.readingScope(),
+      followFingering: this.followFingering(),
     });
+  }
+
+  async flush(): Promise<void> {
+    this.persist();
+    await this.preferences.flush();
   }
 
   reset(): void {
