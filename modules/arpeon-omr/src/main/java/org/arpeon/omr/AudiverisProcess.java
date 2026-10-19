@@ -40,6 +40,10 @@ final class AudiverisProcess {
               + failure.getMessage(),
           failure);
     }
+    awaitCompletion(process, timeout);
+  }
+
+  static void awaitCompletion(Process process, Duration timeout) throws IOException {
     var tail = new Tail();
     Thread reader =
         Thread.ofVirtual()

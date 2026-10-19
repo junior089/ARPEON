@@ -25,8 +25,7 @@ class AudiverisProcessTest {
         "-cp",
         classes,
         Probe.class.getName(),
-        mode,
-        directory.resolve("probe.pid").toString());
+        mode);
   }
 
   @Test
@@ -42,15 +41,22 @@ class AudiverisProcessTest {
 
   @Test
   void timeoutStopsNativeProcess() throws Exception {
-    assertThrows(
-        IOException.class,
-        () -> AudiverisProcess.run(command("wait"), directory, Duration.ofSeconds(2)));
-    long pid = Long.parseLong(Files.readString(directory.resolve("probe.pid")));
-    assertFalse(ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false));
+    Process process = new ProcessBuilder(command("wait")).directory(directory.toFile()).start();
+    try {
+      var failure =
+          assertThrows(
+              IOException.class,
+              () -> AudiverisProcess.awaitCompletion(process, Duration.ofSeconds(2)));
+      assertTrue(failure.getMessage().contains("excedeu o limite"));
+      assertFalse(process.isAlive());
+    } finally {
+      process.destroyForcibly();
+    }
   }
 
   @Test
   void interruptionStopsNativeProcessAndPreservesInterruptFlag() throws Exception {
+    Process process = new ProcessBuilder(command("wait")).directory(directory.toFile()).start();
     var failure = new java.util.concurrent.atomic.AtomicReference<Throwable>();
     var interrupted = new java.util.concurrent.atomic.AtomicBoolean();
     Thread worker =
@@ -58,31 +64,27 @@ class AudiverisProcessTest {
             .start(
                 () -> {
                   try {
-                    AudiverisProcess.run(command("wait"), directory, Duration.ofMinutes(1));
+                    AudiverisProcess.awaitCompletion(process, Duration.ofMinutes(1));
                   } catch (Throwable ex) {
                     failure.set(ex);
                     interrupted.set(Thread.currentThread().isInterrupted());
                   }
                 });
-    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
-    while (!Files.exists(directory.resolve("probe.pid")) && System.nanoTime() < deadline)
-      Thread.sleep(10);
-    assertTrue(Files.exists(directory.resolve("probe.pid")));
-    worker.interrupt();
-    worker.join(7000);
-    assertFalse(worker.isAlive());
-    assertInstanceOf(IOException.class, failure.get());
-    assertTrue(interrupted.get());
-    long pid = Long.parseLong(Files.readString(directory.resolve("probe.pid")));
-    assertFalse(ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false));
+    try {
+      worker.interrupt();
+      worker.join(7000);
+      assertFalse(worker.isAlive());
+      assertInstanceOf(IOException.class, failure.get());
+      assertTrue(interrupted.get());
+      assertFalse(process.isAlive());
+    } finally {
+      worker.interrupt();
+      process.destroyForcibly();
+    }
   }
 
   public static final class Probe {
     public static void main(String[] args) throws Exception {
-      Path marker = Path.of(args[1]);
-      Path ready = marker.resolveSibling(marker.getFileName() + ".ready");
-      Files.writeString(ready, Long.toString(ProcessHandle.current().pid()));
-      Files.move(ready, marker, java.nio.file.StandardCopyOption.ATOMIC_MOVE);
       if (args[0].equals("fail")) {
         System.err.println("x".repeat(65536));
         System.err.println("PROBE_FAILURE_DETAIL");
