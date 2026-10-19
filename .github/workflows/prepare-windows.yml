@@ -44,8 +44,8 @@ jobs:
           $fixtures = 'apps/desktop/build/msi-test-fixtures'
           # The second MSI changes installer metadata only; this is lifecycle acceptance,
           # not proof of a signed network update between two released application versions.
-          ./scripts/build-windows-installer.ps1 -Package $package -Version 0.1.0 -OutputDirectory $fixtures -TestIdentity
-          ./scripts/build-windows-installer.ps1 -Package $package -Version 0.1.1 -OutputDirectory $fixtures -TestIdentity
+          ./scripts/build-windows-installer.ps1 -Package $package -Version 0.1.0 -OutputDirectory $fixtures -TestIdentity -SkipBootstrapper
+          ./scripts/build-windows-installer.ps1 -Package $package -Version 0.1.1 -OutputDirectory $fixtures -TestIdentity -SkipBootstrapper
           ./scripts/test-msi-lifecycle.ps1 -TestIdentity -BaseInstaller "$fixtures/ARPEON-0.1.0.msi" -UpgradeInstaller "$fixtures/ARPEON-0.1.1.msi" -WorkingDirectory apps/desktop/build/msi-lifecycle-ci
       - name: Exercise Setup recovery after a failed upgrade
         shell: pwsh
