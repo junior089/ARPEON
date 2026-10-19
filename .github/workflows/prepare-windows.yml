@@ -20,17 +20,17 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - name: Install and validate frontend
         working-directory: frontend
+        shell: pwsh
         run: |
-          npm ci
-          npm run format:check
-          npm run lint
-          npm run typecheck
-          npm test
-          npm run build
-          npm audit --audit-level=low
+          foreach ($arguments in @(@('ci'), @('run','format:check'), @('run','lint'), @('run','typecheck'), @('test'), @('run','build'), @('audit','--audit-level=low'))) {
+            & npm @arguments
+            if ($LASTEXITCODE -ne 0) { throw "Frontend validation failed: $arguments" }
+          }
       - name: Java validation and internal package
         shell: pwsh
         run: |
+          node scripts/check-licenses.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'License inventory failed.' }
           ./gradlew.bat build --warning-mode=fail
           if ($LASTEXITCODE -ne 0) { throw 'Java validation failed.' }
           ./scripts/package-windows.ps1 -SkipFrontendBuild -OutputSubdirectory internal
@@ -46,6 +46,20 @@ jobs:
           # not proof of a signed network update between two released application versions.
           ./scripts/build-windows-installer.ps1 -Package $package -Version 0.1.0 -OutputDirectory $fixtures -TestIdentity
           ./scripts/build-windows-installer.ps1 -Package $package -Version 0.1.1 -OutputDirectory $fixtures -TestIdentity
-          ./scripts/new-failing-test-msi.ps1 -Installer "$fixtures/ARPEON-0.1.1.msi" -Output "$fixtures/failing-upgrade.msi"
-          ./scripts/test-msi-lifecycle.ps1 -TestIdentity -BaseInstaller "$fixtures/ARPEON-0.1.0.msi" -UpgradeInstaller "$fixtures/ARPEON-0.1.1.msi" -FailingUpgradeInstaller "$fixtures/failing-upgrade.msi" -WorkingDirectory apps/desktop/build/msi-lifecycle-ci
-      # No upload or release publishing while native redistribution remains under review.
+          ./scripts/test-msi-lifecycle.ps1 -TestIdentity -BaseInstaller "$fixtures/ARPEON-0.1.0.msi" -UpgradeInstaller "$fixtures/ARPEON-0.1.1.msi" -WorkingDirectory apps/desktop/build/msi-lifecycle-ci
+      - name: Exercise Setup recovery after a failed upgrade
+        shell: pwsh
+        run: ./scripts/test-installer-recovery.ps1 -ApplicationImage apps/desktop/build/native/internal/ARPEON -OutputDirectory apps/desktop/build/installer-recovery-ci -TestRunId ci-recovery
+      - name: Retain acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: windows-candidate-evidence
+          if-no-files-found: warn
+          path: |
+            apps/desktop/build/dependency-audit.json
+            apps/desktop/build/msi-lifecycle-ci/result.json
+            apps/desktop/build/msi-lifecycle-ci/*.log
+            apps/desktop/build/installer-recovery-ci/result.json
+            apps/desktop/build/installer-recovery-ci/*.log
+      # Native payloads remain private draft assets until redistribution is approved.
