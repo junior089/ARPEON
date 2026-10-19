@@ -125,6 +125,15 @@ final class ProjectStore {
     return save(requestedId, data, null);
   }
 
+  synchronized boolean contains(String id) throws IOException {
+    if (!isId(id) || !Files.exists(root, java.nio.file.LinkOption.NOFOLLOW_LINKS)) return false;
+    requireDirectory(root);
+    recoverBackups();
+    Path directory = root.resolve(id);
+    return !Files.isSymbolicLink(directory)
+        && Files.isDirectory(directory, java.nio.file.LinkOption.NOFOLLOW_LINKS);
+  }
+
   synchronized Saved rename(String id, String name) throws IOException {
     return save(id, load(id).data(), validName(name));
   }

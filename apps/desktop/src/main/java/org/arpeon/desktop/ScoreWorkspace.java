@@ -294,8 +294,15 @@ final class ScoreWorkspace implements AutoCloseable {
   private final Map<String, RehearsalState.PartOrigin> partOrigins = new LinkedHashMap<>();
   private PartImport partImport;
   private int preferenceRevision;
-  private final SoundBankStore soundBanks =
-      new SoundBankStore(UserDirectories.data().resolve("soundbanks"));
+  private final SoundBankStore soundBanks;
+
+  ScoreWorkspace() {
+    this(UserDirectories.data().resolve("soundbanks"));
+  }
+
+  ScoreWorkspace(java.nio.file.Path soundBankDirectory) {
+    soundBanks = new SoundBankStore(soundBankDirectory);
+  }
 
   synchronized List<SoundBankStore.Info> soundBanks() throws IOException {
     return soundBanks.list();

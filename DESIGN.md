@@ -14,10 +14,13 @@ Tokens em `frontend/src/styles/styles.scss`: fundo #0B0B0D, lateral #141416, sup
 - Inspetor: leitura da seleção, digitação, símbolos e propriedades; transposição por seção recolhível.
 - Transporte: reprodução, tempo, metrônomo e trecho A–B.
 - Status: documento e persistência; dados legais e versão em Ajuda.
+- Perfis: troca pelo nome do perfil ativo na barra superior e pela categoria funcional Conta e perfis em Preferências; ambas abrem o seletor local.
 
 ## Estados e precisão
 
 A central de Preferências usa pesquisa textual, navegação por categorias e linhas compactas de controles. A pesquisa ignora maiúsculas e acentos, combina todos os termos e exibe as categorias correspondentes; selecionar uma categoria limpa a pesquisa. Interface e acessibilidade, Partituras e estudo, Áudio e dispositivos e Atualizações correspondem a capacidades existentes. Os controles compartilham estado com editor e ferramentas; as restaurações de interface/layout e leitura/papel atuam somente na categoria indicada. Até 700px, a navegação passa da coluna lateral para botões em linhas e os controles permitem quebra de linha. Tema, tokens, navegação por teclado e diálogo nativo seguem o restante do aplicativo. Categorias futuras só aparecem com operações funcionais.
+
+O seletor local apresenta “Quem vai estudar?” junto ao símbolo existente, com escolhas simples de perfil: avatar de iniciais e cor, nome e instrumento principal. Criar e editar abrem um editor adjacente à direita no desktop; até 800px ele passa para baixo das escolhas, separado por linha. A página permite rolagem vertical para manter o editor e as opções de conta acessíveis em janelas baixas. Nome da conta e consentimento para iniciar automaticamente no último perfil ficam em uma seção própria, separada da seleção e edição dos perfis. A composição preserva carvão, dourado, tipografia local e controles compactos do modo Operate.
 
 Progresso indeterminado quando não há medição. Toda prévia usa MusicXML produzido pelos mesmos exportadores do documento aceito. Anotações pertencem ao SVG de apresentação, nunca ao MusicXML exportado. A grafia vem da altura estruturada, incluindo enarmonia; som real usa o perfil instrumental. Sem coordenadas OMR, a comparação é independente por página, sem alinhamento automático alegado.
 
@@ -25,7 +28,7 @@ Progresso indeterminado quando não há medição. Toda prévia usa MusicXML pro
 Foco visível, menus por setas/Escape, divisão ajustável por teclado e ponteiro, drag-and-drop validado, avisos recuperáveis. Tocar recolhe ferramentas; Editar abre propriedades; Estudar abre assistência contextual. Janelas menores recolhem áreas secundárias e mantêm controles acessíveis.
 
 ## Ativos
-`frontend/public/brand/` conserva a geometria original do kit fornecido. Assinaturas clara e escura acompanham o tema. `packaging/arpeon.ico` usa o ICO fornecido; a janela Java usa `brand/arpeon-256.png`. Os mockups e textos do kit são referências visuais, não capacidades do produto. Não há avatar, busca global fictícia ou slider de volume sem mecanismo real.
+`frontend/public/brand/` conserva a geometria original do kit fornecido. Assinaturas clara e escura acompanham o tema. `packaging/arpeon.ico` usa o ICO fornecido; a janela Java usa `brand/arpeon-256.png`. Os mockups e textos do kit são referências visuais, não capacidades do produto. Os avatares dos perfis locais usam iniciais em uma superfície compacta de cantos suaves, com cor escolhida entre dourado, verde, azul e rosa; não dependem de imagens geradas. Não há busca global fictícia ou slider de volume sem mecanismo real.
 
 ## Instalação e manutenção
 

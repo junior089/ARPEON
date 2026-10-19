@@ -1,5 +1,6 @@
 import { inject, Injectable, OnDestroy, signal } from '@angular/core';
 import { LOCAL_FETCH, SESSION_TOKEN } from './local-session';
+import { StudyProfiles } from './study-profiles';
 
 export type WorkspaceMode = 'custom' | 'play' | 'edit' | 'study';
 export interface UiPreferences {
@@ -59,6 +60,8 @@ function isPreferences(value: unknown): value is UiPreferences {
 export class DesktopPreferences implements OnDestroy {
   private readonly fetch = inject(LOCAL_FETCH);
   private readonly token = inject(SESSION_TOKEN);
+  private readonly profiles = inject(StudyProfiles);
+  private readonly cachePrefix = this.profiles.cachePrefix();
   private value = { ...defaults };
   private legacy = false;
   private loaded = false;
@@ -70,6 +73,7 @@ export class DesktopPreferences implements OnDestroy {
   readonly saving = signal(false);
 
   constructor() {
+    if (this.profiles.account()) return;
     try {
       const theme = localStorage.getItem('arpeon.theme.v1');
       if (theme === 'light' || theme === 'dark') {
@@ -203,7 +207,7 @@ export class DesktopPreferences implements OnDestroy {
 
   private cache(): void {
     try {
-      localStorage.setItem('arpeon.theme.v1', this.value.theme);
+      localStorage.setItem(this.cachePrefix + 'theme.v1', this.value.theme);
       const {
         explorer,
         inspector,
@@ -218,7 +222,7 @@ export class DesktopPreferences implements OnDestroy {
         followFingering,
       } = this.value;
       localStorage.setItem(
-        'arpeon.layout.v1',
+        this.cachePrefix + 'layout.v1',
         JSON.stringify({
           explorer,
           inspector,

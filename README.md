@@ -18,6 +18,10 @@ with Java and Angular, with a native desktop window and local audio processing.
   through checksums, backups and durable writes.
 - **Settings:** searchable local preferences for appearance, workspace panels,
   score reading and audio, with category resets and existing update management.
+- **Local study profiles:** a local account with up to eight independent libraries,
+  preferences, histories and sound banks; profile selection, instruments, editing,
+  archive/restore and optional startup in the last profile. Existing local data is
+  copied and verified before migration, with originals retained.
 - **Playback:** part selection, mute/solo, seek, tempo, metronome, count-in and
   A–B loops, with a synchronized notation cursor and General MIDI instruments.
 - **Practice:** flute exercises, scales, arpeggios, long tones and rhythm tasks,
@@ -34,7 +38,8 @@ with Java and Angular, with a native desktop window and local audio processing.
   the update integration; automatic checks require explicit consent.
 
 Score editing, local imports and audio processing run on this computer. No
-account, telemetry or audio upload is required. Microphone capture starts only
+remote account, telemetry or audio upload is required. A local account organizes
+study profiles on this computer. Microphone capture starts only
 on request. Wikimedia imports and configured update checks use the network.
 
 ## Architecture and engineering
@@ -59,8 +64,11 @@ Read the [architecture](docs/architecture/overview.md),
 
 The next ecosystem increments and their acceptance gates are tracked in the
 [implementation plan](docs/development/ecosystem-plan.md), with a
-[reviewed source matrix](docs/legal/ecosystem-source-matrix.md). Accounts,
-independent study profiles, federated search and community hosting are planned.
+[reviewed source matrix](docs/legal/ecosystem-source-matrix.md). Remote accounts,
+federated search and community hosting are planned. Local study profiles are
+implemented; see the [profile session decision](docs/adr/0010-local-account-profile-sessions.md).
+The [profile delivery report](docs/development/local-study-profiles.md) documents
+migration, recovery limits and browser/native acceptance.
 
 ## Current local build: 0.1.2
 

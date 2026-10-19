@@ -4,9 +4,16 @@ import { ScoreReadingPreferences } from '../../core/score-reading-preferences';
 import { Appearance } from '../../shared/appearance';
 import { WorkspaceLayout } from '../../shared/workspace-layout';
 import { AudioPreparation } from '../../shared/audio-preparation';
+import { StudyProfiles } from '../../core/study-profiles';
 
-type Category = 'interface' | 'score' | 'audio' | 'updates';
+type Category = 'profiles' | 'interface' | 'score' | 'audio' | 'updates';
 const categories: { id: Category; label: string; keywords: string }[] = [
+  {
+    id: 'profiles',
+    label: 'Conta e perfis',
+    keywords:
+      'conta local identidade perfil perfis nome instrumento avatar biblioteca criar editar arquivar trocar gerenciar',
+  },
   {
     id: 'interface',
     label: 'Interface e acessibilidade',
@@ -48,21 +55,28 @@ export class SettingsPanel {
   readonly layout = inject(WorkspaceLayout);
   readonly reading = inject(ScoreReadingPreferences);
   readonly preferences = inject(DesktopPreferences);
+  readonly profiles = inject(StudyProfiles);
   readonly captureActive = input(false);
   readonly busy = input(false);
   readonly version = input('');
   readonly manageUpdates = output<void>();
+  readonly manageProfiles = output<void>();
   readonly query = signal('');
   readonly category = signal<Category>('interface');
   readonly restored = signal('');
   readonly results = computed(() => {
     const terms = normalized(this.query()).split(/\s+/u).filter(Boolean);
-    return categories.filter((item) =>
+    return this.available().filter((item) =>
       terms.every((term) => normalized(item.label + ' ' + item.keywords).includes(term)),
     );
   });
+  private readonly available = computed(() =>
+    categories.filter((item) => item.id !== 'profiles' || this.profiles.account()),
+  );
   readonly visible = computed(() =>
-    this.query().trim() ? this.results() : categories.filter((item) => item.id === this.category()),
+    this.query().trim()
+      ? this.results()
+      : this.available().filter((item) => item.id === this.category()),
   );
 
   select(category: Category): void {
