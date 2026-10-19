@@ -258,7 +258,7 @@ public final class MusicXmlImporter {
           new Score(title, parts, repeatRegions, endingRegions, composer),
           filename,
           HexFormat.of().formatHex(digest.digest()),
-          "musicxml-ensemble-v2",
+          "musicxml-ensemble-v3",
           keyId,
           Map.copyOf(instruments));
     } finally {
@@ -777,6 +777,8 @@ public final class MusicXmlImporter {
     TimeSignature meter = null;
     String keyId = null;
     var clefs = new LinkedHashMap<Integer, org.arpeon.domain.score.Clef>();
+    int staffCount = 1;
+    var additionalClefs = new LinkedHashMap<Integer, Map<Integer, org.arpeon.domain.score.Clef>>();
     boolean transposeSeen = false;
     var measures = new ArrayList<Measure>();
     var repeatRegions = new ArrayList<RepeatRegion>();
@@ -827,24 +829,38 @@ public final class MusicXmlImporter {
                       "instruments"),
                   Set.of());
               var staves = optional(element, "staves");
-              if (staves.isPresent() && !text(staves.orElseThrow()).equals("1"))
-                throw new IllegalArgumentException(
-                    "Independent staves are not supported; import separate staff parts");
-              var clef = optional(element, "clef");
-              if (clef.isPresent()) {
-                var value = clef.orElseThrow();
+              if (staves.isPresent()) {
+                int declared = Integer.parseInt(text(staves.orElseThrow()));
+                if (declared < 1 || declared > 8 || !measures.isEmpty() && declared != staffCount)
+                  throw new IllegalArgumentException(
+                      "Declare 1–8 pautas no início da parte; mudanças na quantidade de pautas não"
+                          + " são suportadas.");
+                staffCount = declared;
+              }
+              var seenClefs = new java.util.HashSet<Integer>();
+              for (var value : children(element, "clef")) {
                 allow(
                     value,
                     Set.of("sign", "line", "clef-octave-change"),
                     Set.of("number", "additional", "after-barline", "print-object"));
-                if (value.hasAttribute("number") && !value.getAttribute("number").equals("1"))
-                  throw new IllegalArgumentException("Independent staves are not supported");
+                int staffNumber =
+                    value.hasAttribute("number")
+                        ? Integer.parseInt(value.getAttribute("number"))
+                        : 1;
+                if (staffNumber < 1 || staffNumber > staffCount || !seenClefs.add(staffNumber))
+                  throw new IllegalArgumentException(
+                      "Número de pauta da clave inválido ou duplicado.");
                 int line = optional(value, "line").map(e -> Integer.parseInt(text(e))).orElse(2);
                 int octave =
                     optional(value, "clef-octave-change")
                         .map(e -> Integer.parseInt(text(e)))
                         .orElse(0);
-                clefs.put(
+                var staffClefs =
+                    staffNumber == 1
+                        ? clefs
+                        : additionalClefs.computeIfAbsent(
+                            staffNumber, ignored -> new LinkedHashMap<>());
+                staffClefs.put(
                     measures.size(),
                     new org.arpeon.domain.score.Clef(text(one(value, "sign")), line, octave));
               }
@@ -982,8 +998,10 @@ public final class MusicXmlImporter {
               if (element.getTagName().equals("forward")) {
                 optional(element, "voice");
                 var staff = optional(element, "staff");
-                if (staff.isPresent() && !text(staff.orElseThrow()).equals("1"))
-                  throw new IllegalArgumentException("Multiple staves are not supported");
+                if (staff.isPresent()
+                    && (Integer.parseInt(text(staff.orElseThrow())) < 1
+                        || Integer.parseInt(text(staff.orElseThrow())) > staffCount))
+                  throw new IllegalArgumentException("Forward outside declared staves");
               }
               Duration shift =
                   new Duration(Long.parseLong(text(one(element, "duration"))), 4L * divisions);
@@ -1003,7 +1021,7 @@ public final class MusicXmlImporter {
                 throw new IllegalArgumentException(
                     "note " + scoreEvents[0] + " exceeds the 16384-event score limit");
               try {
-                ParsedEvent parsed = parseEvent(element, divisions);
+                ParsedEvent parsed = parseEvent(element, divisions, staffCount);
                 var events =
                     voiceEvents.computeIfAbsent(parsed.voiceId(), ignored -> new ArrayList<>());
                 if (parsed.chordHead()) {
@@ -1062,7 +1080,7 @@ public final class MusicXmlImporter {
     if (keyId != null)
       keyId = MusicalKey.get(keyId).transpose(profile.soundingTranspositionSemitones()).id();
     return new ParsedPart(
-        new Part(id, name, measures, clefs),
+        new Part(id, name, measures, clefs, staffCount, additionalClefs),
         keyId,
         List.copyOf(repeatRegions),
         List.copyOf(endingRegions));
@@ -1080,7 +1098,7 @@ public final class MusicXmlImporter {
     return Set.copyOf(passes);
   }
 
-  private ParsedEvent parseEvent(Element note, int divisions) {
+  private ParsedEvent parseEvent(Element note, int divisions, int staffCount) {
     allow(
         note,
         Set.of(
@@ -1114,9 +1132,9 @@ public final class MusicXmlImporter {
             "font-size",
             "color"));
     var staff = optional(note, "staff");
-    if (staff.isPresent() && !text(staff.orElseThrow()).equals("1"))
-      throw new IllegalArgumentException(
-          "Independent staves are not supported; import separate staff parts");
+    int staffNumber = staff.map(e -> Integer.parseInt(text(e))).orElse(1);
+    if (staffNumber < 1 || staffNumber > staffCount)
+      throw new IllegalArgumentException("Note outside declared staves");
     var chordMarker = optional(note, "chord");
     if (chordMarker.isPresent()) allow(chordMarker.orElseThrow(), Set.of(), Set.of());
     var voice = optional(note, "voice");
@@ -1164,7 +1182,7 @@ public final class MusicXmlImporter {
         throw new IllegalArgumentException("A rest cannot carry a tie");
       if (chordMarker.isPresent())
         throw new IllegalArgumentException("A rest cannot be a chord head");
-      return new ParsedEvent(new Rest(duration, tuplet), false, voiceId);
+      return new ParsedEvent(new Rest(duration, tuplet, staffNumber), false, voiceId);
     }
     var p = pitch.orElseThrow();
     allow(p, Set.of("step", "alter", "octave"), Set.of());
@@ -1178,7 +1196,8 @@ public final class MusicXmlImporter {
             duration,
             soundTies[0],
             soundTies[1],
-            tuplet),
+            tuplet,
+            staffNumber),
         chordMarker.isPresent(),
         voiceId);
   }

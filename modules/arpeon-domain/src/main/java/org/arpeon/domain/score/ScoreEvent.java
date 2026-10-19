@@ -6,6 +6,10 @@ import org.arpeon.domain.time.Duration;
 public sealed interface ScoreEvent permits Chord, Note, Rest {
   Duration duration();
 
+  default int staff() {
+    return 1;
+  }
+
   default Tuplet tuplet() {
     return null;
   }

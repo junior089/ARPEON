@@ -555,9 +555,7 @@ final class ScoreWorkspace implements AutoCloseable {
           || name.length() > 120
           || name.codePoints().anyMatch(Character::isISOControl))
         throw new IllegalArgumentException("Use um nome de 1 a 120 caracteres.");
-      parts.set(
-          parts.indexOf(selected),
-          new org.arpeon.domain.score.Part(id, name, selected.measures(), selected.clefs()));
+      parts.set(parts.indexOf(selected), selected.withIdentity(id, name));
     } else if (action.equals("move-part")) {
       keys(request, "partId", "index");
       int index = integer(request, "index");

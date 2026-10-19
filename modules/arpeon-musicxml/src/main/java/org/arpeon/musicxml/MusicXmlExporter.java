@@ -75,6 +75,7 @@ public final class MusicXmlExporter {
         appendBarline(xml, score, index, "left");
         if (index == 0
             || part.clefs().containsKey(index)
+            || hasAdditionalClef(part, index)
             || !measure.timeSignature().equals(part.measures().get(index - 1).timeSignature())) {
           xml.append("<attributes><divisions>").append(DIVISIONS).append("</divisions>");
           if (index == 0 && writtenKey != null)
@@ -88,6 +89,8 @@ public final class MusicXmlExporter {
               .append("</beats><beat-type>")
               .append(measure.timeSignature().beatUnit())
               .append("</beat-type></time>");
+          if (index == 0 && part.staves() > 1)
+            xml.append("<staves>").append(part.staves()).append("</staves>");
           if (index == 0 && profile != null && profile.soundingTranspositionSemitones() != 0) {
             xml.append("<transpose><diatonic>")
                 .append(org.arpeon.domain.instrument.InstrumentCatalog.diatonic(profile))
@@ -96,17 +99,10 @@ public final class MusicXmlExporter {
                 .append("</chromatic></transpose>");
           }
           var clef = part.clefs().get(index);
-          if (clef != null) {
-            xml.append("<clef><sign>")
-                .append(clef.sign())
-                .append("</sign><line>")
-                .append(clef.line())
-                .append("</line>");
-            if (clef.octaveChange() != 0)
-              xml.append("<clef-octave-change>")
-                  .append(clef.octaveChange())
-                  .append("</clef-octave-change>");
-            xml.append("</clef>");
+          if (clef != null) appendClef(xml, clef, 1, part.staves());
+          for (int staff = 2; staff <= part.staves(); staff++) {
+            var extra = part.additionalClefs().getOrDefault(staff, Map.of()).get(index);
+            if (extra != null) appendClef(xml, extra, staff, part.staves());
           }
           xml.append("</attributes>\n");
         }
@@ -132,7 +128,7 @@ public final class MusicXmlExporter {
               xml.append("<forward><duration>")
                   .append(onset - cursor)
                   .append("</duration></forward>\n");
-            appendEvent(xml, timed.event(), voice.id());
+            appendEvent(xml, timed.event(), voice.id(), part.staves());
             cursor = Math.addExact(onset, ticks(timed.event().duration()));
           }
         }
@@ -165,6 +161,26 @@ public final class MusicXmlExporter {
     if (result[1].signum() != 0)
       throw new IllegalArgumentException("Duration cannot be exported exactly");
     return result[0].longValueExact();
+  }
+
+  private static boolean hasAdditionalClef(org.arpeon.domain.score.Part part, int index) {
+    return part.additionalClefs().values().stream().anyMatch(changes -> changes.containsKey(index));
+  }
+
+  private static void appendClef(
+      StringBuilder xml, org.arpeon.domain.score.Clef clef, int staff, int staves) {
+    xml.append("<clef");
+    if (staves > 1) xml.append(" number=\"").append(staff).append('"');
+    xml.append("><sign>")
+        .append(clef.sign())
+        .append("</sign><line>")
+        .append(clef.line())
+        .append("</line>");
+    if (clef.octaveChange() != 0)
+      xml.append("<clef-octave-change>")
+          .append(clef.octaveChange())
+          .append("</clef-octave-change>");
+    xml.append("</clef>");
   }
 
   private static void appendBarline(
@@ -216,11 +232,11 @@ public final class MusicXmlExporter {
   }
 
   private static void appendEvent(
-      StringBuilder xml, org.arpeon.domain.score.ScoreEvent event, String voiceId) {
+      StringBuilder xml, org.arpeon.domain.score.ScoreEvent event, String voiceId, int staves) {
     if (event instanceof Chord chord) {
       for (int head = 0; head < chord.notes().size(); head++)
-        appendNote(xml, chord.notes().get(head), head > 0, voiceId);
-    } else if (event instanceof Note note) appendNote(xml, note, false, voiceId);
+        appendNote(xml, chord.notes().get(head), head > 0, voiceId, staves);
+    } else if (event instanceof Note note) appendNote(xml, note, false, voiceId, staves);
     else {
       xml.append("<note><rest/><duration>")
           .append(ticks(event.duration()))
@@ -228,6 +244,7 @@ public final class MusicXmlExporter {
           .append(escape(voiceId))
           .append("</voice>");
       appendType(xml, event.duration(), event.tuplet());
+      if (staves > 1) xml.append("<staff>").append(event.staff()).append("</staff>");
       if (event.tuplet() != null && (event.tuplet().start() || event.tuplet().stop())) {
         xml.append("<notations>");
         appendTupletMarkers(xml, event.tuplet());
@@ -237,7 +254,8 @@ public final class MusicXmlExporter {
     }
   }
 
-  private static void appendNote(StringBuilder xml, Note note, boolean chordHead, String voiceId) {
+  private static void appendNote(
+      StringBuilder xml, Note note, boolean chordHead, String voiceId, int staves) {
     xml.append("<note>");
     if (chordHead) xml.append("<chord/>");
     var pitch = note.writtenPitch();
@@ -253,6 +271,7 @@ public final class MusicXmlExporter {
     if (note.tieStart()) xml.append("<tie type=\"start\"/>");
     xml.append("<voice>").append(escape(voiceId)).append("</voice>");
     appendType(xml, note.duration(), note.tuplet());
+    if (staves > 1) xml.append("<staff>").append(note.staff()).append("</staff>");
     if (note.tieStart()
         || note.tieStop()
         || note.tuplet() != null && (note.tuplet().start() || note.tuplet().stop())) {

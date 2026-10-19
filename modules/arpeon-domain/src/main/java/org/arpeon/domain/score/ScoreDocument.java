@@ -136,7 +136,8 @@ public final class ScoreDocument {
           if (event instanceof Note)
             events.set(
                 eventIndex,
-                new TimedEvent(timed.onset(), new Rest(event.duration(), event.tuplet())));
+                new TimedEvent(
+                    timed.onset(), new Rest(event.duration(), event.tuplet(), event.staff())));
           else {
             var heads = new ArrayList<>(((Chord) event).notes());
             heads.remove(headIndex);
@@ -234,9 +235,10 @@ public final class ScoreDocument {
                                 head.duration(),
                                 false,
                                 false,
-                                head.tuplet()))));
+                                head.tuplet(),
+                                head.staff()))));
       }
-      parts.add(new Part(part.id(), part.name(), measures, part.clefs()));
+      parts.add(part.withMeasures(measures));
     }
     if (!found) throw new IllegalArgumentException("Unknown part");
     return new Score(
@@ -327,14 +329,12 @@ public final class ScoreDocument {
                               note.duration(),
                               note.tieStart(),
                               note.tieStop(),
-                              note.tuplet()))));
+                              note.tuplet(),
+                              note.staff()))));
     }
     var parts = new ArrayList<Part>();
     for (Part part : score.parts())
-      parts.add(
-          part.id().equals(partId)
-              ? new Part(part.id(), part.name(), measures, part.clefs())
-              : part);
+      parts.add(part.id().equals(partId) ? part.withMeasures(measures) : part);
     return new Score(
         score.title(), parts, score.repeatRegions(), score.endingRegions(), score.composer());
   }
@@ -376,13 +376,14 @@ public final class ScoreDocument {
               new TimedEvent(
                   timed.onset(),
                   pitch == null
-                      ? new Rest(duration, event.tuplet())
-                      : new Note(pitch, duration, false, false, event.tuplet())));
+                      ? new Rest(duration, event.tuplet(), event.staff())
+                      : new Note(pitch, duration, false, false, event.tuplet(), event.staff())));
           if (duration.compareTo(event.duration()) < 0)
             events.add(
                 eventIndex + 1,
                 new TimedEvent(
-                    timed.onset().plus(duration), new Rest(event.duration().minus(duration))));
+                    timed.onset().plus(duration),
+                    new Rest(event.duration().minus(duration), null, event.staff())));
           return events;
         });
   }
@@ -436,7 +437,7 @@ public final class ScoreDocument {
                     following,
                     new TimedEvent(
                         adjacentTimed.onset().plus(needed),
-                        new Rest(adjacent.duration().minus(needed))));
+                        new Rest(adjacent.duration().minus(needed), null, adjacent.staff())));
                 needed = null;
               } else {
                 events.remove(following);
@@ -451,14 +452,15 @@ public final class ScoreDocument {
             events.add(
                 eventIndex + 1,
                 new TimedEvent(
-                    selected.onset().plus(duration), new Rest(event.duration().minus(duration))));
+                    selected.onset().plus(duration),
+                    new Rest(event.duration().minus(duration), null, event.staff())));
           }
           events.set(
               eventIndex,
               new TimedEvent(
                   selected.onset(),
                   event instanceof Rest
-                      ? new Rest(duration)
+                      ? new Rest(duration, null, event.staff())
                       : event.noteHeads().size() == 1
                           ? resized(event.noteHeads().getFirst(), duration)
                           : new Chord(
@@ -502,7 +504,7 @@ public final class ScoreDocument {
                 voices,
                 measure.pickup()));
       }
-      parts.add(new Part(part.id(), part.name(), measures, part.clefs()));
+      parts.add(part.withMeasures(measures));
     }
     if (!found) throw new IllegalArgumentException("Unknown part");
     return new Score(
@@ -536,7 +538,7 @@ public final class ScoreDocument {
               measure.tempo(),
               events,
               measure.pickup()));
-      parts.add(new Part(part.id(), part.name(), measures, part.clefs()));
+      parts.add(part.withMeasures(measures));
     }
     if (!found) throw new IllegalArgumentException("Unknown part");
     return new Score(
@@ -577,7 +579,7 @@ public final class ScoreDocument {
               measure.tempo(),
               voices,
               measure.pickup()));
-      parts.add(new Part(part.id(), part.name(), measures, part.clefs()));
+      parts.add(part.withMeasures(measures));
     }
     if (!found) throw new IllegalArgumentException("Unknown part");
     return new Score(
@@ -633,7 +635,13 @@ public final class ScoreDocument {
   }
 
   private static Note resized(Note note, Duration duration) {
-    return new Note(note.writtenPitch(), duration, note.tieStart(), note.tieStop());
+    return new Note(
+        note.writtenPitch(),
+        duration,
+        note.tieStart(),
+        note.tieStop(),
+        note.tuplet(),
+        note.staff());
   }
 
   private static Note transformed(Note note, UnaryOperator<Pitch> transform) {
@@ -642,7 +650,8 @@ public final class ScoreDocument {
         note.duration(),
         note.tieStart(),
         note.tieStop(),
-        note.tuplet());
+        note.tuplet(),
+        note.staff());
   }
 
   private static Note noteAt(List<Measure> measures, int[] address) {
