@@ -16,6 +16,8 @@ with Java and Angular, with a native desktop window and local audio processing.
   MusicXML. Originals remain unchanged.
 - **Project library:** autosave, named projects, search, duplication and recovery
   through checksums, backups and durable writes.
+- **Settings:** searchable local preferences for appearance, workspace panels,
+  score reading and audio, with category resets and existing update management.
 - **Playback:** part selection, mute/solo, seek, tempo, metronome, count-in and
   A–B loops, with a synchronized notation cursor and General MIDI instruments.
 - **Practice:** flute exercises, scales, arpeggios, long tones and rhythm tasks,
@@ -54,6 +56,11 @@ separate lifecycles; installer updates do not migrate or delete personal data.
 Read the [architecture](docs/architecture/overview.md),
 [module boundaries](docs/architecture/module-boundaries.md) and
 [desktop distribution decision](docs/adr/0006-native-desktop-distribution.md).
+
+The next ecosystem increments and their acceptance gates are tracked in the
+[implementation plan](docs/development/ecosystem-plan.md), with a
+[reviewed source matrix](docs/legal/ecosystem-source-matrix.md). Accounts,
+independent study profiles, federated search and community hosting are planned.
 
 ## Current local build: 0.1.2
 

@@ -21,7 +21,7 @@ import { LOCAL_FETCH, SESSION_TOKEN } from './core/local-session';
 import { DesktopPreferences } from './core/desktop-preferences';
 import { ImportRouting, importRoute, SCORE_FILE_ACCEPT } from './core/import-routing';
 import { ProjectLibrary } from './features/score/project-library';
-import { AudioPreparation } from './shared/audio-preparation';
+import { SettingsPanel } from './features/settings/settings-panel';
 import { AudioSettings } from './core/audio-settings';
 import { ReferenceTone } from './core/reference-tone';
 
@@ -36,7 +36,7 @@ import { ReferenceTone } from './core/reference-tone';
     ImportPanel,
     AnalysisPanel,
     ProjectLibrary,
-    AudioPreparation,
+    SettingsPanel,
   ],
   providers: [ScoreSession],
   templateUrl: './app.html',
@@ -554,11 +554,6 @@ export class App {
       this.practicePanel?.microphone.active() ||
       this.analysisPanel?.active()
     );
-  }
-
-  editorTheme(): void {
-    if (this.editor) this.editor.toggleScoreTheme();
-    else this.layout.toggleScoreTheme();
   }
 
   openProduct(page: 'settings' | 'updates' | 'changes' | 'about'): void {

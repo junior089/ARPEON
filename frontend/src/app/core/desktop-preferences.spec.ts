@@ -5,6 +5,8 @@ import { LOCAL_FETCH, SESSION_TOKEN } from './local-session';
 
 describe('DesktopPreferences', () => {
   const fetcher = vi.fn<typeof fetch>();
+  const acknowledge: typeof fetch = async (_path, init) =>
+    Response.json(JSON.parse(String(init?.body)) as unknown);
   let preferences: DesktopPreferences;
   const saved: UiPreferences = {
     schemaVersion: 1,
@@ -45,7 +47,7 @@ describe('DesktopPreferences', () => {
   it('migrates legacy settings once and gives an existing durable file precedence', async () => {
     localStorage.setItem('arpeon.theme.v1', 'light');
     localStorage.setItem('arpeon.layout.v1', JSON.stringify({ zoom: 140 }));
-    fetcher.mockResolvedValueOnce(Response.json(null)).mockResolvedValueOnce(Response.json(saved));
+    fetcher.mockResolvedValueOnce(Response.json(null)).mockImplementationOnce(acknowledge);
     preferences = TestBed.inject(DesktopPreferences);
     await preferences.load();
     const migrated = JSON.parse(String(fetcher.mock.calls[1]?.[1]?.body)) as UiPreferences;
@@ -81,11 +83,11 @@ describe('DesktopPreferences', () => {
     preferences.update({ theme: 'light' });
     const first = preferences.flush();
     preferences.update({ zoom: 150 });
-    complete(Response.json(saved));
+    complete(Response.json(JSON.parse(String(fetcher.mock.calls[1]?.[1]?.body)) as unknown));
     await first;
     expect(preferences.error()).toContain('guardar os ajustes');
     expect(preferences.snapshot().zoom).toBe(150);
-    fetcher.mockResolvedValueOnce(Response.json(saved));
+    fetcher.mockImplementationOnce(acknowledge);
     await preferences.retry();
     const last = JSON.parse(String(fetcher.mock.lastCall?.[1]?.body)) as UiPreferences;
     expect(last.theme).toBe('light');
@@ -103,9 +105,25 @@ describe('DesktopPreferences', () => {
     await preferences.load();
     expect(preferences.snapshot().zoom).toBe(100);
     expect(preferences.error()).toContain('recuperar');
-    fetcher.mockResolvedValueOnce(Response.json(saved));
+    fetcher.mockImplementationOnce(acknowledge);
     preferences.update({ theme: 'light' });
     await preferences.flush();
+    expect(preferences.error()).toBe('');
+  });
+
+  it('rejects invalid edits and does not acknowledge a mismatched write response', async () => {
+    fetcher.mockResolvedValueOnce(Response.json(saved));
+    preferences = TestBed.inject(DesktopPreferences);
+    await preferences.load();
+    expect(() => preferences.update({ zoom: Number.NaN })).toThrow('Invalid preferences');
+    expect(preferences.snapshot()).toEqual(saved);
+    preferences.update({ zoom: 150 });
+    fetcher.mockResolvedValueOnce(Response.json(saved));
+    await preferences.flush();
+    expect(preferences.error()).toContain('guardar os ajustes');
+    fetcher.mockImplementationOnce(acknowledge);
+    await preferences.retry();
+    expect(preferences.snapshot().zoom).toBe(150);
     expect(preferences.error()).toBe('');
   });
 });
