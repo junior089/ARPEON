@@ -46,6 +46,18 @@ describe('ImportPanel', () => {
     TestBed.resetTestingModule();
     vi.restoreAllMocks();
   });
+  it('never requests an external import while provider capabilities are unavailable', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(Response.json({ error: 'Unavailable' }, { status: 500 }));
+    const fixture = await panelWith(fetcher);
+    const component = fixture.componentInstance;
+    component.sourceUrl = 'https://commons.wikimedia.org/wiki/File:Example.mid';
+    component.contact = 'user@example.org';
+    await component.analyzeUrl();
+    expect(component.error()).toContain('capacidades');
+    expect(fetcher.mock.calls.some(([path]) => path === '/api/import/url')).toBe(false);
+  });
   it('accepts accented filenames and shows locally rendered pages with disclosed draft cautions', async () => {
     const create = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:pdf-original');
     vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
@@ -420,6 +432,23 @@ describe('ImportPanel', () => {
     const panel = fixture.componentInstance;
     panel.sourceUrl = 'https://commons.wikimedia.org/wiki/File:Example.mid';
     panel.contact = 'user@example.org';
+    fetcher.mockResolvedValueOnce(
+      Response.json([
+        {
+          id: 'wikimedia-commons',
+          name: 'Wikimedia Commons',
+          host: 'commons.wikimedia.org',
+          availabilityNote: 'MIDI selecionado',
+          capabilities: {
+            search: false,
+            importByUrl: true,
+            formats: ['MIDI'],
+            selectParts: false,
+            connectAccount: false,
+          },
+        },
+      ]),
+    );
     await panel.analyzeUrl();
     fixture.detectChanges();
     expect(fetcher).toHaveBeenCalledWith(

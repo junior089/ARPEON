@@ -20,7 +20,7 @@ final class ImportWorkspace {
       String licenseUrl,
       List<String> notes) {}
 
-  private final WikimediaCommonsAdapter commons;
+  private final ScoreSourceProvider commons;
   private final LinkedHashSet<String> seen = new LinkedHashSet<>();
   private Preview pending;
 
@@ -28,7 +28,7 @@ final class ImportWorkspace {
     this(new WikimediaCommonsAdapter());
   }
 
-  ImportWorkspace(WikimediaCommonsAdapter commons) {
+  ImportWorkspace(ScoreSourceProvider commons) {
     this.commons = commons;
   }
 

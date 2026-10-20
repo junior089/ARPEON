@@ -13,6 +13,7 @@ import { ScoreSession } from '../score/score-session';
 import { SourceView } from '../../core/score-contract';
 import { ImportRouting, importRoute, SCORE_FILE_ACCEPT } from '../../core/import-routing';
 import { NotationPreview } from '../../shared/notation-preview';
+import { SourceCapabilities } from '../../core/source-capabilities';
 
 interface DraftNote {
   step: string;
@@ -65,6 +66,7 @@ interface OmrStatus {
   styleUrl: './import-panel.scss',
 })
 export class ImportPanel implements OnInit, OnDestroy {
+  readonly sources = inject(SourceCapabilities);
   readonly sourceTab = signal<'paste' | 'file' | 'url' | 'omr'>('file');
   readonly fileAccept = SCORE_FILE_ACCEPT;
   private readonly routing = inject(ImportRouting);
@@ -156,6 +158,7 @@ export class ImportPanel implements OnInit, OnDestroy {
     this.omrAcknowledged = false;
     this.error.set('');
     this.sourceTab.set(tab);
+    if (tab === 'url') void this.sources.load();
   }
 
   async drop(event: DragEvent): Promise<void> {
@@ -243,6 +246,15 @@ export class ImportPanel implements OnInit, OnDestroy {
   }
 
   async analyzeUrl(): Promise<void> {
+    if (this.busy()) return;
+    await this.sources.load();
+    if (this.busy() || this.disposed) return;
+    if (!this.sources.canImportCommons()) {
+      this.error.set(
+        this.sources.error() || 'A importação Wikimedia por URL não está disponível nesta sessão.',
+      );
+      return;
+    }
     this.draftPage.set(0);
     this.pending.set(null);
     this.omrPending.set(null);

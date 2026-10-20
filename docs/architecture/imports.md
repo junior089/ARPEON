@@ -18,7 +18,7 @@ desktop application can persist a named project with canonical MusicXML and that
 the importer itself remains independent of the project store.
 
 New direct MusicXML/XML/MXL/MSCZ imports now preserve exact original bytes in the
-profile's project, separately from canonical revisions. The schema-3 evidence and
+profile's project, separately from canonical revisions. The initial evidence and
 verified private download are defined in [ADR 0011](../adr/0011-initial-source-evidence.md).
 Legacy projects and draft/OMR/part-import flows do not gain reconstructed originals.
 

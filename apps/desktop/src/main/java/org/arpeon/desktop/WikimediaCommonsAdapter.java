@@ -20,15 +20,13 @@ import org.arpeon.importer.ImportDraft;
 import org.arpeon.importer.LocalImporters;
 
 /** One Commons file-page URL via the official imageinfo API; never crawls page HTML. */
-final class WikimediaCommonsAdapter {
+final class WikimediaCommonsAdapter implements ScoreSourceProvider {
   record Response(int status, String contentType, byte[] body, String retryAfter) {}
 
   @FunctionalInterface
   interface Fetcher {
     Response get(URI uri, String userAgent, int maxBytes) throws IOException;
   }
-
-  record Result(ImportDraft draft, ImportWorkspace.Source source) {}
 
   private static final String API = "https://commons.wikimedia.org/w/api.php";
   private static final int MAX_METADATA_BYTES = 131_072;
@@ -54,18 +52,24 @@ final class WikimediaCommonsAdapter {
     } catch (RuntimeException failure) {
       throw new IllegalArgumentException("Invalid source URL", failure);
     }
-    SourceRegistry.Provider provider = SourceRegistry.eligible(page);
+    SourceRegistry.Provider provider = SourceRegistry.requireUrlImport(page, "MIDI");
     return provider.id() + ":" + fileTitle(page).replace('_', ' ').toLowerCase(Locale.ROOT);
   }
 
-  synchronized Result preview(String requestedUrl, String contact) throws IOException {
+  @Override
+  public SourceRegistry.Provider descriptor() {
+    return SourceRegistry.byId("wikimedia-commons");
+  }
+
+  @Override
+  public synchronized Result preview(String requestedUrl, String contact) throws IOException {
     URI page;
     try {
       page = URI.create(requestedUrl);
     } catch (RuntimeException failure) {
       throw new IllegalArgumentException("Invalid source URL", failure);
     }
-    SourceRegistry.Provider provider = SourceRegistry.eligible(page);
+    SourceRegistry.Provider provider = SourceRegistry.requireUrlImport(page, "MIDI");
     if (!provider.id().equals("wikimedia-commons"))
       throw new IllegalArgumentException("No adapter for this provider");
     String title = fileTitle(page);

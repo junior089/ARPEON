@@ -66,7 +66,13 @@
 </header>
 @if (profileChangeError()) {
 <p class="shutdown-notice error" role="alert">{{ profileChangeError() }}</p>
-} @if (preferences.error()) {
+@if (pendingEditionProject(); as project) {
+<div class="preferences-notice">
+  <button type="button" (click)="locatePendingEdition()">
+    Revisar identificação: {{ project.title || project.filename }}
+  </button>
+</div>
+} } @if (preferences.error()) {
 <div class="preferences-notice" role="status">
   <span>{{ preferences.error() }}</span
   ><button type="button" (click)="preferences.retry()" [disabled]="preferences.saving()">

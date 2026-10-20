@@ -88,6 +88,34 @@ public final class NativeProfilesAcceptance {
             JsonParser.parseString(get(http, sessions.launchUri(), "/api/projects"))
                 .getAsJsonArray();
         String projectId = entries.get(0).getAsJsonObject().get("id").getAsString();
+        await(window, "Identificar edição", 20);
+        window.execute(
+            "Array.from(document.querySelectorAll('button')).find(b=>b.textContent.trim()==='Identificar"
+                + " edição').click();");
+        await(window, "Cancelar identificação", 10);
+        window.execute(
+            "const fields=document.querySelectorAll('app-edition-panel input');for(const [i,value]"
+                + " of ['Edição nativa','Página de rosto, chapa"
+                + " 123'].entries()){fields[i].value=value;fields[i].dispatchEvent(new"
+                + " Event('input',{bubbles:true}));}");
+        window.execute(
+            "document.querySelector('app-edition-panel form').dispatchEvent(new"
+                + " Event('submit',{bubbles:true,cancelable:true}));");
+        await(window, "Identificação registrada", 20);
+        var evidence =
+            JsonParser.parseString(
+                    get(http, sessions.launchUri(), "/api/projects/" + projectId + "/editions"))
+                .getAsJsonObject();
+        if (evidence.getAsJsonArray("history").size() != 1
+            || !evidence
+                .getAsJsonArray("history")
+                .get(0)
+                .getAsJsonObject()
+                .getAsJsonObject("edition")
+                .get("title")
+                .getAsString()
+                .equals("Edição nativa"))
+          throw new AssertionError("Native edition declaration was not persisted");
         var original =
             http.send(
                 request(sessions.launchUri(), "/api/projects/" + projectId + "/original")
@@ -108,7 +136,7 @@ public final class NativeProfilesAcceptance {
             output.resolve("result.json"),
             "{\"success\":true,\"checks\":[\"native session rotation\",\"MusicXML import and"
                 + " save\",\"empty second library\",\"restored first library\",\"provenance and"
-                + " original integrity\"]}");
+                + " original integrity\",\"native edition declaration persisted\"]}");
       }
     }
     System.out.println("Native profile acceptance passed.");

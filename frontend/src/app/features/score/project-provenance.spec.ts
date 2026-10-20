@@ -32,7 +32,20 @@ async function panel(request = vi.fn<typeof fetch>().mockResolvedValue(Response.
   await TestBed.configureTestingModule({
     imports: [ProjectProvenancePanel],
     providers: [
-      { provide: LOCAL_FETCH, useValue: request },
+      {
+        provide: LOCAL_FETCH,
+        useValue: (path: RequestInfo | URL, init?: RequestInit) =>
+          String(path).endsWith('/editions')
+            ? Promise.resolve(
+                Response.json({
+                  sourceAssetId: 'sha256:' + 'a'.repeat(64),
+                  workId: projectId,
+                  history: [],
+                  maxEntries: 16,
+                }),
+              )
+            : request(path, init),
+      },
       { provide: SESSION_TOKEN, useValue: 'test-session' },
     ],
   }).compileComponents();
@@ -91,7 +104,11 @@ describe('saved project provenance', () => {
     expect(element.textContent).toContain('Não identificada');
     expect(element.textContent).toContain('Direitos não avaliados');
     expect(element.textContent).toContain('SHA-256 da entrada');
-    expect(element.querySelector('button')?.textContent).toContain('Baixar original');
+    expect(
+      Array.from(element.querySelectorAll('button')).some((button) =>
+        button.textContent?.includes('Baixar original'),
+      ),
+    ).toBe(true);
     expect(request.mock.calls[0]?.[1]?.headers).toMatchObject({
       'X-Arpeon-Session': 'test-session',
     });

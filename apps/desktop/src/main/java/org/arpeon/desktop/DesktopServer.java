@@ -213,12 +213,15 @@ public final class DesktopServer implements AutoCloseable {
   }
 
   static DesktopServer forProfile(
-      TunerService tuner, java.nio.file.Path profile, java.nio.file.Path deviceData)
+      TunerService tuner,
+      java.nio.file.Path profile,
+      java.nio.file.Path deviceData,
+      ScoreSourceProvider commons)
       throws IOException {
     return new DesktopServer(
         tuner,
         new PracticeHistory(profile.resolve("practice-history.json")),
-        new ImportWorkspace(),
+        new ImportWorkspace(commons),
         new OmrWorkspace(new AudiverisOmrEngine()),
         new ProjectStore(profile.resolve("projects")),
         new PreferencesStore(profile.resolve("preferences.json")),
@@ -388,7 +391,7 @@ public final class DesktopServer implements AutoCloseable {
       }
       if (profiles != null
           && path.matches(
-              "/api/projects/[0-9a-f-]{36}(/(open|rename|duplicate|provenance|original))?")) {
+              "/api/projects/[0-9a-f-]{36}(/(open|rename|duplicate|provenance|original|editions))?")) {
         String id = path.substring("/api/projects/".length()).split("/", 2)[0];
         if (!projects.contains(id)) {
           sendJson(exchange, 404, Map.of("error", "Projeto não encontrado neste perfil."));
@@ -609,6 +612,40 @@ public final class DesktopServer implements AutoCloseable {
         sendJson(exchange, 200, workspace.prepareStudy(smallJson(exchange)));
       } else if (path.equals("/api/projects") && method.equals("GET")) {
         sendJson(exchange, 200, projects.list());
+      } else if (path.matches("/api/projects/[0-9a-f-]{36}/editions")
+          && Set.of("GET", "POST").contains(method)) {
+        String id = path.substring("/api/projects/".length(), path.lastIndexOf('/'));
+        if (method.equals("GET")) sendJson(exchange, 200, projects.editions(id));
+        else {
+          var request = smallJson(exchange);
+          if (request == null
+              || !request
+                  .keySet()
+                  .equals(
+                      Set.of(
+                          "sourceAssetId",
+                          "expectedRevision",
+                          "title",
+                          "citation",
+                          "referenceUrl")))
+            throw new IllegalArgumentException("Dados de identificação da edição inválidos.");
+          var revision = request.get("expectedRevision");
+          if (!revision.isJsonPrimitive() || !revision.getAsJsonPrimitive().isNumber())
+            throw new IllegalArgumentException("Revisão de identificação inválida.");
+          int expected = revision.getAsBigDecimal().intValueExact();
+          if (expected < 0 || expected > EditionEvidence.MAX_ENTRIES)
+            throw new IllegalArgumentException("Revisão de identificação inválida.");
+          sendJson(
+              exchange,
+              200,
+              projects.identifyEdition(
+                  id,
+                  practiceString(request, "sourceAssetId"),
+                  expected,
+                  practiceString(request, "title"),
+                  practiceString(request, "citation"),
+                  practiceString(request, "referenceUrl")));
+        }
       } else if (path.matches("/api/projects/[0-9a-f-]{36}/provenance") && method.equals("GET")) {
         String id = path.substring("/api/projects/".length(), path.lastIndexOf('/'));
         sendJson(exchange, 200, projects.details(id));
@@ -656,11 +693,22 @@ public final class DesktopServer implements AutoCloseable {
         boolean autosave = request.has("autosave") && practiceBoolean(request, "autosave");
         ProjectStore.Data data;
         int revision;
+        String sourceProjectId;
         synchronized (workspace) {
           data = workspace.projectData();
           revision = workspace.revision();
+          sourceProjectId = currentProjectId;
         }
         try {
+          if ((id == null || id.isBlank())
+              && sourceProjectId != null
+              && projects.contains(sourceProjectId)
+              && data.provenance() != null) {
+            var latest = projects.editions(sourceProjectId);
+            if (data.provenance().sourceAsset().id().equals(latest.sourceAssetId())
+                && data.provenance().work().id().equals(latest.workId()))
+              data = data.withEditions(latest.history());
+          }
           ProjectStore.Saved saved = saveProject(id, data, autosave);
           currentProjectId = saved.id();
           savedProjectRevision = revision;

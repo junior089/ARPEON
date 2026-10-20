@@ -54,5 +54,6 @@ Retenção é local e não concede publicação, redistribuição, treinamento o
 derivação. Licença recebida da fonte é apenas declaração: `NOT_REVIEWED` e
 permissões `UNKNOWN` não são promovidos pelo hash, formato ou acesso ao arquivo.
 
-Próxima fatia: capacidades executáveis dos provedores e edição identificada com
-evidência, antes de habilitar busca federada.
+Evolução: o [ADR 0012](0012-source-capabilities-local-editions.md) acrescenta
+capacidades executáveis e declarações bibliográficas locais em schema 4. A
+proveniência inicial descrita aqui permanece imutável.

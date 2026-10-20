@@ -6,6 +6,11 @@ Métodos: A API pública; B API autenticada; C arquivos abertos; D HTML com perm
 expressa; E importação assistida; F referência externa. Nenhuma nova extração HTML
 foi autorizada ou implementada nesta entrega.
 
+Atualização de 19/10/2026: capacidades reais estão no registro executável e na
+interface de importação ([ADR 0012](../adr/0012-source-capabilities-local-editions.md)).
+Somente a política Commons foi revalidada nesta fatia; as demais linhas preservam
+a revisão documental acima. Nenhum novo provedor foi habilitado.
+
 | Serviço e fonte oficial | Método e conteúdo | Autenticação e limites | Download e redistribuição | Estado, testes e bloqueios |
 | --- | --- | --- | --- | --- |
 | [OpenScore Lieder](https://github.com/OpenScore/Lieder/blob/main/README.md) | C; índice TSV/YAML e partituras MSCX no repositório; conversão para MXL com MuseScore desktop | Git público sem conta; API GitHub sujeita às cotas abaixo | Corpus declarado CC0; manter procedência/crédito solicitado; preservar licença da revisão importada | Candidato prioritário, não implementado; faltam fixture fixada e conversão MSCX compatível. O repositório não é uma API nativa de MusicXML |
