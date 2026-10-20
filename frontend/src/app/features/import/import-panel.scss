@@ -1,6 +1,19 @@
 .import-panel {
   max-width: none;
 }
+.source-capabilities {
+  font-size: var(--text-small);
+  margin-block: var(--space-3);
+}
+.source-capabilities dt {
+  font-weight: 500;
+  margin-top: var(--space-3);
+}
+.source-capabilities dd {
+  margin: var(--space-1) 0 0;
+  color: var(--secondary);
+  max-width: 75ch;
+}
 .import-panel h1 {
   margin: 0 0 var(--space-2);
 }

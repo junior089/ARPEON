@@ -5,6 +5,17 @@ import java.util.List;
 
 /** Reviewed access modes. An unknown host has no automated import permission. */
 final class SourceRegistry {
+  record Capabilities(
+      boolean search,
+      boolean importByUrl,
+      List<String> formats,
+      boolean selectParts,
+      boolean connectAccount) {
+    Capabilities {
+      formats = List.copyOf(formats);
+    }
+  }
+
   record Provider(
       String id,
       String host,
@@ -14,7 +25,10 @@ final class SourceRegistry {
       String rateLimit,
       String contentLicenseNotes,
       String lastTermsReview,
-      String implementationStatus) {}
+      String implementationStatus,
+      String name,
+      Capabilities capabilities,
+      String availabilityNote) {}
 
   private static final List<Provider> PROVIDERS =
       List.of(
@@ -27,8 +41,12 @@ final class SourceRegistry {
               "One user-selected file; at most one import attempt per 2 seconds per app instance;"
                   + " provider throttling respected",
               "Per-file rights vary; show license metadata and require review of the file page",
-              "2026-10-08",
-              "MIDI_FILE_PAGE"),
+              "2026-10-19",
+              "MIDI_FILE_PAGE",
+              "Wikimedia Commons",
+              new Capabilities(false, true, List.of("MIDI"), false, false),
+              "Importa um MIDI de uma página File: escolhida, com revisão. Sem busca ou seleção de"
+                  + " partes."),
           new Provider(
               "musescore",
               "musescore.com",
@@ -38,7 +56,11 @@ final class SourceRegistry {
               "No automated requests",
               "User must lawfully export and supply their own file",
               "2026-10-08",
-              "MANUAL_ONLY"),
+              "MANUAL_ONLY",
+              "MuseScore.com",
+              new Capabilities(false, false, List.of(), false, false),
+              "Importe um arquivo exportado legitimamente pelo usuário. Sem acesso automatizado ou"
+                  + " conexão de conta no ARPEON."),
           new Provider(
               "cifra-melodica",
               "ciframelodica.com.br",
@@ -48,12 +70,31 @@ final class SourceRegistry {
               "No automated requests",
               "User may paste legitimately obtained melodic notes",
               "2026-10-08",
-              "MANUAL_ONLY"));
+              "MANUAL_ONLY",
+              "Cifra Melódica",
+              new Capabilities(false, false, List.of(), false, false),
+              "Cole notas obtidas legitimamente. Sem busca ou download automatizado no ARPEON."));
 
   private SourceRegistry() {}
 
   static List<Provider> all() {
     return PROVIDERS;
+  }
+
+  static Provider byId(String id) {
+    return PROVIDERS.stream()
+        .filter(provider -> provider.id().equals(id))
+        .findFirst()
+        .orElseThrow(() -> new IllegalArgumentException("Fonte não registrada."));
+  }
+
+  static Provider requireUrlImport(URI uri, String format) {
+    var provider = eligible(uri);
+    if (!provider.capabilities().importByUrl()
+        || !provider.capabilities().formats().contains(format))
+      throw new IllegalArgumentException(
+          "Esta fonte não implementa importação por URL neste formato.");
+    return provider;
   }
 
   static Provider eligible(URI uri) {

@@ -22,3 +22,9 @@ musical union. Written pitch is explicit. Instrument transposition is a profile 
 not a flute-specific branch.
 The flute profile identifies its documented fingering reference; other profiles have no
 fingering dataset and the practice UI does not infer one.
+
+`ScoreSourceProvider` is the implemented URL-preview boundary; `SourceRegistry`
+gates access and exposes actual capabilities before network calls. The desktop
+project store owns append-only local edition declarations linked to immutable
+initial source evidence ([ADR 0012](../adr/0012-source-capabilities-local-editions.md)).
+These declarations do not verify a catalogue or grant publication rights.

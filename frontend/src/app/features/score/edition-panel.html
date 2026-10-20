@@ -1,0 +1,107 @@
+<section class="edition" aria-label="Identificação bibliográfica">
+  <h4>Identificação bibliográfica</h4>
+  <p class="hint">
+    Declaração local vinculada à origem. A referência não é acessada nem verificada pelo ARPEON e
+    não altera direitos, notas ou o original.
+  </p>
+  @if (loading()) {
+  <p role="status">Consultando identificação…</p>
+  } @if (error()) {
+  <p class="error" role="alert">{{ error() }}</p>
+  <button type="button" (click)="reload()" [disabled]="busy() || loading()">
+    Recarregar histórico
+  </button>
+  } @if (view(); as current) { @if (latest()?.edition; as edition) {
+  <p>
+    <strong>{{ edition.title }}</strong><br /><span class="hint"
+      >Declaração local · {{ latest()?.recordedAt | date:'dd/MM/yyyy HH:mm' }}</span
+    >
+  </p>
+  } @else {
+  <p>Nenhuma edição identificada por declaração local.</p>
+  } @if (!mode()) {
+  <div class="actions">
+    <button type="button" (click)="begin('identify')" [disabled]="busy() || loading() || full()">
+      {{ latest()?.edition ? 'Corrigir identificação' : 'Identificar edição' }}
+    </button>
+    @if (latest()?.edition) {
+    <button type="button" (click)="begin('withdraw')" [disabled]="busy() || loading() || full()">
+      Retirar identificação
+    </button>
+    }
+  </div>
+  } @else {
+  <form (submit)="save($event)">
+    @if (mode() === 'identify') {
+    <label
+      >Título da edição<input
+        #titleInput
+        type="text"
+        maxlength="200"
+        required
+        [value]="title()"
+        (input)="change('title', titleInput.value)"
+        [disabled]="busy()"
+    /></label>
+    }
+    <label
+      >{{ mode() === 'withdraw' ? 'Motivo da retirada' : 'Referência bibliográfica ou evidência'
+      }}<input
+        #citationInput
+        type="text"
+        maxlength="1000"
+        required
+        [value]="citation()"
+        (input)="change('citation', citationInput.value)"
+        [disabled]="busy()"
+        placeholder="Editora, ano, chapa, catálogo ou localização no arquivo"
+    /></label>
+    @if (mode() === 'identify') {
+    <label
+      >URL de referência (opcional)<input
+        #referenceInput
+        type="url"
+        maxlength="1000"
+        [value]="referenceUrl()"
+        (input)="change('referenceUrl', referenceInput.value)"
+        [disabled]="busy()"
+    /></label>
+    <p class="hint">
+      HTTPS sem credenciais, porta, consulta ou fragmento. Você também pode registrar a referência
+      somente em texto.
+    </p>
+    }
+    <div class="actions">
+      <button type="submit" class="primary" [disabled]="busy() || loading() || !valid() || full()">
+        {{ busy() ? 'Guardando…' : mode() === 'withdraw' ? 'Registrar retirada' : 'Guardar
+        identificação' }}</button
+      ><button type="button" (click)="cancel()" [disabled]="busy()">Cancelar identificação</button>
+    </div>
+  </form>
+  } @if (full()) {
+  <p class="hint">
+    Limite de {{ current.maxEntries }} registros atingido. O histórico existente permanece
+    disponível.
+  </p>
+  } @if (current.history.length) {
+  <details>
+    <summary>
+      Histórico bibliográfico · {{ current.history.length }} de {{ current.maxEntries }}
+    </summary>
+    <ol>
+      @for (entry of current.history; track entry.id) {
+      <li>
+        <strong>{{ entry.edition?.title || 'Identificação retirada' }}</strong
+        ><span class="hint"> · {{ entry.recordedAt | date:'dd/MM/yyyy HH:mm' }}</span>
+        <p>{{ entry.citation }}</p>
+        @if (entry.referenceUrl) {
+        <p class="reference">{{ entry.referenceUrl }}</p>
+        }
+      </li>
+      }
+    </ol>
+  </details>
+  } } @if (message()) {
+  <p role="status">{{ message() }}</p>
+  }
+</section>

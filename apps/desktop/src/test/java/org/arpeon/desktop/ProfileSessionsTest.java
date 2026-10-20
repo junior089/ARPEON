@@ -102,6 +102,93 @@ class ProfileSessionsTest {
   }
 
   @Test
+  void editionApiIsPrivateStrictAndPreservesLatestHistoryWhenSavingAsNew() throws Exception {
+    String project;
+    String first;
+    try (var host = host()) {
+      first = account().get("activeProfileId").getAsString();
+      select(first);
+      openScore();
+      project =
+          JsonParser.parseString(post("/api/projects", "{}").body())
+              .getAsJsonObject()
+              .get("id")
+              .getAsString();
+      String path = "/api/projects/" + project + "/editions";
+      var before = JsonParser.parseString(get(path).body()).getAsJsonObject();
+      assertEquals(0, before.getAsJsonArray("history").size());
+      assertEquals(
+          401, send(HttpRequest.newBuilder(launch.resolve(path)).GET().build()).statusCode());
+      var body = new JsonObject();
+      body.addProperty("sourceAssetId", before.get("sourceAssetId").getAsString());
+      body.addProperty("expectedRevision", 0);
+      body.addProperty("title", "Edição local");
+      body.addProperty("citation", "Página de rosto, chapa 123");
+      body.addProperty("referenceUrl", "https://example.org/edition/123");
+      assertEquals(200, post(path, body.toString()).statusCode());
+      assertEquals(409, post(path, body.toString()).statusCode());
+      var updated = JsonParser.parseString(get(path).body()).getAsJsonObject();
+      assertEquals(1, updated.getAsJsonArray("history").size());
+      var copy =
+          JsonParser.parseString(post("/api/projects", "{}").body())
+              .getAsJsonObject()
+              .get("id")
+              .getAsString();
+      assertEquals(
+          updated, JsonParser.parseString(get("/api/projects/" + copy + "/editions").body()));
+      for (String invalid :
+          List.of(
+              "null",
+              "{}",
+              body.toString().replace("\"expectedRevision\":0", "\"expectedRevision\":null"),
+              body.toString().replace("\"expectedRevision\":0", "\"expectedRevision\":0.5"),
+              body.toString().replace("\"title\":\"Edição local\"", "\"title\":null")))
+        assertEquals(400, post(path, invalid).statusCode(), invalid);
+      body.addProperty("expectedRevision", 1);
+      body.addProperty("title", "");
+      body.addProperty("citation", "Referência incompatível");
+      body.addProperty("referenceUrl", "");
+      assertEquals(200, post(path, body.toString()).statusCode());
+      assertTrue(
+          JsonParser.parseString(get(path).body())
+              .getAsJsonObject()
+              .getAsJsonArray("history")
+              .get(1)
+              .getAsJsonObject()
+              .get("edition")
+              .isJsonNull());
+      assertEquals(
+          200,
+          post(
+                  "/api/profiles",
+                  "{\"name\":\"Outro\",\"avatar\":\"blue\",\"instrumentId\":\"piano\",\"secondaryInstrumentIds\":[]}")
+              .statusCode());
+      String other =
+          account().getAsJsonArray("profiles").get(1).getAsJsonObject().get("id").getAsString();
+      select(other);
+      assertEquals(404, get(path).statusCode());
+      assertEquals(404, post(path, body.toString()).statusCode());
+      select(first);
+      assertEquals(
+          2,
+          JsonParser.parseString(get(path).body())
+              .getAsJsonObject()
+              .getAsJsonArray("history")
+              .size());
+      host.account().preferences("Conta", true);
+    }
+    try (var restarted = host()) {
+      assertEquals(first, restarted.account().snapshot().activeProfileId());
+      assertEquals(
+          2,
+          JsonParser.parseString(get("/api/projects/" + project + "/editions").body())
+              .getAsJsonObject()
+              .getAsJsonArray("history")
+              .size());
+    }
+  }
+
+  @Test
   void scopesProjectsPreferencesHistoriesAndTokensAcrossProfileSwitchAndRestart() throws Exception {
     String first;
     String piano;

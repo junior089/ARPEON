@@ -74,6 +74,9 @@ The [profile delivery report](docs/development/local-study-profiles.md) document
 migration, recovery limits and browser/native acceptance.
 The [provenance report](docs/development/project-provenance.md) covers retained
 score originals, schema compatibility and integrity checks.
+The [source and edition report](docs/development/source-capabilities-editions.md)
+covers executable provider capabilities and local bibliographic declarations
+with correction/withdrawal history, separate from initial evidence and rights.
 
 ## Current local build: 0.1.2
 

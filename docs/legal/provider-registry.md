@@ -1,4 +1,7 @@
-# Web source access review — 2026-10-08
+# Web source access review
+
+Initial review: 2026-10-08. Commons API/imageinfo and User-Agent policies
+rechecked on 2026-10-19; manual-only classifications retain their original review.
 
 ARPEON checks an exact provider hostname and access mode **before** any network request.
 Unknown hosts and generic HTML are disabled until their access policy has been reviewed.
@@ -31,3 +34,14 @@ Reviewed primary sources:
 Do not infer a site's permission from public accessibility alone. The MuseScore and Cifra
 Melódica classifications follow the authoritative ARPEON specification until a current official
 integration or explicit authorization permits a specific automated use.
+
+The authenticated `/api/import/providers` contract includes explicit `search`,
+`importByUrl`, `formats`, `selectParts` and `connectAccount` capabilities. Only
+Commons `importByUrl` with `MIDI` is enabled. Notes in the importer describe
+implemented behavior rather than potential provider APIs. The shared adapter's
+cooldown/backoff survives local profile switches without retaining the contact.
+
+`imageinfo` supplies file metadata and upload revisions, not bibliographic edition
+identity. Local edition declarations require a citation and keep correction/
+withdrawal history; references are never fetched. They do not validate rights or
+promote source metadata into editorial verification.

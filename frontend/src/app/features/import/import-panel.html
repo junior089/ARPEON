@@ -82,6 +82,25 @@
       </details>
     </section>
     <div class="source-card" [hidden]="sourceTab() !=='url'">
+      <h2>Fontes disponíveis</h2>
+      @if (sources.loading()) {
+      <p role="status">Verificando capacidades…</p>
+      } @if (sources.error()) {
+      <p role="alert">{{ sources.error() }}</p>
+      <button type="button" (click)="sources.load(true)" [disabled]="sources.loading()">
+        Consultar fontes novamente
+      </button>
+      }
+      <dl class="source-capabilities">
+        @for (provider of sources.providers(); track provider.id) {
+        <dt>{{ provider.name }}</dt>
+        <dd>{{ provider.availabilityNote }}</dd>
+        }
+      </dl>
+      <p class="hint">
+        As capacidades descrevem o que esta versão do ARPEON implementa. Não há busca federada ou
+        conexão de conta externa nesta etapa.
+      </p>
       <label
         >URL da página File: de um MIDI
         <input
@@ -113,7 +132,7 @@
         type="button"
         class="primary"
         (click)="analyzeUrl()"
-        [disabled]="busy() || !sourceUrl || !contact"
+        [disabled]="busy() || sources.loading() || !sources.canImportCommons() || !sourceUrl || !contact"
       >
         Analisar URL
       </button>

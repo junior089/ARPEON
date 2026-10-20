@@ -1,7 +1,8 @@
 import { DatePipe, NgTemplateOutlet } from '@angular/common';
-import { Component, computed, inject, output, signal } from '@angular/core';
+import { Component, computed, effect, inject, output, signal, untracked } from '@angular/core';
 import { ProjectInfo, ScoreSession } from './score-session';
 import { ProjectProvenancePanel } from './project-provenance';
+import { EditionDrafts } from '../../core/edition-drafts';
 
 const searchable = (value: string) =>
   value
@@ -16,6 +17,7 @@ const searchable = (value: string) =>
   styleUrl: './project-library.scss',
 })
 export class ProjectLibrary {
+  private readonly editionDrafts = inject(EditionDrafts);
   readonly session = inject(ScoreSession);
   readonly opened = output<string>();
   readonly query = signal('');
@@ -53,6 +55,22 @@ export class ProjectLibrary {
         return code < 32 || (code >= 127 && code <= 159);
       }),
   );
+
+  constructor() {
+    effect(() => {
+      const id = this.editionDrafts.requestedProject();
+      const projects = this.session.projects();
+      if (!id || !projects.some((project) => project.id === id)) return;
+      untracked(() => {
+        this.query.set('');
+        const index = this.filtered().findIndex((project) => project.id === id);
+        this.page.set(Math.floor(index / 8));
+        this.selectedId.set(id);
+        this.operation.set(null);
+        this.editionDrafts.requestedProject.set('');
+      });
+    });
+  }
 
   filter(event: Event, order = false): void {
     const value =
@@ -111,6 +129,7 @@ export class ProjectLibrary {
     )
       return;
     if (await this.session.deleteProject(project.id)) {
+      this.editionDrafts.clear(project.id);
       this.selectedId.set('');
       this.operation.set(null);
       this.message.set('Projeto excluído da biblioteca.');

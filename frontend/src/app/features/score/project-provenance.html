@@ -11,7 +11,7 @@
     <dd>{{ p.work.title || 'Sem título' }}</dd>
     <dt>Compositor declarado</dt>
     <dd>{{ p.work.composer || 'Não informado' }}</dd>
-    <dt>Edição</dt>
+    <dt>Edição na importação</dt>
     <dd>{{ p.edition?.title || 'Não identificada' }}</dd>
     <dt>Arranjo da entrada</dt>
     <dd>
@@ -26,6 +26,11 @@
       'Não preservado neste fluxo de importação' }}
     </dd>
   </dl>
+  <app-edition-panel
+    [projectId]="projectId()"
+    [sourceAssetId]="p.sourceAsset.id"
+    [workId]="p.work.id"
+  />
   @if (p.sourceAsset.retained) {
   <button type="button" (click)="download()" [disabled]="downloading()">
     {{ downloading() ? 'Verificando download…' : 'Baixar original' }}

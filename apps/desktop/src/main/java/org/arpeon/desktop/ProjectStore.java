@@ -20,7 +20,7 @@ import java.util.UUID;
 final class ProjectStore {
   static final int MAX_PROJECTS = 500;
   private static final int MAX_MANIFEST_BYTES = 64 * 1024;
-  private static final int SCHEMA_VERSION = 3;
+  private static final int SCHEMA_VERSION = 4;
   private static final String SCORE_FILE = "score.musicxml";
   private static final String MANIFEST_FILE = "manifest.json";
   private static final String ORIGINAL_FILE = "source.bin";
@@ -41,7 +41,55 @@ final class ProjectStore {
       String xml,
       RehearsalState rehearsal,
       ProjectProvenance provenance,
-      OriginalScore original) {
+      OriginalScore original,
+      List<EditionEvidence> editions) {
+    Data {
+      editions = List.copyOf(editions);
+    }
+
+    Data withEditions(List<EditionEvidence> history) {
+      return new Data(
+          title,
+          filename,
+          sha256,
+          parserVersion,
+          sourceKind,
+          importWarnings,
+          source,
+          xml,
+          rehearsal,
+          provenance,
+          original,
+          history);
+    }
+
+    Data(
+        String title,
+        String filename,
+        String sha256,
+        String parserVersion,
+        String sourceKind,
+        List<String> importWarnings,
+        ImportWorkspace.Source source,
+        String xml,
+        RehearsalState rehearsal,
+        ProjectProvenance provenance,
+        OriginalScore original) {
+      this(
+          title,
+          filename,
+          sha256,
+          parserVersion,
+          sourceKind,
+          importWarnings,
+          source,
+          xml,
+          rehearsal,
+          provenance,
+          original,
+          List.of());
+    }
+
     Data(
         String title,
         String filename,
@@ -87,6 +135,9 @@ final class ProjectStore {
 
   record Details(ProjectProvenance provenance, String xmlSha256) {}
 
+  record Editions(
+      String sourceAssetId, String workId, List<EditionEvidence> history, int maxEntries) {}
+
   private record Manifest(
       int schemaVersion,
       String id,
@@ -102,7 +153,8 @@ final class ProjectStore {
       String updatedAt,
       String name,
       RehearsalState rehearsal,
-      ProjectProvenance provenance) {}
+      ProjectProvenance provenance,
+      List<EditionEvidence> editions) {}
 
   private final Path root;
   private final DurableWriter durableWriter;
@@ -170,6 +222,12 @@ final class ProjectStore {
   }
 
   private Saved save(String requestedId, Data data, String name) throws IOException {
+    return save(requestedId, data, name, null);
+  }
+
+  private Saved save(
+      String requestedId, Data data, String name, List<EditionEvidence> editionOverride)
+      throws IOException {
     String id =
         requestedId == null || requestedId.isBlank() ? UUID.randomUUID().toString() : requestedId;
     if (!isId(id)) throw new IllegalArgumentException("Invalid project ID");
@@ -189,6 +247,11 @@ final class ProjectStore {
           "A origem inicial é imutável. Salve a nova entrada como outro projeto.");
     String createdAt = previous == null ? java.time.Instant.now().toString() : previous.createdAt();
     String updatedAt = java.time.Instant.now().toString();
+    List<EditionEvidence> editions =
+        editionOverride != null
+            ? editionOverride
+            : previous == null ? data.editions() : history(previous);
+    EditionEvidence.validate(editions, data.provenance());
     byte[] xml = data.xml().getBytes(StandardCharsets.UTF_8);
     Manifest manifest =
         new Manifest(
@@ -206,7 +269,8 @@ final class ProjectStore {
             updatedAt,
             name != null ? name : previous == null ? null : previous.name(),
             data.rehearsal(),
-            data.provenance());
+            data.provenance(),
+            editions);
 
     Path staging = Files.createTempDirectory(root, ".pending-");
     Path backup = root.resolve(".backup-" + id + "-" + UUID.randomUUID());
@@ -266,7 +330,8 @@ final class ProjectStore {
             xml,
             manifest.rehearsal(),
             manifest.provenance(),
-            readOriginal(directory, manifest)),
+            readOriginal(directory, manifest),
+            history(manifest)),
         manifest.createdAt(),
         manifest.updatedAt());
   }
@@ -309,6 +374,49 @@ final class ProjectStore {
         || !original.format().equals(provenance.sourceAsset().format()))
       throw new IOException("A verificação de integridade do original falhou.");
     return original;
+  }
+
+  synchronized Editions editions(String id) throws IOException {
+    var data = load(id).data();
+    var source = data.provenance();
+    return new Editions(
+        source == null ? null : source.sourceAsset().id(),
+        source == null ? null : source.work().id(),
+        data.editions(),
+        EditionEvidence.MAX_ENTRIES);
+  }
+
+  synchronized Editions identifyEdition(
+      String id,
+      String expectedAsset,
+      int expectedRevision,
+      String title,
+      String citation,
+      String referenceUrl)
+      throws IOException {
+    var data = load(id).data();
+    if (data.provenance() == null || !data.provenance().sourceAsset().id().equals(expectedAsset))
+      throw new IllegalStateException(
+          "A origem do projeto não corresponde à identificação. Consulte o projeto novamente.");
+    if (data.editions().size() != expectedRevision)
+      throw new IllegalStateException(
+          "A edição foi alterada por outra operação. Consulte o histórico antes de tentar"
+              + " novamente.");
+    if (expectedRevision >= EditionEvidence.MAX_ENTRIES)
+      throw new IllegalStateException(
+          "O limite de 16 registros de identificação deste projeto foi atingido.");
+    var entry = EditionEvidence.record(data.provenance(), title, citation, referenceUrl);
+    if (entry.edition() == null
+        && (data.editions().isEmpty() || data.editions().getLast().edition() == null))
+      throw new IllegalStateException("Não há identificação ativa para retirar.");
+    var entries = new ArrayList<>(data.editions());
+    entries.add(entry);
+    save(id, data, null, List.copyOf(entries));
+    return editions(id);
+  }
+
+  private static List<EditionEvidence> history(Manifest manifest) {
+    return manifest.editions() == null ? List.of() : manifest.editions();
   }
 
   private Manifest readManifest(Path directory, String expectedId) throws IOException {
@@ -354,6 +462,9 @@ final class ProjectStore {
               "<x/>"));
       if (manifest.provenance() != null)
         manifest.provenance().validate(manifest.filename(), manifest.sha256());
+      if (manifest.schemaVersion() >= 4 && manifest.editions() == null)
+        throw new IOException("Histórico da edição ausente.");
+      EditionEvidence.validate(history(manifest), manifest.provenance());
       if ((manifest.provenance() == null || !manifest.provenance().sourceAsset().retained())
           && Files.exists(
               directory.resolve(ORIGINAL_FILE), java.nio.file.LinkOption.NOFOLLOW_LINKS))
@@ -453,6 +564,7 @@ final class ProjectStore {
             || data.original().size() != data.provenance().sourceAsset().byteSize()
             || !data.original().format().equals(data.provenance().sourceAsset().format())))
       throw new IOException("O original não corresponde à proveniência.");
+    EditionEvidence.validate(data.editions(), data.provenance());
   }
 
   private static boolean safeCommonsUrl(String value) {

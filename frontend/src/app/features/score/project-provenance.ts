@@ -1,5 +1,6 @@
 import { Component, computed, effect, inject, input, signal } from '@angular/core';
 import { LOCAL_FETCH, SESSION_TOKEN } from '../../core/local-session';
+import { EditionPanel } from './edition-panel';
 
 type Identifier = { namespace: string; value: string };
 interface Provenance {
@@ -102,6 +103,7 @@ export function isProjectDetails(value: unknown): value is ProjectDetails {
 
 @Component({
   selector: 'app-project-provenance',
+  imports: [EditionPanel],
   templateUrl: './project-provenance.html',
   styleUrl: './project-provenance.scss',
 })

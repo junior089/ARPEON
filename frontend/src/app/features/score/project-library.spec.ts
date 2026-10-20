@@ -3,6 +3,7 @@ import { TestBed } from '@angular/core/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ProjectLibrary } from './project-library';
 import { ProjectInfo, ScoreSession } from './score-session';
+import { EditionDrafts } from '../../core/edition-drafts';
 
 const projects = (): ProjectInfo[] =>
   Array.from({ length: 10 }, (_, i) => ({
@@ -38,6 +39,18 @@ describe('ProjectLibrary', () => {
   afterEach(() => {
     TestBed.resetTestingModule();
     vi.restoreAllMocks();
+  });
+
+  it('locates a pending declaration on another page despite an active filter', async () => {
+    const { fixture, component } = await library();
+    component.query.set('missing');
+    TestBed.inject(EditionDrafts).requestedProject.set('project-0');
+    fixture.detectChanges();
+    expect(component.query()).toBe('');
+    expect(component.currentPage()).toBe(1);
+    expect(component.selectedId()).toBe('project-0');
+    expect(component.visible().some((project) => project.id === 'project-0')).toBe(true);
+    expect(TestBed.inject(EditionDrafts).requestedProject()).toBe('');
   });
 
   it('searches accents and filenames, sorts, paginates and opens a project directly', async () => {

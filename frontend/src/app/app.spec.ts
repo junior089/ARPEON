@@ -1,9 +1,47 @@
 import { TestBed } from '@angular/core/testing';
 import { describe, expect, it, vi } from 'vitest';
 import { App } from './app';
+import { EditionDrafts } from './core/edition-drafts';
 import { LOCAL_FETCH, SESSION_TOKEN } from './features/tuner/tuner-session';
 
 describe('ARPEON shell', () => {
+  it('keeps edition drafts protected before profile handover or window close', async () => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(Response.json([]));
+    await TestBed.configureTestingModule({
+      imports: [App],
+      providers: [
+        { provide: LOCAL_FETCH, useValue: request },
+        { provide: SESSION_TOKEN, useValue: 'test' },
+      ],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(App);
+    const drafts = TestBed.inject(EditionDrafts);
+    fixture.componentInstance.profiles.account.set({
+      accountId: 'local',
+      name: 'Conta',
+      activeProfileId: 'first',
+      openLastProfile: false,
+      maxProfiles: 8,
+      selectionRequired: false,
+      profiles: [],
+      instruments: [],
+    });
+    drafts.put('project', {
+      mode: 'identify',
+      title: 'Rascunho',
+      citation: '',
+      referenceUrl: '',
+      baseline: { title: '', citation: '', referenceUrl: '' },
+    });
+    await fixture.componentInstance.requestProfiles();
+    expect(fixture.componentInstance.profileChangeError()).toContain('identificaç');
+    expect(request.mock.calls.some(([path]) => path === '/api/profiles/choose')).toBe(false);
+    drafts.clear('project');
+    fixture.detectChanges();
+    expect(fixture.componentInstance.profileChangeError()).toBe('');
+    fixture.destroy();
+  });
+
   it('replaces a failed check message with a newer native result without hiding a failed preference save', async () => {
     let state = 'idle';
     let lastCheckedAt = '';

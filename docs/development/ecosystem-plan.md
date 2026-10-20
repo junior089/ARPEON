@@ -9,8 +9,10 @@ Atualização em 19/10/2026: as entregas 0/1 estão registradas em
 fotografia da auditoria inicial; o ADR 0010 define os escopos atuais por perfil.
 
 [3a.1 — proveniência inicial](project-provenance.md) acrescenta evidência tipada
-e originais MusicXML/MXL/MSCZ preservados por projeto. Capacidades de busca,
-reconciliação bibliográfica e novos provedores dependem das próximas fatias.
+e originais MusicXML/MXL/MSCZ preservados por projeto.
+[3a.2 — capacidades e edições](source-capabilities-editions.md) acrescenta
+contrato executável de fontes e declarações bibliográficas com histórico local.
+Busca, reconciliação bibliográfica e novos provedores dependem das próximas fatias.
 
 ## Evidências do repositório
 

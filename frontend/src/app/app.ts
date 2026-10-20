@@ -1,6 +1,8 @@
 import {
   Component,
+  computed,
   DestroyRef,
+  effect,
   ElementRef,
   HostListener,
   inject,
@@ -27,6 +29,7 @@ import { AudioSettings } from './core/audio-settings';
 import { ReferenceTone } from './core/reference-tone';
 import { StudyProfiles } from './core/study-profiles';
 import { ScoreReadingPreferences } from './core/score-reading-preferences';
+import { EditionDrafts } from './core/edition-drafts';
 
 @Component({
   selector: 'app-workstation',
@@ -46,15 +49,32 @@ import { ScoreReadingPreferences } from './core/score-reading-preferences';
   styleUrl: './app.scss',
 })
 export class App {
+  private readonly editionDrafts = inject(EditionDrafts);
   readonly profiles = inject(StudyProfiles);
   private readonly readingPreferences = inject(ScoreReadingPreferences);
   readonly profileRequested = output<void>();
   readonly profileChanging = signal(false);
   readonly profileChangeError = signal('');
+  readonly pendingEditionProject = computed(() =>
+    this.score.projects().find((project) => project.id === this.editionDrafts.firstProjectId()),
+  );
+
+  locatePendingEdition(): void {
+    const project = this.pendingEditionProject();
+    if (!project) return;
+    this.editionDrafts.requestedProject.set(project.id);
+    this.navigate('library');
+  }
 
   async requestProfiles(): Promise<void> {
     if (this.profileChanging() || !this.profiles.account()) return;
     this.profileChangeError.set('');
+    if (this.editionDrafts.pending()) {
+      this.profileChangeError.set(
+        'Guarde ou cancele as identificações bibliográficas pendentes na biblioteca antes de trocar de perfil.',
+      );
+      return;
+    }
     if (
       this.score.busy() ||
       this.score.savingProject() ||
@@ -93,6 +113,13 @@ export class App {
   }
   constructor() {
     inject(DestroyRef).onDestroy(() => this.stopUpdateStatusPolling());
+    effect(() => {
+      if (
+        !this.editionDrafts.pending() &&
+        this.profileChangeError().startsWith('Guarde ou cancele as identificações')
+      )
+        this.profileChangeError.set('');
+    });
   }
 
   readonly audio = inject(AudioSettings);
@@ -556,7 +583,7 @@ export class App {
 
   @HostListener('window:beforeunload', ['$event'])
   preventUnsavedClose(event: BeforeUnloadEvent): void {
-    if (this.score.projectDirty() && !this.shuttingDown()) {
+    if ((this.score.projectDirty() || this.editionDrafts.pending()) && !this.shuttingDown()) {
       event.preventDefault();
       event.returnValue = '';
     }
@@ -707,7 +734,7 @@ export class App {
 
   async shutdown(): Promise<void> {
     if (this.shuttingDown()) return;
-    const unsaved = this.score.projectDirty();
+    const unsaved = this.score.projectDirty() || this.editionDrafts.pending();
     if (unsaved && !window.confirm('Há alterações não salvas. Encerrar sem salvar?')) return;
     await this.preferences.flush();
     this.shutdownError.set('');

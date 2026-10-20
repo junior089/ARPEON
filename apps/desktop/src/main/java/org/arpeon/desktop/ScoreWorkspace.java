@@ -291,6 +291,7 @@ final class ScoreWorkspace implements AutoCloseable {
   private ImportWorkspace.Source source;
   private ProjectProvenance provenance;
   private OriginalScore original;
+  private List<EditionEvidence> editions = List.of();
   private String viewMode = "full";
   private final Set<String> hiddenParts = new java.util.LinkedHashSet<>();
   private final Map<String, RehearsalState.PartOrigin> partOrigins = new LinkedHashMap<>();
@@ -443,6 +444,7 @@ final class ScoreWorkspace implements AutoCloseable {
     importWarnings = warnings;
     source = origin;
     original = retained;
+    editions = List.of();
     provenance = ProjectProvenance.imported(next, kind, origin, retained);
     document = candidate;
     timeline = nextTimeline;
@@ -785,7 +787,8 @@ final class ScoreWorkspace implements AutoCloseable {
         exportXml(),
         rehearsal(),
         provenance,
-        original);
+        original,
+        editions);
   }
 
   synchronized int revision() {
@@ -821,6 +824,7 @@ final class ScoreWorkspace implements AutoCloseable {
     openImported(restored, data.sourceKind(), data.importWarnings(), data.source());
     provenance = data.provenance();
     original = data.original();
+    editions = data.editions();
     if (data.rehearsal() != null) {
       player.restore(data.rehearsal().playback());
       configureSoundBank(player, player.settings().soundBankId());
