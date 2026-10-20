@@ -1,6 +1,7 @@
 import { DatePipe, NgTemplateOutlet } from '@angular/common';
 import { Component, computed, inject, output, signal } from '@angular/core';
 import { ProjectInfo, ScoreSession } from './score-session';
+import { ProjectProvenancePanel } from './project-provenance';
 
 const searchable = (value: string) =>
   value
@@ -10,7 +11,7 @@ const searchable = (value: string) =>
 
 @Component({
   selector: 'app-project-library',
-  imports: [DatePipe, NgTemplateOutlet],
+  imports: [DatePipe, NgTemplateOutlet, ProjectProvenancePanel],
   templateUrl: './project-library.html',
   styleUrl: './project-library.scss',
 })

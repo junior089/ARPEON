@@ -8,6 +8,10 @@ Atualização em 19/10/2026: as entregas 0/1 estão registradas em
 [conta local e perfis](local-study-profiles.md). O inventário abaixo preserva a
 fotografia da auditoria inicial; o ADR 0010 define os escopos atuais por perfil.
 
+[3a.1 — proveniência inicial](project-provenance.md) acrescenta evidência tipada
+e originais MusicXML/MXL/MSCZ preservados por projeto. Capacidades de busca,
+reconciliação bibliográfica e novos provedores dependem das próximas fatias.
+
 ## Evidências do repositório
 
 - Java 25, Gradle Kotlin DSL, Angular 22 strict/SCSS e JCEF estão em uso.

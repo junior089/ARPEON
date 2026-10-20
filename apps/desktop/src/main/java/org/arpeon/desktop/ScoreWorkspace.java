@@ -289,6 +289,8 @@ final class ScoreWorkspace implements AutoCloseable {
   private String sourceKind = "MUSICXML";
   private List<String> importWarnings = List.of();
   private ImportWorkspace.Source source;
+  private ProjectProvenance provenance;
+  private OriginalScore original;
   private String viewMode = "full";
   private final Set<String> hiddenParts = new java.util.LinkedHashSet<>();
   private final Map<String, RehearsalState.PartOrigin> partOrigins = new LinkedHashMap<>();
@@ -338,18 +340,22 @@ final class ScoreWorkspace implements AutoCloseable {
   }
 
   synchronized View open(InputStream input, String filename) throws IOException {
-    var next = importer.read(input, filename);
-    return openImported(next, "MUSICXML", List.of(), null);
+    byte[] bytes = input.readNBytes(MusicXmlImporter.MAX_BYTES + 1);
+    if (bytes.length > MusicXmlImporter.MAX_BYTES)
+      throw new IOException("MusicXML exceeds the 128 MiB limit");
+    return open(bytes, filename);
   }
 
   synchronized View open(byte[] bytes, String filename) throws IOException {
     var next = importer.read(bytes, filename);
-    return openImported(next, "MUSICXML", List.of(), null);
+    var retained = new OriginalScore(filename, bytes);
+    return openImported(next, "MUSICXML", List.of(), null, retained);
   }
 
   synchronized View openMxl(byte[] bytes, String filename) throws IOException {
     var next = importer.readMxl(bytes, filename);
-    return openImported(next, "MUSICXML", List.of(), null);
+    var retained = new OriginalScore(filename, bytes);
+    return openImported(next, "MUSICXML", List.of(), null, retained);
   }
 
   synchronized View openOmr(OmrResult result) throws IOException {
@@ -408,6 +414,16 @@ final class ScoreWorkspace implements AutoCloseable {
       List<String> warnings,
       ImportWorkspace.Source origin)
       throws IOException {
+    return openImported(next, kind, warnings, origin, null);
+  }
+
+  private View openImported(
+      MusicXmlImporter.ImportedScore next,
+      String kind,
+      List<String> warnings,
+      ImportWorkspace.Source origin,
+      OriginalScore retained)
+      throws IOException {
     var candidate = new ScoreDocument(next.score(), next.keyId(), next.instruments());
     ScoreTimeline nextTimeline;
     MidiScorePlayer nextPlayer;
@@ -426,6 +442,8 @@ final class ScoreWorkspace implements AutoCloseable {
     sourceKind = kind;
     importWarnings = warnings;
     source = origin;
+    original = retained;
+    provenance = ProjectProvenance.imported(next, kind, origin, retained);
     document = candidate;
     timeline = nextTimeline;
     player = nextPlayer;
@@ -765,7 +783,9 @@ final class ScoreWorkspace implements AutoCloseable {
         importWarnings,
         source,
         exportXml(),
-        rehearsal());
+        rehearsal(),
+        provenance,
+        original);
   }
 
   synchronized int revision() {
@@ -799,6 +819,8 @@ final class ScoreWorkspace implements AutoCloseable {
       }
     }
     openImported(restored, data.sourceKind(), data.importWarnings(), data.source());
+    provenance = data.provenance();
+    original = data.original();
     if (data.rehearsal() != null) {
       player.restore(data.rehearsal().playback());
       configureSoundBank(player, player.settings().soundBankId());

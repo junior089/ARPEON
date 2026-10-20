@@ -15,7 +15,10 @@ with Java and Angular, with a native desktop window and local audio processing.
   chords, voices and durations; transpose with previews; undo/redo and export
   MusicXML. Originals remain unchanged.
 - **Project library:** autosave, named projects, search, duplication and recovery
-  through checksums, backups and durable writes.
+  through checksums, backups and durable writes. New MusicXML/MXL/MSCZ imports
+  retain verified originals and initial-source identities with private original
+  download. Unknown editions and unassessed rights remain explicit; legacy
+  originals are not reconstructed.
 - **Settings:** searchable local preferences for appearance, workspace panels,
   score reading and audio, with category resets and existing update management.
 - **Local study profiles:** a local account with up to eight independent libraries,
@@ -69,6 +72,8 @@ federated search and community hosting are planned. Local study profiles are
 implemented; see the [profile session decision](docs/adr/0010-local-account-profile-sessions.md).
 The [profile delivery report](docs/development/local-study-profiles.md) documents
 migration, recovery limits and browser/native acceptance.
+The [provenance report](docs/development/project-provenance.md) covers retained
+score originals, schema compatibility and integrity checks.
 
 ## Current local build: 0.1.2
 

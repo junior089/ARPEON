@@ -28,6 +28,9 @@ MusicXML and source provenance under the user's ARPEON data directory. The deskt
 compiled static assets, composes capture/analysis and owns the transport. Performance analysis
 snapshots one score revision and reports after an attempt; it does not track a moving score
 position.
+Projects belong to local study profiles. New direct score imports also retain
+verified original bytes separately from editable MusicXML, with initial-source
+identities and unassessed rights; see [ADR 0011](../adr/0011-initial-source-evidence.md).
 See [boundaries](module-boundaries.md), [bridge ADR](../adr/0002-local-desktop-bridge.md)
 and [score revision ADR](../adr/0004-score-revisions.md),
 [local project ADR](../adr/0005-local-score-projects.md).
