@@ -132,7 +132,7 @@ record ProjectProvenance(
           || sourceAsset.byteSize() > MusicXmlImporter.MAX_BYTES
           || (sourceAsset.retained()
               ? sourceAsset.byteSize() == 0
-                  || !List.of("MUSICXML", "MXL", "MSCZ").contains(sourceAsset.format())
+                  || !List.of("MUSICXML", "MXL", "MSCZ", "MIDI").contains(sourceAsset.format())
               : sourceAsset.byteSize() != 0)
           || !"NOT_REVIEWED".equals(rights.status())
           || !"UNKNOWN".equals(rights.derivation())

@@ -72,12 +72,6 @@
     "development": true
   },
   {
-    "package": "@angular/build/node_modules/vite",
-    "version": "8.3.0",
-    "license": "MIT",
-    "development": true
-  },
-  {
     "package": "@angular/cli",
     "version": "22.2.2",
     "license": "MIT",
@@ -3277,7 +3271,7 @@
   },
   {
     "package": "vite",
-    "version": "8.3.3",
+    "version": "8.3.4",
     "license": "MIT",
     "development": true
   },

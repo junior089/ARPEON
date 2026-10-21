@@ -170,6 +170,7 @@
 .warnings {
   color: var(--warning);
   line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 .provenance {
   color: var(--secondary);

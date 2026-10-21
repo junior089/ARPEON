@@ -1,0 +1,56 @@
+<section aria-labelledby="mutopia-heading">
+  <h2 id="mutopia-heading">Mutopia · seleção revisada</h2>
+  <p class="hint">
+    Catálogo inicial limitado aos arquivos conferidos nesta versão. Não é uma busca em todo o
+    acervo. A consulta desta lista é local; o download ocorre ao analisar a seleção.
+  </p>
+  @if (loading()) {
+  <p role="status">Consultando seleção…</p>
+  } @if (error()) {
+  <p class="error" role="alert">{{ error() }}</p>
+  <button type="button" (click)="load()" [disabled]="loading() || busy()">
+    Consultar seleção novamente
+  </button>
+  }
+  <ul>
+    @for (entry of entries(); track entry.id) {
+    <li>
+      <h3>{{ entry.title }}</h3>
+      <p>{{ entry.composer }} · {{ entry.instrument }}</p>
+      <p class="hint">
+        {{ entry.credit }}<br />Licença declarada: {{ entry.license }}. Confira a fonte antes de
+        redistribuir.
+      </p>
+      <p>
+        <a [href]="entry.pageUrl" target="_blank" rel="noopener noreferrer">Página da edição</a> ·
+        <a [href]="entry.licenseUrl" target="_blank" rel="noopener noreferrer"
+          >Declaração de domínio público</a
+        >
+      </p>
+      <p class="hint">
+        MIDI monofônico, convertido em rascunho 4/4 para revisão. Grafia, andamento e repetições
+        podem diferir da partitura original. O MIDI selecionado será preservado no projeto.
+      </p>
+      <button
+        type="button"
+        class="primary"
+        (click)="selected.emit(entry)"
+        [disabled]="busy() || loading()"
+      >
+        {{ busy() ? 'Analisando seleção…' : 'Analisar Allemande BWV 1013' }}
+      </button>
+      <details>
+        <summary>Revisão e integridade</summary>
+        <p>{{ entry.filename }} · {{ entry.byteSize }} bytes</p>
+        <p class="identifier">SHA-256: {{ entry.sha256 }}</p>
+        <p class="identifier">Fonte LilyPond: {{ entry.sourceRevision }}</p>
+        <p>
+          <a [href]="entry.sourceUrl" target="_blank" rel="noopener noreferrer"
+            >Fonte da edição na revisão fixada</a
+          >
+        </p>
+      </details>
+    </li>
+    }
+  </ul>
+</section>

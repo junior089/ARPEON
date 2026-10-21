@@ -174,6 +174,90 @@ class DesktopServerTest {
   private String origin;
   private String token;
   private TestInput input;
+  private final java.util.concurrent.atomic.AtomicInteger mutopiaRequests =
+      new java.util.concurrent.atomic.AtomicInteger();
+
+  @Test
+  void
+      mutopiaCatalogueRequiresReviewAndPersistsItsExactMidiWithoutReplacingTheOpenScoreDuringPreview()
+          throws Exception {
+    var catalogue = get("/api/import/catalogue/mutopia");
+    assertEquals(200, catalogue.statusCode());
+    assertEquals(1, JsonParser.parseString(catalogue.body()).getAsJsonArray().size());
+    assertEquals(0, mutopiaRequests.get());
+    assertEquals(
+        401,
+        client
+            .send(
+                HttpRequest.newBuilder(URI.create(origin + "/api/import/catalogue/mutopia"))
+                    .GET()
+                    .build(),
+                HttpResponse.BodyHandlers.ofString())
+            .statusCode());
+    byte[] xml =
+        Files.readAllBytes(Path.of(System.getProperty("arpeon.fixtures"), "first-notes.musicxml"));
+    assertEquals(
+        200,
+        client
+            .send(
+                request("/api/score/open")
+                    .header("Content-Type", "application/xml")
+                    .header("X-Arpeon-Filename", "first-notes.musicxml")
+                    .POST(HttpRequest.BodyPublishers.ofByteArray(xml))
+                    .build(),
+                HttpResponse.BodyHandlers.ofString())
+            .statusCode());
+    String before = get("/api/score/export").body();
+    for (String body :
+        List.of(
+            "null",
+            "{}",
+            "{\"providerId\":\"mutopia\",\"selection\":\"https://example.org/file\"}",
+            "{\"providerId\":\"unknown\",\"selection\":\"x\"}"))
+      assertEquals(400, post("/api/import/catalogue/preview", body).statusCode());
+    assertEquals(0, mutopiaRequests.get());
+    var response =
+        post(
+            "/api/import/catalogue/preview",
+            "{\"providerId\":\"mutopia\",\"selection\":\""
+                + MutopiaAdapterTest.selection()
+                + "\"}");
+    assertEquals(200, response.statusCode(), response.body());
+    assertEquals(1, mutopiaRequests.get());
+    assertFalse(response.body().contains("\"bytes\""));
+    assertEquals(before, get("/api/score/export").body());
+    var preview = JsonParser.parseString(response.body()).getAsJsonObject();
+    String parameters =
+        "{\"token\":\""
+            + preview.get("token").getAsString()
+            + "\",\"fallbackOctave\":4,\"equalNoteTicks\":480";
+    assertEquals(
+        400, post("/api/import/accept", parameters + ",\"acknowledge\":false}").statusCode());
+    var accepted = post("/api/import/accept", parameters + ",\"acknowledge\":true}");
+    assertEquals(200, accepted.statusCode(), accepted.body());
+    var score = JsonParser.parseString(accepted.body()).getAsJsonObject().getAsJsonObject("score");
+    assertEquals("Johann Sebastian Bach", score.get("composer").getAsString());
+    var saved = post("/api/projects", "{}");
+    assertEquals(200, saved.statusCode(), saved.body());
+    String id = JsonParser.parseString(saved.body()).getAsJsonObject().get("id").getAsString();
+    var original =
+        client.send(
+            request("/api/projects/" + id + "/original").GET().build(),
+            HttpResponse.BodyHandlers.ofByteArray());
+    assertEquals(200, original.statusCode());
+    assertEquals(
+        MutopiaCatalogue.entries().getFirst().sha256(), ProjectProvenance.hash(original.body()));
+    var restarted = new ProjectStore(temporary.resolve("projects")).load(id).data();
+    assertEquals("MIDI", restarted.original().format());
+    assertEquals("UNKNOWN", restarted.provenance().rights().redistribution());
+    assertEquals(
+        400,
+        post(
+                "/api/import/url",
+                "{\"url\":\"" + MutopiaCatalogue.ARCHIVE + "\",\"contact\":\"user@example.org\"}")
+            .statusCode());
+    assertEquals(1, mutopiaRequests.get());
+  }
 
   @Test
   void practiceHistoryPagesValidateQueriesAndRequireAuthentication() throws Exception {
@@ -495,7 +579,14 @@ class DesktopServerTest {
         new DesktopServer(
             new TunerService(input, new YinPitchDetector()),
             new PracticeHistory(temporary.resolve("history.json")),
-            new ImportWorkspace(),
+            new ImportWorkspace(
+                new WikimediaCommonsAdapter(),
+                new MutopiaAdapter(
+                    uri -> {
+                      mutopiaRequests.incrementAndGet();
+                      return new MutopiaAdapter.Response(200, MutopiaAdapterTest.archive(), "");
+                    },
+                    () -> Instant.parse("2026-10-20T12:00:00Z"))),
             new OmrWorkspace(new AudiverisOmrEngine()),
             new ProjectStore(temporary.resolve("projects")),
             new PreferencesStore(temporary.resolve("preferences.json")),

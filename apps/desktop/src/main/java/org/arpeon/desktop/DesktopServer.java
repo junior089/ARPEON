@@ -216,12 +216,13 @@ public final class DesktopServer implements AutoCloseable {
       TunerService tuner,
       java.nio.file.Path profile,
       java.nio.file.Path deviceData,
-      ScoreSourceProvider commons)
+      ScoreSourceProvider commons,
+      ScoreSourceProvider mutopia)
       throws IOException {
     return new DesktopServer(
         tuner,
         new PracticeHistory(profile.resolve("practice-history.json")),
-        new ImportWorkspace(commons),
+        new ImportWorkspace(commons, mutopia),
         new OmrWorkspace(new AudiverisOmrEngine()),
         new ProjectStore(profile.resolve("projects")),
         new PreferencesStore(profile.resolve("preferences.json")),
@@ -870,6 +871,21 @@ public final class DesktopServer implements AutoCloseable {
         } catch (IOException failure) {
           sendJson(exchange, 422, Map.of("error", failure.getMessage()));
         }
+      } else if (path.equals("/api/import/catalogue/mutopia") && method.equals("GET")) {
+        sendJson(exchange, 200, MutopiaCatalogue.entries());
+      } else if (path.equals("/api/import/catalogue/preview") && method.equals("POST")) {
+        var request = smallJson(exchange);
+        if (request == null || !request.keySet().equals(Set.of("providerId", "selection")))
+          throw new IllegalArgumentException("Selecione um item do catálogo revisado.");
+        try {
+          sendJson(
+              exchange,
+              200,
+              imports.previewCatalogue(
+                  practiceString(request, "providerId"), practiceString(request, "selection")));
+        } catch (IOException failure) {
+          sendJson(exchange, 502, Map.of("error", failure.getMessage()));
+        }
       } else if (path.equals("/api/import/url") && method.equals("POST")) {
         JsonObject request = smallJson(exchange);
         if (request == null || !request.keySet().equals(Set.of("url", "contact")))
@@ -939,6 +955,7 @@ public final class DesktopServer implements AutoCloseable {
               workspace.openDraft(
                   preview.draft(),
                   preview.source(),
+                  imports.original(preview.token()),
                   practiceInt(request, "fallbackOctave"),
                   practiceInt(request, "equalNoteTicks"));
           imports.clear();

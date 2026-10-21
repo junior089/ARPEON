@@ -16,6 +16,7 @@ final class ProfileSessions implements AutoCloseable {
   private final Path deviceData;
   private final Supplier<TunerService> tuners;
   private final ScoreSourceProvider commons = new WikimediaCommonsAdapter();
+  private final ScoreSourceProvider mutopia = new MutopiaAdapter();
   private final ScheduledExecutorService cleanup = Executors.newSingleThreadScheduledExecutor();
   private final Set<DesktopServer> retiring = new HashSet<>();
   private DesktopServer active;
@@ -34,7 +35,7 @@ final class ProfileSessions implements AutoCloseable {
   private DesktopServer create(String id, boolean selectionRequired) throws IOException {
     Path directory = account.profileDirectory(id);
     LocalAccountStore.requireDirectory(directory);
-    var server = DesktopServer.forProfile(tuners.get(), directory, deviceData, commons);
+    var server = DesktopServer.forProfile(tuners.get(), directory, deviceData, commons, mutopia);
     server.profileSession(this, id, selectionRequired);
     server.onShutdown(() -> shutdown.run());
     if (updater != null) server.attachUpdater(updater);

@@ -15,7 +15,7 @@ final class OriginalScore {
   OriginalScore(String filename, byte[] bytes) throws IOException {
     if (filename == null
         || filename.length() > 200
-        || !filename.matches("[^/\\\\:]+\\.(?i:musicxml|xml|mxl|mscz)")
+        || !filename.matches("[^/\\\\:]+\\.(?i:musicxml|xml|mxl|mscz|mid|midi)")
         || filename
             .codePoints()
             .anyMatch(
@@ -28,7 +28,9 @@ final class OriginalScore {
     this.bytes = bytes.clone();
     sha256 = ProjectProvenance.hash(this.bytes);
     String extension = filename.substring(filename.lastIndexOf('.') + 1).toUpperCase(Locale.ROOT);
-    format = extension.equals("XML") ? "MUSICXML" : extension;
+    format = extension.equals("XML") ? "MUSICXML" : extension.equals("MID") ? "MIDI" : extension;
+    if (format.equals("MIDI") && bytes.length > org.arpeon.importer.LocalImporters.MAX_MIDI_BYTES)
+      throw new IOException("Original MIDI acima de 32 MiB.");
   }
 
   String filename() {

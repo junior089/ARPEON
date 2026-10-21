@@ -45,3 +45,26 @@ cooldown/backoff survives local profile switches without retaining the contact.
 identity. Local edition declarations require a citation and keep correction/
 withdrawal history; references are never fetched. They do not validate rights or
 promote source metadata into editorial verification.
+
+## Mutopia selection — 2026-10-20
+
+One reviewed item is enabled through `catalogueImport`, with free URL import
+disabled: Allemande, BWV 1013, Mutopia edition 1528 by Jacob Shapiro. The official
+[edition page](https://www.mutopiaproject.org/cgibin/piece-info.cgi?id=1528) and
+the [pinned LilyPond source](https://github.com/MutopiaProject/MutopiaProject/blob/2144afd6f52d56c5b6995b8b589ef1268b3139f0/ftp/BachJS/BWV1013/bwv1013/bwv1013.ly)
+declare Public Domain. The [licensing policy](https://www.mutopiaproject.org/legal.html)
+permits downloads under each edition's terms; this is not approval for generic HTML extraction.
+
+The production adapter fetches only the listed HTTPS ZIP, verifies package/member
+hashes, and offers only the member validated by the existing MIDI parser. No
+specific provider download quota was established; the app conservatively allows
+five seconds between network attempts and caches one verified public package in
+memory for ten minutes. It honors 429/503 Retry-After, has bounded reads and
+never follows redirects or retries automatically. No account/contact is required.
+The selection list is local, not an invented remote search API.
+
+The exact MIDI member is retained after review and acceptance; other ZIP members
+are not enabled. Metadata/credit/license declaration accompany the project,
+without promoting rights from NOT_REVIEWED/UNKNOWN. See
+[ADR 0013](../adr/0013-reviewed-mutopia-midi-selection.md) and
+[fixture evidence](../../fixtures/mutopia/README.md).

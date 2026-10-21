@@ -12,6 +12,7 @@ export interface SourceProvider {
     formats: string[];
     selectParts: boolean;
     connectAccount: boolean;
+    catalogueImport?: boolean;
   };
 }
 export function isSourceProviders(value: unknown): value is SourceProvider[] {
@@ -41,8 +42,9 @@ export function isSourceProviders(value: unknown): value is SourceProvider[] {
         Array.isArray(c['formats']) &&
         c['formats'].length <= 16 &&
         c['formats'].every((f) => text(f, 32)) &&
+        (c['catalogueImport'] === undefined || typeof c['catalogueImport'] === 'boolean') &&
         new Set(c['formats']).size === c['formats'].length &&
-        (!c['importByUrl'] || c['formats'].length > 0)
+        (!(c['importByUrl'] || c['catalogueImport']) || c['formats'].length > 0)
       );
     })
   );
@@ -55,6 +57,15 @@ export class SourceCapabilities {
   readonly error = signal('');
   readonly loading = signal(false);
   readonly commons = computed(() => this.providers()?.find((p) => p.id === 'wikimedia-commons'));
+  readonly canImportMutopia = computed(
+    () =>
+      this.providers()?.some(
+        (p) =>
+          p.id === 'mutopia' &&
+          p.capabilities.catalogueImport === true &&
+          p.capabilities.formats.includes('MIDI'),
+      ) === true,
+  );
   readonly canImportCommons = computed(
     () =>
       this.commons()?.capabilities.importByUrl === true &&

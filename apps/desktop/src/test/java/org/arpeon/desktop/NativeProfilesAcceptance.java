@@ -18,7 +18,7 @@ public final class NativeProfilesAcceptance {
   private NativeProfilesAcceptance() {}
 
   public static void main(String[] args) throws Exception {
-    if (args.length != 4)
+    if (args.length != 4 && !(args.length == 5 && args[4].equals("mutopia-live")))
       throw new IllegalArgumentException(
           "Expected package, isolated data, output and MusicXML fixture");
     System.setProperty("arpeon.installDir", Path.of(args[0]).toAbsolutePath().toString());
@@ -132,6 +132,7 @@ public final class NativeProfilesAcceptance {
         if (!sessions.account().snapshot().activeProfileId().equals(first))
           throw new AssertionError("Wrong active profile after return");
         window.capture(output.resolve("profiles-library-native.png"));
+        if (args.length == 5) acceptMutopia(window, http, sessions, output);
         Files.writeString(
             output.resolve("result.json"),
             "{\"success\":true,\"checks\":[\"native session rotation\",\"MusicXML import and"
@@ -156,6 +157,62 @@ public final class NativeProfilesAcceptance {
       Thread.sleep(100);
     } while (System.nanoTime() < deadline);
     throw new AssertionError("Native page did not contain: " + needle);
+  }
+
+  private static void acceptMutopia(
+      DesktopWindow window, HttpClient http, ProfileSessions sessions, Path output)
+      throws Exception {
+    window.execute("document.querySelector('.import-button').click();");
+    await(window, "Abrir e importar", 10);
+    window.execute(
+        "Array.from(document.querySelectorAll('.source-tabs"
+            + " button')).find(b=>b.textContent.trim()==='Mutopia').click();");
+    await(window, "Analisar Allemande BWV 1013", 20);
+    window.capture(output.resolve("mutopia-catalogue-native.png"));
+    window.execute("document.querySelector('app-mutopia-catalogue button.primary').click();");
+    await(window, "Prévia da importação", 40);
+    if (JsonParser.parseString(get(http, sessions.launchUri(), "/api/projects"))
+            .getAsJsonArray()
+            .size()
+        != 1) throw new AssertionError("Preview replaced the active project");
+    window.execute(
+        "document.querySelector('.import-preview input[type=checkbox]').click();const"
+            + " started=performance.now();function acceptReady(){const"
+            + " button=document.querySelector('.import-preview"
+            + " button.primary');if(button&&!button.disabled){button.click();}else"
+            + " if(performance.now()-started<5000){requestAnimationFrame(acceptReady);}}requestAnimationFrame(acceptReady);");
+    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
+    String project = null;
+    do {
+      for (var entry :
+          JsonParser.parseString(get(http, sessions.launchUri(), "/api/projects"))
+              .getAsJsonArray()) {
+        var item = entry.getAsJsonObject();
+        if (item.get("filename").getAsString().equals("bwv1013.mid"))
+          project = item.get("id").getAsString();
+      }
+      if (project == null) Thread.sleep(100);
+    } while (project == null && System.nanoTime() < deadline);
+    if (project == null) throw new AssertionError("Native Mutopia project was not saved");
+    var original =
+        http.send(
+            request(sessions.launchUri(), "/api/projects/" + project + "/original").GET().build(),
+            HttpResponse.BodyHandlers.ofByteArray());
+    if (original.statusCode() != 200
+        || !ProjectProvenance.hash(original.body())
+            .equals(MutopiaCatalogue.entries().getFirst().sha256()))
+      throw new AssertionError("Native Mutopia original failed verification");
+    window.execute("document.querySelector('button[title=\"Biblioteca\"]').click();");
+    await(window, "bwv1013.mid", 20);
+    window.execute(
+        "Array.from(document.querySelectorAll('[aria-label]')).find(b=>(b.getAttribute('aria-label')||'').startsWith('Gerenciar"
+            + " projeto Allemande')).click();");
+    await(window, "6011 bytes", 20);
+    window.capture(output.resolve("mutopia-original-native.png"));
+    Files.writeString(
+        output.resolve("mutopia-live-result.json"),
+        "{\"success\":true,\"checks\":[\"live approved Mutopia download\",\"native review and"
+            + " accept\",\"autosave\",\"original MIDI hash verified\"]}");
   }
 
   private static HttpRequest.Builder request(URI launch, String path) {

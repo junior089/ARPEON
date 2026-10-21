@@ -20,7 +20,7 @@ import java.util.UUID;
 final class ProjectStore {
   static final int MAX_PROJECTS = 500;
   private static final int MAX_MANIFEST_BYTES = 64 * 1024;
-  private static final int SCHEMA_VERSION = 4;
+  private static final int SCHEMA_VERSION = 5;
   private static final String SCORE_FILE = "score.musicxml";
   private static final String MANIFEST_FILE = "manifest.json";
   private static final String ORIGINAL_FILE = "source.bin";
@@ -545,9 +545,12 @@ final class ProjectStore {
             > org.arpeon.musicxml.MusicXmlImporter.MAX_BYTES)
       throw new IOException("Project data is invalid or exceeds supported limits");
     if (data.source() != null
-        && (!"wikimedia-commons".equals(data.source().providerId())
-            || !safeCommonsUrl(data.source().pageUrl())
+        && (!("wikimedia-commons".equals(data.source().providerId())
+                    && safeCommonsUrl(data.source().pageUrl())
+                || "mutopia".equals(data.source().providerId())
+                    && MutopiaCatalogue.PAGE.equals(data.source().pageUrl()))
             || (data.source().licenseUrl() != null && !safeHttpsUrl(data.source().licenseUrl()))
+            || !validSourceMetadata(data.source().metadata())
             || data.source().notes() == null
             || data.source().notes().size() > 64
             || data.source().notes().stream()
@@ -570,6 +573,23 @@ final class ProjectStore {
   private static boolean safeCommonsUrl(String value) {
     return safeHttpsUrl(value)
         && "commons.wikimedia.org".equalsIgnoreCase(java.net.URI.create(value).getHost());
+  }
+
+  private static boolean validSourceMetadata(ImportWorkspace.SourceMetadata metadata) {
+    return metadata == null
+        || (metadata.title() != null
+            && !metadata.title().isBlank()
+            && metadata.title().length() <= 500
+            && metadata.composer() != null
+            && metadata.composer().length() <= 500
+            && metadata.instrumentId() != null
+            && metadata.instrumentId().equals("flute")
+            && (metadata.title() + metadata.composer())
+                .codePoints()
+                .noneMatch(
+                    code ->
+                        Character.isISOControl(code)
+                            || Character.getType(code) == Character.FORMAT));
   }
 
   private static boolean safeHttpsUrl(String value) {

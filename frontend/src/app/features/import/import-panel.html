@@ -14,6 +14,14 @@
     }
   </nav>
   <div class="import-sources" [hidden]="!!pending() || !!omrPending()">
+    @if (sourceTab() === 'mutopia') {
+    <app-mutopia-catalogue
+      [busy]="busy() || session.busy()"
+      (selected)="analyzeCatalogue($event)"
+    />
+    @if (busy()) {
+    <p role="status">Obtendo e verificando o MIDI selecionado…</p>
+    <button type="button" (click)="cancelCatalogue()">Cancelar análise Mutopia</button> } }
     <div class="source-card" [hidden]="sourceTab() !=='paste'">
       <label
         >Notação
@@ -344,7 +352,9 @@
       Licença declarada: {{ source.licenseShortName }} · {{ source.licenseStatus === 'UNKNOWN' ?
       'direitos desconhecidos' : 'confira atribuição e termos na página original' }}
     </p>
-    @if (source.licenseUrl) {
+    @if (source.metadata; as metadata) {
+    <p><strong>{{ metadata.title }}</strong> · {{ metadata.composer }}</p>
+    } @if (source.licenseUrl) {
     <p><a [href]="source.licenseUrl" target="_blank" rel="noopener noreferrer">Ver licença</a></p>
     }
     <ul class="warnings">
