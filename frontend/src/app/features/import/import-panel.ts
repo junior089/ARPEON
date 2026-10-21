@@ -14,6 +14,7 @@ import { SourceView } from '../../core/score-contract';
 import { ImportRouting, importRoute, SCORE_FILE_ACCEPT } from '../../core/import-routing';
 import { NotationPreview } from '../../shared/notation-preview';
 import { SourceCapabilities } from '../../core/source-capabilities';
+import { CatalogueEntry, isMutopiaCatalogue, MutopiaCatalogue } from './mutopia-catalogue';
 
 interface DraftNote {
   step: string;
@@ -61,13 +62,13 @@ interface OmrStatus {
 
 @Component({
   selector: 'app-import-panel',
-  imports: [NotationPreview],
+  imports: [NotationPreview, MutopiaCatalogue],
   templateUrl: './import-panel.html',
   styleUrl: './import-panel.scss',
 })
 export class ImportPanel implements OnInit, OnDestroy {
   readonly sources = inject(SourceCapabilities);
-  readonly sourceTab = signal<'paste' | 'file' | 'url' | 'omr'>('file');
+  readonly sourceTab = signal<'paste' | 'file' | 'url' | 'omr' | 'mutopia'>('file');
   readonly fileAccept = SCORE_FILE_ACCEPT;
   private readonly routing = inject(ImportRouting);
   readonly originalZoom = signal(100);
@@ -77,10 +78,13 @@ export class ImportPanel implements OnInit, OnDestroy {
   readonly draftNotationError = signal('');
   readonly drawingDraft = signal(false);
   private draftNotationGeneration = 0;
+  private catalogueController?: AbortController;
+  private catalogueGeneration = 0;
   readonly sourceTabs = [
     { id: 'file', label: 'Arquivo' },
     { id: 'paste', label: 'Colar notas' },
     { id: 'url', label: 'Wikimedia' },
+    { id: 'mutopia', label: 'Mutopia' },
   ] as const;
   @Output() readonly imported = new EventEmitter<void>();
   private readonly fetch = inject(LOCAL_FETCH);
@@ -144,7 +148,7 @@ export class ImportPanel implements OnInit, OnDestroy {
     await this.importFile(file);
   }
 
-  switchSource(tab: 'file' | 'paste' | 'url'): void {
+  switchSource(tab: 'file' | 'paste' | 'url' | 'mutopia'): void {
     if (this.busy() || this.sourceTab() === tab) return;
     if (this.omrPending()) {
       void this.cancelOmr();
@@ -290,6 +294,80 @@ export class ImportPanel implements OnInit, OnDestroy {
     } finally {
       this.busy.set(false);
     }
+  }
+
+  async analyzeCatalogue(selection: CatalogueEntry): Promise<void> {
+    if (this.busy() || this.session.busy() || this.disposed) return;
+    if (!isMutopiaCatalogue([selection])) {
+      this.error.set('Seleção Mutopia inválida. Consulte o catálogo novamente.');
+      return;
+    }
+    await this.sources.load();
+    if (this.busy() || this.disposed) return;
+    if (!this.sources.canImportMutopia()) {
+      this.error.set(
+        this.sources.error() || 'Catálogo Mutopia indisponível. Consulte as fontes novamente.',
+      );
+      return;
+    }
+    this.resetDraftNotation();
+    this.pending.set(null);
+    this.omrPending.set(null);
+    this.clearOmrOriginal();
+    this.acknowledged = false;
+    this.draftPage.set(0);
+    this.busy.set(true);
+    this.error.set('');
+    const generation = ++this.catalogueGeneration;
+    const controller = new AbortController();
+    this.catalogueController = controller;
+    try {
+      if (!this.token) throw new Error('Abra esta janela pelo aplicativo ARPEON.');
+      const response = await this.fetch('/api/import/catalogue/preview', {
+        method: 'POST',
+        headers: { 'X-Arpeon-Session': this.token, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ providerId: 'mutopia', selection: selection.id }),
+        signal: AbortSignal.any([controller.signal, AbortSignal.timeout(30000)]),
+        credentials: 'omit',
+        cache: 'no-store',
+      });
+      const data: unknown = await response.json();
+      if (!response.ok)
+        throw new Error(
+          typeof data === 'object' && data && 'error' in data && typeof data.error === 'string'
+            ? data.error
+            : 'Não foi possível obter a seleção Mutopia.',
+        );
+      if (
+        !isPreview(data) ||
+        data.source?.providerId !== 'mutopia' ||
+        data.draft.sha256 !== selection.sha256 ||
+        data.draft.filename !== selection.filename ||
+        data.source.pageUrl !== selection.pageUrl ||
+        data.source.licenseShortName !== selection.license ||
+        data.source.licenseUrl !== selection.licenseUrl ||
+        data.source.metadata?.title !== selection.title ||
+        data.source.metadata.composer !== selection.composer
+      )
+        throw new Error('Prévia Mutopia inválida.');
+      if (!this.disposed && generation === this.catalogueGeneration) this.pending.set(data);
+    } catch (failure) {
+      if (!this.disposed && generation === this.catalogueGeneration)
+        this.error.set(failure instanceof Error ? failure.message : 'Falha ao analisar Mutopia.');
+    } finally {
+      if (!this.disposed && generation === this.catalogueGeneration) {
+        this.busy.set(false);
+        this.catalogueController = undefined;
+      }
+    }
+  }
+
+  cancelCatalogue(): void {
+    this.catalogueController?.abort();
+    this.catalogueController = undefined;
+    this.catalogueGeneration++;
+    this.busy.set(false);
+    this.error.set('Análise cancelada. A partitura aberta foi preservada.');
   }
 
   async analyzeFile(event: Event): Promise<void> {
@@ -682,6 +760,8 @@ export class ImportPanel implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.catalogueController?.abort();
+    this.catalogueGeneration++;
     this.resetDraftNotation();
     if (this.omrJobId) void this.cancelOmr();
     this.disposed = true;
@@ -790,7 +870,28 @@ function isPreview(value: unknown): value is Preview {
         'licenseUrl' in value.source &&
         typeof value.source.licenseUrl === 'string' &&
         'notes' in value.source &&
-        Array.isArray(value.source.notes)))
+        Array.isArray(value.source.notes) &&
+        value.source.notes.length <= 64 &&
+        value.source.notes.every(
+          (note: unknown) => typeof note === 'string' && note.length <= 1000,
+        ) &&
+        (!('metadata' in value.source) ||
+          value.source.metadata === null ||
+          isSourceMetadata(value.source.metadata))))
+  );
+}
+
+function isSourceMetadata(value: unknown): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const data = value as Record<string, unknown>;
+  return (
+    typeof data['title'] === 'string' &&
+    !!data['title'].trim() &&
+    data['title'].length <= 500 &&
+    typeof data['composer'] === 'string' &&
+    data['composer'].length <= 500 &&
+    data['instrumentId'] === 'flute' &&
+    !/[\p{Cc}\p{Cf}]/u.test(data['title'] + data['composer'])
   );
 }
 

@@ -176,10 +176,10 @@ class EditionEvidenceTest {
     String id = store.save(null, data).id(), asset = data.provenance().sourceAsset().id();
     Path path = root.resolve(id).resolve("manifest.json");
     String original = Files.readString(path);
-    for (int schema : List.of(1, 2, 3)) {
+    for (int schema : List.of(1, 2, 3, 4)) {
       var legacy = JsonParser.parseString(original).getAsJsonObject();
       legacy.addProperty("schemaVersion", schema);
-      legacy.remove("editions");
+      if (schema < 4) legacy.remove("editions");
       Files.writeString(path, legacy.toString());
       assertTrue(new ProjectStore(root).editions(id).history().isEmpty());
     }

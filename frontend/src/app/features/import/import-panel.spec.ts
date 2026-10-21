@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { LOCAL_FETCH, SESSION_TOKEN } from '../../core/local-session';
 import { ScoreSession } from '../score/score-session';
 import { ImportPanel } from './import-panel';
+import { CatalogueEntry } from './mutopia-catalogue';
 
 const omrPreview = () => ({
   token: 'omr',
@@ -45,6 +46,107 @@ describe('ImportPanel', () => {
   afterEach(() => {
     TestBed.resetTestingModule();
     vi.restoreAllMocks();
+  });
+
+  it('confirms the selected catalogue hash and metadata before exposing a reviewable preview', async () => {
+    const selection: CatalogueEntry = {
+      id: 'bach-bwv1013-allemande-1528',
+      title: 'Allemande',
+      composer: 'Johann Sebastian Bach',
+      instrument: 'Flauta solo',
+      pageUrl: 'https://www.mutopiaproject.org/cgibin/piece-info.cgi?id=1528',
+      sourceRevision: 'a'.repeat(40),
+      sourceUrl:
+        'https://github.com/MutopiaProject/MutopiaProject/blob/' + 'a'.repeat(40) + '/ftp/file.ly',
+      license: 'Public Domain',
+      licenseUrl: 'https://creativecommons.org/licenses/publicdomain/',
+      credit: 'Mutopia Project · Jacob Shapiro',
+      filename: 'bwv1013.mid',
+      sha256: 'b'.repeat(64),
+      byteSize: 6011,
+    };
+    const preview = {
+      token: 'mutopia',
+      draft: {
+        kind: 'MIDI',
+        filename: selection.filename,
+        sha256: selection.sha256,
+        rhythm: 'EXACT_TICKS',
+        notes: [
+          {
+            step: 'C',
+            accidental: 'NATURAL',
+            octave: 5,
+            onsetTicks: 0,
+            durationTicks: 480,
+            confidence: 1,
+          },
+        ],
+        warnings: ['Revise a grafia.'],
+      },
+      source: {
+        providerId: 'mutopia',
+        pageUrl: selection.pageUrl,
+        fetchedAt: '2026-10-20T12:00:00Z',
+        licenseStatus: 'DECLARED_REVIEW_REQUIRED',
+        licenseShortName: selection.license,
+        licenseUrl: selection.licenseUrl,
+        notes: [selection.credit],
+        metadata: { title: selection.title, composer: selection.composer, instrumentId: 'flute' },
+      },
+    };
+    const capabilities = [
+      {
+        id: 'mutopia',
+        name: 'Mutopia Project',
+        host: 'www.mutopiaproject.org',
+        availabilityNote: 'Seleção revisada',
+        capabilities: {
+          search: false,
+          importByUrl: false,
+          catalogueImport: true,
+          formats: ['MIDI'],
+          selectParts: false,
+          connectAccount: false,
+        },
+      },
+    ];
+    let returned = preview;
+    const request = vi
+      .fn<typeof fetch>()
+      .mockImplementation(async (path) =>
+        Response.json(path === '/api/import/providers' ? capabilities : returned),
+      );
+    const fixture = await panelWith(request);
+    const component = fixture.componentInstance;
+    await component.analyzeCatalogue(selection);
+    expect(component.pending()?.source?.metadata?.composer).toBe(selection.composer);
+    expect(request).toHaveBeenCalledWith(
+      '/api/import/catalogue/preview',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ providerId: 'mutopia', selection: selection.id }),
+      }),
+    );
+    returned = { ...preview, draft: { ...preview.draft, sha256: 'c'.repeat(64) } };
+    await component.analyzeCatalogue(selection);
+    expect(component.pending()).toBeNull();
+    expect(component.error()).toContain('inválida');
+    let resolve: ((value: Response) => void) | undefined;
+    request.mockImplementationOnce(
+      () =>
+        new Promise<Response>((done) => {
+          resolve = done;
+        }),
+    );
+    const pending = component.analyzeCatalogue(selection);
+    await vi.waitFor(() => expect(component.busy()).toBe(true));
+    component.cancelCatalogue();
+    resolve?.(Response.json(preview));
+    await pending;
+    expect(component.pending()).toBeNull();
+    expect(component.busy()).toBe(false);
+    expect(component.error()).toContain('cancelada');
   });
   it('never requests an external import while provider capabilities are unavailable', async () => {
     const fetcher = vi

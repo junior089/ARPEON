@@ -14,6 +14,10 @@ e originais MusicXML/MXL/MSCZ preservados por projeto.
 contrato executável de fontes e declarações bibliográficas com histórico local.
 Busca, reconciliação bibliográfica e novos provedores dependem das próximas fatias.
 
+[3b.1 — seleção Mutopia](mutopia-source-import.md) entrega um primeiro arquivo
+adicional autorizado com revisão, hashes, prévia e original MIDI preservado.
+É uma seleção inicial conferida, não busca federada ou catálogo integral.
+
 ## Evidências do repositório
 
 - Java 25, Gradle Kotlin DSL, Angular 22 strict/SCSS e JCEF estão em uso.

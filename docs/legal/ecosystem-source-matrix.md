@@ -1,7 +1,7 @@
 # Matriz de fontes do ecossistema
 
 Revisão documental: 18/10/2026. Esta matriz não habilita rede por si só; o registro
-executável atual continua permitindo apenas o adaptador Commons já testado.
+executável habilita somente os caminhos revisados descritos nas atualizações abaixo.
 Métodos: A API pública; B API autenticada; C arquivos abertos; D HTML com permissão
 expressa; E importação assistida; F referência externa. Nenhuma nova extração HTML
 foi autorizada ou implementada nesta entrega.
@@ -11,10 +11,14 @@ interface de importação ([ADR 0012](../adr/0012-source-capabilities-local-edit
 Somente a política Commons foi revalidada nesta fatia; as demais linhas preservam
 a revisão documental acima. Nenhum novo provedor foi habilitado.
 
+Atualização de 20/10/2026: a [seleção Mutopia](provider-registry.md#mutopia-selection--2026-10-20)
+habilita um membro MIDI conferido por revisão/hash, com licença e crédito, prévia
+e original preservado. As demais fontes continuam nos estados abaixo.
+
 | Serviço e fonte oficial | Método e conteúdo | Autenticação e limites | Download e redistribuição | Estado, testes e bloqueios |
 | --- | --- | --- | --- | --- |
 | [OpenScore Lieder](https://github.com/OpenScore/Lieder/blob/main/README.md) | C; índice TSV/YAML e partituras MSCX no repositório; conversão para MXL com MuseScore desktop | Git público sem conta; API GitHub sujeita às cotas abaixo | Corpus declarado CC0; manter procedência/crédito solicitado; preservar licença da revisão importada | Candidato prioritário, não implementado; faltam fixture fixada e conversão MSCX compatível. O repositório não é uma API nativa de MusicXML |
-| [Mutopia](https://github.com/MutopiaProject/MutopiaProject), [licenças](https://www.mutopiaproject.org/legal.html) | C; acervo LilyPond, metadados e arquivos publicados; não foi identificada API oficial de busca nesta revisão | Git público; cotas GitHub se usada REST; sem limite específico de download confirmado | CC BY, CC BY-SA ou dedicação ao domínio público por edição; conferir atribuição e compartilhamento pela mesma licença | Candidato, não implementado; conversor LilyPond não existe no Arpeon. PDF não é representação editável; MIDI entra no importador limitado |
+| [Mutopia](https://github.com/MutopiaProject/MutopiaProject), [licenças](https://www.mutopiaproject.org/legal.html) | C; seleção local revisada com download de um pacote MIDI fixado por hash; não usa API de busca ou extração HTML | Sem conta; cinco segundos entre tentativas, cache público de um pacote por dez minutos; quota oficial específica não confirmada; Retry-After respeitado | Licença por edição; seleção BWV 1013 declara Public Domain, com crédito a Jacob Shapiro; direitos do projeto não são promovidos | Implementado: Allemande BWV 1013, edição 1528; testes com pacote real e original MIDI preservado. Outros movimentos falham no construtor 4/4 e não são habilitados; LilyPond/PDF não ganham conversor |
 | [IMSLP/Petrucci](https://imslp.org/wiki/IMSLP:Copyright_Made_Simple) | E/F inicialmente; partituras e gravações, formatos por arquivo | Integração automatizada e cotas não qualificadas | Direitos variam por autor, edição, gravação e jurisdição; acesso não autoriza republicação | Sem conector; método autorizado de API/download ainda precisa de revisão. Não extrair HTML nem contornar condições de acesso |
 | [MusicBrainz API](https://musicbrainz.org/doc/MusicBrainz_API), [limites](https://musicbrainz.org/doc/MusicBrainz_API/Rate_Limiting) | A para metadados/identificadores/relacionamentos; XML/JSON. Não fornece partituras | Consultas públicas sem autenticação; no máximo 1 request/s e User-Agent identificável; dados de usuário/escrita exigem autenticação | Avaliar licença dos campos usados antes de persistir/redistribuir; nenhum direito musical é inferido de um MBID | Planejado para normalização; sem implementação/fixtures. Não contar como segundo provedor de arquivos |
 | [Flat API](https://flat.io/developers/docs/api/reference), [autenticação](https://flat.io/developers/docs/api/authentication) | B; partituras, coleções e exportações documentadas; formatos conforme ação | OAuth2/escopos; credenciais OAuth dependem de contato com equipe Flat; cotas e compatibilidade gratuita ainda não qualificadas | Permissões de leitura/exportação e direitos do titular são distintos; conta conectada não autoriza redistribuição | Bloqueado por qualificação/credenciais; sem código OAuth nem armazenamento de tokens. PKCE não foi confirmado pela documentação consultada |

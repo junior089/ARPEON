@@ -7,6 +7,10 @@ continuam documentadas em `docs/releases/`.
 
 ### Added
 
+- Seleção inicial Mutopia: Allemande BWV 1013, com licença/crédito, evidência
+  revisada, hashes do pacote/MIDI, prévia musical e aceitação explícita.
+- Original MIDI da seleção Mutopia preservado no projeto, com download privado
+  e integridade; cache público limitado, backoff e cancelamento da espera.
 - Identificação bibliográfica local com citação obrigatória e histórico de
   correções/retiradas, separada da origem inicial e sem inferir direitos.
 - Capacidades executáveis das fontes, consultadas na importação: Commons MIDI
@@ -25,8 +29,8 @@ continuam documentadas em `docs/releases/`.
 
 ### Changed
 
-- Manifesto de projeto schema 4 com original transacional, origem inicial
-  imutável e histórico bibliográfico; schemas 1–3 permanecem legíveis sem
+- Manifesto de projeto schema 5 com original MIDI da seleção revisada, origem inicial
+  imutável e histórico bibliográfico; schemas 1–4 permanecem legíveis sem
   reconstruir originais ou identificações.
 - Estúdio e seletor de perfis carregados sob demanda após resolver a identidade local.
 - Leitura assistida compartilhada entre editor e central, preservando migração
@@ -34,6 +38,8 @@ continuam documentadas em `docs/releases/`.
 
 ### Fixed
 
+- Vite do builder Angular resolvido em 8.3.4 para corrigir os avisos de segurança
+  do launch-editor, sem downgrade do Angular ou supressão do gate de auditoria.
 - Salvamentos antigos em memória preservam o histórico bibliográfico mais
   recente; duplicação e salvar como novo conservam os vínculos de origem.
 - Cooldown e backoff da Wikimedia permanecem ativos ao trocar de perfil.

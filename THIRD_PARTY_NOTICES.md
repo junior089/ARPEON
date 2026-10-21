@@ -72,3 +72,10 @@ guide is a separate reference; no alternate-fingering dataset is inferred from e
 The native inventory, dependency substitutions, JAI restriction and corresponding-source
 release gates are documented in [native distribution review](docs/legal/native-distribution.md).
 The presence of these notices is not a claim that public redistribution is approved.
+
+The Mutopia test archive and LilyPond source in `fixtures/mutopia` reproduce the
+BWV 1013 edition by Jacob Shapiro (Mutopia-2017/10/31-1528), declared Public Domain
+by its typesetter and the Mutopia Project. Attribution, original URLs, revision,
+license declaration and hashes are preserved in [the fixture notice](fixtures/mutopia/README.md).
+The original ZIP is unmodified; only its verified Allemande MIDI member is enabled
+in the initial import selection. No performance recording is included.

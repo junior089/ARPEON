@@ -10,6 +10,12 @@ API adapter is implemented; there is no generic scraper. MuseScore remains user-
 export/manual access; Cifra Melódica remains manual/paste unless the provider authorizes
 specific automated access in the future.
 
+The reviewed Mutopia catalogue adds one selected MIDI movement, with a pinned
+archive/member hash and documented Public Domain declaration. It accepts an
+allowlisted selection ID, not an arbitrary URL. Its exact member bytes are
+retained after acceptance; the downloaded ZIP is only a bounded public memory
+cache. See [ADR 0013](../adr/0013-reviewed-mutopia-midi-selection.md).
+
 Milestone 5 may add a provider adapter only after a documented, current review of its allowed
 access mode, content rights, authentication and rate limits. A generic single-URL importer is
 limited to sources where automation is permitted. Provider eligibility is checked before

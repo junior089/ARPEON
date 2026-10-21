@@ -387,7 +387,29 @@ final class ScoreWorkspace implements AutoCloseable {
   synchronized View openDraft(
       ImportDraft draft, ImportWorkspace.Source origin, int fallbackOctave, int equalNoteTicks)
       throws IOException {
+    return openDraft(draft, origin, null, fallbackOctave, equalNoteTicks);
+  }
+
+  synchronized View openDraft(
+      ImportDraft draft,
+      ImportWorkspace.Source origin,
+      OriginalScore retained,
+      int fallbackOctave,
+      int equalNoteTicks)
+      throws IOException {
     var score = DraftScoreBuilder.build(draft, fallbackOctave, equalNoteTicks);
+    Map<String, String> instruments = Map.of();
+    if (origin != null && origin.metadata() != null) {
+      var metadata = origin.metadata();
+      score =
+          new org.arpeon.domain.score.Score(
+              metadata.title(),
+              score.parts(),
+              score.repeatRegions(),
+              score.endingRegions(),
+              metadata.composer());
+      instruments = Map.of("P1", metadata.instrumentId());
+    }
     var warnings = new ArrayList<>(draft.warnings());
     warnings.add("Partitura criada em 4/4; pausas finais completam o último compasso.");
     if (!draft.rhythm().equals("EXACT_TICKS"))
@@ -397,16 +419,19 @@ final class ScoreWorkspace implements AutoCloseable {
       warnings.add("Oitava " + fallbackOctave + " aplicada apenas às notas sem número.");
     if (origin != null) {
       warnings.add(
-          "Fonte Wikimedia Commons: confira autoria e licença na página original antes de"
+          "Fonte "
+              + origin.providerId()
+              + ": confira autoria e licença na página original antes de"
               + " redistribuir.");
       origin.notes().forEach(step -> warnings.add("Processamento: " + step));
     }
     return openImported(
         new MusicXmlImporter.ImportedScore(
-            score, draft.filename(), draft.sha256(), draft.parserVersion(), null, Map.of()),
+            score, draft.filename(), draft.sha256(), draft.parserVersion(), null, instruments),
         draft.kind(),
         List.copyOf(warnings),
-        origin);
+        origin,
+        retained);
   }
 
   private View openImported(

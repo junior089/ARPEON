@@ -89,7 +89,7 @@ export function isProjectDetails(value: unknown): value is ProjectDetails {
     Number(s['byteSize']) >= 0 &&
     Number(s['byteSize']) <= 128 * 1024 * 1024 &&
     (s['retained']
-      ? Number(s['byteSize']) > 0 && ['MUSICXML', 'MXL', 'MSCZ'].includes(s['format'])
+      ? Number(s['byteSize']) > 0 && ['MUSICXML', 'MXL', 'MSCZ', 'MIDI'].includes(s['format'])
       : s['byteSize'] === 0) &&
     identifiers(s['externalIdentifiers']) &&
     object(r) &&

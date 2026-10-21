@@ -146,7 +146,7 @@ class ProjectProvenanceTest {
                 "<legacy/>"));
     Path manifest = root.resolve(saved.id()).resolve("manifest.json");
     Files.writeString(
-        manifest, Files.readString(manifest).replace("\"schemaVersion\":4", "\"schemaVersion\":2"));
+        manifest, Files.readString(manifest).replace("\"schemaVersion\":5", "\"schemaVersion\":2"));
     assertNull(store.details(saved.id()).provenance());
     assertNull(store.original(saved.id()));
     assertEquals("<legacy/>", store.load(saved.id()).data().xml());

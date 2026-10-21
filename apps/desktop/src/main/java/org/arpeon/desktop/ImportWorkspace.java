@@ -11,6 +11,8 @@ import org.arpeon.importer.LocalImporters;
 final class ImportWorkspace {
   record Preview(String token, ImportDraft draft, Source source) {}
 
+  record SourceMetadata(String title, String composer, String instrumentId) {}
+
   record Source(
       String providerId,
       String pageUrl,
@@ -18,22 +20,42 @@ final class ImportWorkspace {
       String licenseStatus,
       String licenseShortName,
       String licenseUrl,
-      List<String> notes) {}
+      List<String> notes,
+      SourceMetadata metadata) {
+    Source(
+        String providerId,
+        String pageUrl,
+        String fetchedAt,
+        String licenseStatus,
+        String licenseShortName,
+        String licenseUrl,
+        List<String> notes) {
+      this(
+          providerId, pageUrl, fetchedAt, licenseStatus, licenseShortName, licenseUrl, notes, null);
+    }
+  }
 
   private final ScoreSourceProvider commons;
+  private final ScoreSourceProvider mutopia;
   private final LinkedHashSet<String> seen = new LinkedHashSet<>();
   private Preview pending;
+  private OriginalScore pendingOriginal;
 
   ImportWorkspace() {
     this(new WikimediaCommonsAdapter());
   }
 
   ImportWorkspace(ScoreSourceProvider commons) {
+    this(commons, new MutopiaAdapter());
+  }
+
+  ImportWorkspace(ScoreSourceProvider commons, ScoreSourceProvider mutopia) {
     this.commons = commons;
+    this.mutopia = mutopia;
   }
 
   synchronized Preview preview(byte[] bytes, String filename, String kind) throws IOException {
-    pending = null;
+    clear();
     if (filename == null || filename.length() > 200 || !filename.matches("[^/\\\\:]+"))
       throw new IllegalArgumentException("Use a short filename without a path");
     ImportDraft draft =
@@ -48,7 +70,7 @@ final class ImportWorkspace {
   }
 
   synchronized Preview previewWeb(String url, String contact) throws IOException {
-    pending = null;
+    clear();
     if (url == null || url.length() > 512)
       throw new IllegalArgumentException("Source URL is empty or too long");
     String key = WikimediaCommonsAdapter.canonicalKey(url);
@@ -59,7 +81,28 @@ final class ImportWorkspace {
     var result = commons.preview(url, contact);
     seen.add(key);
     pending = new Preview(UUID.randomUUID().toString(), result.draft(), result.source());
+    pendingOriginal = result.original();
     return pending;
+  }
+
+  synchronized Preview previewCatalogue(String providerId, String selection) throws IOException {
+    clear();
+    if (!"mutopia".equals(providerId) || !mutopia.descriptor().capabilities().catalogueImport())
+      throw new IllegalArgumentException("Catálogo indisponível.");
+    MutopiaCatalogue.entry(selection);
+    String key = providerId + ":" + selection;
+    if (seen.size() >= 100)
+      throw new IllegalStateException("Limite de 100 fontes nesta sessão atingido.");
+    var result = mutopia.preview(selection, "");
+    seen.add(key);
+    pending = new Preview(UUID.randomUUID().toString(), result.draft(), result.source());
+    pendingOriginal = result.original();
+    return pending;
+  }
+
+  synchronized OriginalScore original(String token) {
+    accept(token);
+    return pendingOriginal;
   }
 
   synchronized Preview accept(String token) {
@@ -78,5 +121,6 @@ final class ImportWorkspace {
 
   synchronized void clear() {
     pending = null;
+    pendingOriginal = null;
   }
 }

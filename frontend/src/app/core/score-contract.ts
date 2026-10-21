@@ -150,6 +150,7 @@ export interface KeyView {
 }
 
 export interface SourceView {
+  metadata?: { title: string; composer: string; instrumentId: string } | null;
   providerId: string;
   pageUrl: string;
   fetchedAt: string;

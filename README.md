@@ -77,6 +77,8 @@ score originals, schema compatibility and integrity checks.
 The [source and edition report](docs/development/source-capabilities-editions.md)
 covers executable provider capabilities and local bibliographic declarations
 with correction/withdrawal history, separate from initial evidence and rights.
+The [Mutopia import report](docs/development/mutopia-source-import.md) covers the
+initial reviewed MIDI selection, pinned file evidence, preview and retained original.
 
 ## Current local build: 0.1.2
 

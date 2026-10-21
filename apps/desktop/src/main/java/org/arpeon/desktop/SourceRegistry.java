@@ -10,7 +10,17 @@ final class SourceRegistry {
       boolean importByUrl,
       List<String> formats,
       boolean selectParts,
-      boolean connectAccount) {
+      boolean connectAccount,
+      boolean catalogueImport) {
+    Capabilities(
+        boolean search,
+        boolean importByUrl,
+        List<String> formats,
+        boolean selectParts,
+        boolean connectAccount) {
+      this(search, importByUrl, formats, selectParts, connectAccount, false);
+    }
+
     Capabilities {
       formats = List.copyOf(formats);
     }
@@ -47,6 +57,22 @@ final class SourceRegistry {
               new Capabilities(false, true, List.of("MIDI"), false, false),
               "Importa um MIDI de uma página File: escolhida, com revisão. Sem busca ou seleção de"
                   + " partes."),
+          new Provider(
+              "mutopia",
+              "www.mutopiaproject.org",
+              "REVIEWED_CATALOGUE",
+              false,
+              true,
+              "One selected hash-pinned archive; 5 seconds between network attempts; 10-minute"
+                  + " memory cache; provider throttling respected",
+              "Per-edition declaration and typesetter credit; review required before"
+                  + " redistribution",
+              "2026-10-20",
+              "REVIEWED_MIDI_SELECTION",
+              "Mutopia Project",
+              new Capabilities(false, false, List.of("MIDI"), false, false, true),
+              "Seleção inicial revisada: Allemande BWV 1013, flauta solo. MIDI com revisão; sem"
+                  + " busca geral ou URL livre."),
           new Provider(
               "musescore",
               "musescore.com",
@@ -112,6 +138,9 @@ final class SourceRegistry {
         if (!provider.automationAllowed())
           throw new IllegalArgumentException(
               provider.id() + " allows only manual export or paste in ARPEON");
+        if (!provider.capabilities().importByUrl())
+          throw new IllegalArgumentException(
+              "Esta fonte exige uma seleção do catálogo revisado, sem URL livre.");
         return provider;
       }
     throw new IllegalArgumentException("This source has no reviewed automated access policy");
