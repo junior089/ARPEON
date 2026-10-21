@@ -39,6 +39,11 @@
     "typescript-eslint": "8.71.1",
     "vitest": "5.0.3"
   },
+  "overrides": {
+    "@angular/build": {
+      "vite": "8.3.4"
+    }
+  },
   "allowScripts": {
     "@parcel/watcher@2.6.0": true,
     "esbuild@0.28.2": true,
